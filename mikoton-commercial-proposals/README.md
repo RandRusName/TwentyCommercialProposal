@@ -101,8 +101,18 @@ deploy.bat --no-bump
 `deploy.bat` performs private publish and install/upgrade only inside WSL.
 It does not run `git commit`, `git push`, or `git tag`.
 
-Set `TWENTY_API_KEY` in WSL environment or local `.env` before the first deploy
-if remote `mikoton-target` is not configured yet.
+Before the first deploy, configure `mikoton-target` once inside WSL:
+
+```bash
+corepack yarn twenty remote:add \
+  --as mikoton-target \
+  --url http://192.168.100.11:3000 \
+  --api-key "<target-api-key>"
+corepack yarn twenty remote:status
+```
+
+`deploy.bat` uses this configured remote. It does not accept API keys as
+arguments and does not run OAuth fallback automatically.
 
 Requirements for `build.bat`:
 

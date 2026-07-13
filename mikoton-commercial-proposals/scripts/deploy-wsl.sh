@@ -143,11 +143,9 @@ restore_version() {
   fi
 
   if [[ "$PUBLISH_SUCCEEDED" == true ]]; then
-    local kept_version
-    kept_version="$(node -p "require('./package.json').version")"
-    echo "Keeping package.json at version ${kept_version} because publish already succeeded." >&2
-    echo "Commit the version bump, then rerun deploy.bat --no-bump if you only need install." >&2
-    return 0
+    echo "Private publish succeeded, but deploy did not complete." >&2
+    echo "Restoring package.json because install/upgrade did not finish." >&2
+    echo "The published private version may still exist in Twenty's registry." >&2
   fi
 
   if [[ -n "$BACKUP_DIR" && -f "$BACKUP_DIR/package.json" ]]; then
@@ -271,15 +269,7 @@ ensure_remote_ready() {
     return 0
   fi
 
-  load_dotenv
-
-  if [[ -z "${TWENTY_API_KEY:-}" ]]; then
-    fail "Remote '${REMOTE_NAME}' is not configured. Set TWENTY_API_KEY in WSL environment or local .env, then configure the remote manually."
-  fi
-
-  echo "Remote '${REMOTE_NAME}' was not found. Configuring it now..."
-  corepack yarn twenty remote:add --as "$REMOTE_NAME" --url "$TWENTY_URL" --api-key "$TWENTY_API_KEY"
-  echo "Remote configured: ${REMOTE_NAME}"
+  fail "Remote '${REMOTE_NAME}' is not configured. Configure it before deploy without passing secrets to deploy.bat: corepack yarn twenty remote:add --as ${REMOTE_NAME} --url ${TWENTY_URL} --api-key <key>"
 }
 
 find_latest_tarball() {
@@ -473,6 +463,10 @@ else
   fi
 fi
 
+echo
+echo "Checking remote status after publish/install..."
+corepack yarn twenty remote:status || echo "WARNING: remote:status check failed after deployment."
+
 write_release_manifest
 DEPLOY_SUCCEEDED=true
 
@@ -499,6 +493,9 @@ echo
 if [[ "$INSTALL_ATTEMPTED" == true ]]; then
   echo "Install/upgrade result:"
   echo "$([[ "$INSTALL_SUCCEEDED" == true ]] && echo SUCCESS || echo FAILED)"
+  echo
+  echo "Installed version:"
+  echo "requires UI verification in Settings -> Applications"
 else
   echo "Installation status:"
   echo "skipped (--no-install)"

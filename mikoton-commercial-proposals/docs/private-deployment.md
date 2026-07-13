@@ -43,18 +43,33 @@ previous version automatically.
 
 ## Local Environment
 
-Create a local `.env` file or export the variable in WSL:
+Configure the Twenty CLI remote once from inside WSL. Do not put the key in
+`deploy.bat` and do not pass it to `deploy.bat`.
 
 ```bash
-export TWENTY_API_KEY="<target-api-key>"
+corepack yarn twenty remote:add \
+  --as mikoton-target \
+  --url http://192.168.100.11:3000 \
+  --api-key "<target-api-key>"
 ```
 
-The deploy script reads the API key only from the WSL environment or local
-`.env`. It is not passed as a command-line argument and is not stored in
-`.bat` files.
+Then verify:
 
-If remote `mikoton-target` is already configured in the Twenty CLI, the deploy
-script uses that configuration and does not require `TWENTY_API_KEY` again.
+```bash
+corepack yarn twenty remote:status
+```
+
+Expected target:
+
+```text
+Remote:  mikoton-target
+Server:  http://192.168.100.11:3000
+Auth:    api-key (valid)
+```
+
+The deploy script uses the configured remote. If `mikoton-target` is missing or
+auth is invalid, deployment stops with a clear error. It does not start OAuth
+fallback automatically.
 
 ## WSL Networking
 
@@ -114,7 +129,8 @@ corepack yarn twenty app:install -r mikoton-target .
 ```
 
 `app:publish` builds from the app directory inside WSL. There is no documented
-option to publish a prebuilt `.tgz` path directly.
+option in SDK `2.20.0` to publish a prebuilt `.tgz` path directly, so the script
+re-validates the tarball produced by publish.
 
 ## Legacy PowerShell Script
 
