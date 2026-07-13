@@ -108,8 +108,14 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
 
     try {
       response = await this.client.query({
-        findUniqueOpportunity: {
-          __args: { id: opportunityId },
+        opportunity: {
+          __args: {
+            filter: {
+              id: {
+                eq: opportunityId,
+              },
+            },
+          },
           id: true,
           name: true,
           amount: {
@@ -130,7 +136,7 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
       );
     }
 
-    const opportunity = response.findUniqueOpportunity as
+    const opportunity = response.opportunity as
       | OpportunityRecord
       | null
       | undefined;
@@ -161,7 +167,7 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
     idempotencyKey: string,
   ): Promise<CommercialProposalDraft | null> {
     const response = await this.client.query({
-      findManyCommercialProposals: {
+      commercialProposals: {
         __args: {
           first: 1,
           filter: {
@@ -194,7 +200,7 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
       },
     });
 
-    const firstNode = response.findManyCommercialProposals?.edges?.[0]?.node as
+    const firstNode = response.commercialProposals?.edges?.[0]?.node as
       | CommercialProposalRecord
       | undefined;
 

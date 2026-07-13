@@ -130,19 +130,6 @@ or configure the Lambda runtime:
   LOGIC_FUNCTION_TYPE=LAMBDA
 ```
 
-Follow-up fix prepared in the adjacent Twenty deployment repository:
-
-- Repository: `C:\IT_Projects\twenty`
-- Branch: `custom/russian-crm`
-- Commits:
-  - `e64fb081fa` (`Enable logic function runtime in production deploy`)
-  - `f290f9de2d` (`Enforce logic function runtime during deploy`)
-- Change: production Docker Compose now passes
-  `LOGIC_FUNCTION_TYPE=${LOGIC_FUNCTION_TYPE:-LOCAL}` to Twenty `server` and
-  `worker`; Jenkins now upserts `LOGIC_FUNCTION_TYPE=LOCAL`; deployment
-  healthcheck fails if the running server container still has logic-function
-  execution disabled.
-
 ## Target API Smoke
 
 Attempted with API-key based direct app-route probing:
