@@ -469,7 +469,7 @@ describe('commercial proposal front component helpers', () => {
     restoreApplicationVariables(previousApplicationVariables);
   });
 
-  it('throws a safe error when no usable app route origin is available', () => {
+  it('falls back to the target Twenty URL when worker origin is unusable', () => {
     const previousApplicationVariables = process.env.applicationVariables;
 
     delete process.env.applicationVariables;
@@ -478,8 +478,8 @@ describe('commercial proposal front component helpers', () => {
       href: 'blob:null/worker',
     });
 
-    expect(() => buildAppRouteUrl('/commercial-proposals/drafts')).toThrow(
-      'Не удалось определить адрес Twenty для вызова app route',
+    expect(buildAppRouteUrl('/commercial-proposals/drafts')).toBe(
+      'http://192.168.100.11:3000/s/commercial-proposals/drafts',
     );
 
     restoreApplicationVariables(previousApplicationVariables);

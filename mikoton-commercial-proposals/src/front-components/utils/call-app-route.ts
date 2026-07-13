@@ -1,6 +1,7 @@
 import { getApplicationVariable } from 'twenty-sdk/front-component';
 
 const APPLICATION_API_URL_VARIABLE = 'TWENTY_API_URL';
+const TARGET_TWENTY_API_URL = 'http://192.168.100.11:3000';
 
 const resolveHttpOrigin = (value: string | undefined) => {
   if (value === undefined || value.trim() === '') {
@@ -26,7 +27,8 @@ const getFrontComponentApiOrigin = () =>
   resolveHttpOrigin(getApplicationVariable(APPLICATION_API_URL_VARIABLE)) ??
   resolveHttpOrigin(globalThis.location?.origin) ??
   resolveHttpOrigin(globalThis.location?.href) ??
-  resolveHttpOrigin(String(globalThis.location ?? ''));
+  resolveHttpOrigin(String(globalThis.location ?? '')) ??
+  resolveHttpOrigin(TARGET_TWENTY_API_URL);
 
 export const buildAppRouteUrl = (path: string) => {
   const appPath = `/s${path}`;
