@@ -10,42 +10,63 @@ GitHub Actions must not access this server, and the target API key must not be
 stored in GitHub Secrets for this project. CI validates code, integration tests
 against an ephemeral Twenty instance, and tarball build only.
 
+## One-Click Deploy
+
+From `mikoton-commercial-proposals/` on Windows:
+
+```cmd
+deploy.bat
+```
+
+This is the preferred private release flow. It performs:
+
+1. clean Git working tree check;
+2. automatic patch version bump;
+3. WSL build via `scripts/build-wsl.sh`;
+4. tarball validation;
+5. private publish to `mikoton-target`;
+6. install or upgrade on Twenty;
+7. local release manifest under `release-artifacts/`.
+
+Additional modes:
+
+```cmd
+deploy.bat --clean
+deploy.bat --no-install
+deploy.bat --no-bump
+```
+
+`deploy.bat` does not run `git commit`, `git push`, or `git tag`.
+
+If deploy fails after the version bump, `package.json` is restored to the
+previous version automatically.
+
 ## Local Environment
 
-Create a local `.env` file or set the variable in the current PowerShell
-session:
+Create a local `.env` file or export the variable in WSL:
 
-```powershell
-$env:TWENTY_API_KEY = "<target-api-key>"
+```bash
+export TWENTY_API_KEY="<target-api-key>"
 ```
 
-The deployment script reads the API key only from `TWENTY_API_KEY` and does not
-accept it as a command-line argument.
+The deploy script reads the API key only from the WSL environment or local
+`.env`. It is not passed as a command-line argument and is not stored in
+`.bat` files.
 
-## Deployment Command
+If remote `mikoton-target` is already configured in the Twenty CLI, the deploy
+script uses that configuration and does not require `TWENTY_API_KEY` again.
 
-Run from `mikoton-commercial-proposals/`:
+## Build Only
 
-```powershell
-.\scripts\deploy-private.ps1 `
-  -TwentyUrl "http://192.168.100.11:3000" `
-  -RemoteName "mikoton-target"
+Use `build.bat` when you need a validated tarball without contacting Twenty:
+
+```cmd
+build.bat
+build.bat --clean
+build.bat --bump
 ```
 
-The script:
-
-- checks Node, Yarn, Git and tar;
-- checks `/healthz`;
-- checks `/client-config` and requires Twenty `v2.20.0`;
-- requires a clean Git working tree;
-- runs install, lint, typecheck and unit tests;
-- builds a private `.tgz` tarball;
-- computes SHA-256;
-- writes a local release manifest under `release-artifacts/`;
-- configures a local Twenty remote;
-- runs `yarn twenty app:publish --private -r mikoton-target .`;
-- runs `yarn twenty app:install -r mikoton-target .`;
-- never runs uninstall.
+`build.bat` does not require a clean Git tree and does not publish by default.
 
 ## Manual Verification
 
@@ -63,12 +84,27 @@ Verify:
 - the app is installed in the expected Workspace;
 - public Marketplace was not used.
 
-## Commands Used By The Script
+## Confirmed CLI Commands (SDK 2.20.0)
 
-```powershell
-yarn.cmd twenty remote:add --as mikoton-target --url http://192.168.100.11:3000 --api-key $env:TWENTY_API_KEY
-yarn.cmd twenty app:publish --private -r mikoton-target .
-yarn.cmd twenty app:install -r mikoton-target .
+```bash
+corepack yarn twenty remote:status
+corepack yarn twenty app:publish --private -r mikoton-target .
+corepack yarn twenty app:install -r mikoton-target .
 ```
 
-The API key is redacted in script output.
+`app:publish` builds from the app directory inside WSL. There is no documented
+option to publish a prebuilt `.tgz` path directly.
+
+## Legacy PowerShell Script
+
+`scripts/deploy-private.ps1` remains available for manual use, but it builds on
+Windows and can produce Windows path separators in `manifest.json`. Prefer
+`deploy.bat` for production releases.
+
+## What Deploy Does Not Do
+
+- no Git push;
+- no npm publish;
+- no public Marketplace publish;
+- no uninstall;
+- no OAuth fallback when remote auth is invalid.

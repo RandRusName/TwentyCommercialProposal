@@ -34,6 +34,20 @@ Full dependency reset:
 build.bat --clean
 ```
 
+Optional patch bump before a local build only:
+
+```cmd
+build.bat --bump
+```
+
+For build plus private publish and install/upgrade, use:
+
+```cmd
+deploy.bat
+```
+
+See `docs/private-deployment.md`.
+
 `build.bat`:
 
 1. resolves the project directory from the `.bat` location (`%~dp0`);

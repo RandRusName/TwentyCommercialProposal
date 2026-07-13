@@ -4,22 +4,26 @@ setlocal EnableExtensions
 set "EXIT_CODE=0"
 set "PROJECT_DIR=%~dp0"
 
-set "CLEAN_FLAG="
-set "BUMP_FLAG="
+set "DEPLOY_ARGS="
 :parse_args
 if "%~1"=="" goto args_done
 if /i "%~1"=="--clean" (
-  set "CLEAN_FLAG=--clean"
+  set "DEPLOY_ARGS=%DEPLOY_ARGS% --clean"
   shift
   goto parse_args
 )
-if /i "%~1"=="--bump" (
-  set "BUMP_FLAG=1"
+if /i "%~1"=="--no-install" (
+  set "DEPLOY_ARGS=%DEPLOY_ARGS% --no-install"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--no-bump" (
+  set "DEPLOY_ARGS=%DEPLOY_ARGS% --no-bump"
   shift
   goto parse_args
 )
 echo ERROR: Unknown argument: %~1
-echo Usage: build.bat [--clean] [--bump]
+echo Usage: deploy.bat [--clean] [--no-install] [--no-bump]
 set "EXIT_CODE=1"
 goto finish
 :args_done
@@ -46,30 +50,15 @@ echo Project directory (Windows): %PROJECT_DIR%
 echo Project directory (WSL):     %WSL_PROJECT_DIR%
 echo.
 
-if defined BUMP_FLAG (
-  echo Bumping patch version before build...
-  wsl node "%WSL_PROJECT_DIR%/scripts/version-bump.mjs"
-  if errorlevel 1 (
-    set "EXIT_CODE=%ERRORLEVEL%"
-    goto finish
-  )
-  echo.
-)
-
-wsl bash "%WSL_PROJECT_DIR%/scripts/build-wsl.sh" %CLEAN_FLAG%
+wsl bash "%WSL_PROJECT_DIR%/scripts/deploy-wsl.sh" %DEPLOY_ARGS%
 set "EXIT_CODE=%ERRORLEVEL%"
 
 :finish
 echo.
 if %EXIT_CODE% equ 0 (
-  echo BUILD FINISHED SUCCESSFULLY.
+  echo DEPLOY FINISHED SUCCESSFULLY.
 ) else (
-  echo BUILD FAILED with exit code %EXIT_CODE%.
-)
-if defined BUMP_FLAG if %EXIT_CODE% equ 0 (
-  echo.
-  echo Version was updated in package.json.
-  echo Commit this change when ready.
+  echo DEPLOY FAILED with exit code %EXIT_CODE%.
 )
 pause
 exit /b %EXIT_CODE%

@@ -65,6 +65,45 @@ Full dependency reset before build:
 build.bat --clean
 ```
 
+Optional patch bump before a local build only:
+
+```cmd
+build.bat --bump
+```
+
+`build.bat` does not publish to Twenty and does not require a clean Git tree.
+
+## One-Click Private Deploy
+
+For a full private release to the internal Twenty server:
+
+```cmd
+deploy.bat
+```
+
+This will:
+
+1. require a clean Git working tree;
+2. bump the patch version in `package.json`;
+3. run the full WSL build and tarball validation;
+4. private publish to `mikoton-target`;
+5. install or upgrade the app on Twenty;
+6. write a local release manifest under `release-artifacts/`.
+
+Additional deploy modes:
+
+```cmd
+deploy.bat --clean
+deploy.bat --no-install
+deploy.bat --no-bump
+```
+
+`deploy.bat` performs private publish and install/upgrade only inside WSL.
+It does not run `git commit`, `git push`, or `git tag`.
+
+Set `TWENTY_API_KEY` in WSL environment or local `.env` before the first deploy
+if remote `mikoton-target` is not configured yet.
+
 Requirements for `build.bat`:
 
 - Windows 10/11
@@ -100,7 +139,17 @@ checks are run and documented in `docs/dry-run-report.md` and
 The target Twenty server is on a private network. GitHub Actions must not deploy
 to it and must not receive its API key.
 
-Local private deployment flow:
+Preferred one-click private deployment:
+
+```cmd
+cd C:\IT_Projects\TwentyCommercialProposals\mikoton-commercial-proposals
+deploy.bat
+```
+
+`deploy.bat` bumps the patch version, runs the WSL build, private publishes to
+`mikoton-target`, and installs or upgrades the app on `http://192.168.100.11:3000`.
+
+Legacy PowerShell deployment script:
 
 ```powershell
 cd C:\IT_Projects\TwentyCommercialProposals\mikoton-commercial-proposals
@@ -109,6 +158,9 @@ $env:TWENTY_API_KEY = "<target-api-key>"
   -TwentyUrl "http://192.168.100.11:3000" `
   -RemoteName "mikoton-target"
 ```
+
+The legacy script builds on Windows and should be avoided for production
+tarballs. Use `deploy.bat` for WSL-only build, publish, and install.
 
 See `docs/private-deployment.md`, `docs/tarball-build.md`, `docs/upgrade.md`
 and `docs/rollback.md`.

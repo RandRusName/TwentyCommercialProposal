@@ -4,6 +4,9 @@ param(
   [string]$Version
 )
 
+# Legacy Windows-side deployment script.
+# Prefer deploy.bat for WSL-only build, private publish, and install/upgrade.
+
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
