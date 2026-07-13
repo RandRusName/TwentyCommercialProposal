@@ -4,30 +4,51 @@ import * as path from 'path';
 
 import { appDevOnce, appUninstall } from 'twenty-sdk/cli';
 
+type TestInstanceMode = 'ephemeral' | 'target';
+type GuardedOperation = 'uninstall' | 'sync';
+
 const APP_PATH = process.cwd();
 const CONFIG_DIR = path.join(os.homedir(), '.twenty');
+const REMOTE_NAME = 'integration';
 let didConfigureRemote = false;
+let testInstanceMode: TestInstanceMode | null = null;
 
-function getEnv(): { apiUrl: string; apiKey: string } | null {
+function getRequiredMode(): TestInstanceMode {
+  const mode = process.env.TWENTY_TEST_INSTANCE_MODE;
+
+  if (mode !== 'ephemeral' && mode !== 'target') {
+    throw new Error(
+      'TWENTY_TEST_INSTANCE_MODE must be set to "ephemeral" or "target"',
+    );
+  }
+
+  return mode;
+}
+
+function getEnv(): { apiUrl: string; apiKey: string; mode: TestInstanceMode } {
+  const mode = getRequiredMode();
   const apiUrl = process.env.TWENTY_API_URL;
   const apiKey = process.env.TWENTY_API_KEY;
-  const shouldRunRemoteSmoke = process.env.TWENTY_RUN_REMOTE_SMOKE === 'true';
-
-  if (!shouldRunRemoteSmoke) {
-    console.warn(
-      'Skipping remote integration setup: set TWENTY_RUN_REMOTE_SMOKE=true to run it.',
-    );
-    return null;
-  }
 
   if (!apiUrl || !apiKey) {
-    console.warn(
-      'Skipping remote integration setup: TWENTY_API_URL and TWENTY_API_KEY must be set.',
+    throw new Error(
+      'TWENTY_API_URL and TWENTY_API_KEY are required for integration tests',
     );
-    return null;
   }
 
-  return { apiUrl, apiKey };
+  return { apiUrl, apiKey, mode };
+}
+
+function guardOperation(operation: GuardedOperation, mode: TestInstanceMode) {
+  if (operation === 'uninstall' && mode !== 'ephemeral') {
+    throw new Error(
+      'App uninstall is forbidden outside an ephemeral test instance',
+    );
+  }
+
+  if (operation === 'sync' && mode !== 'ephemeral') {
+    throw new Error('App metadata sync is forbidden in target smoke mode');
+  }
 }
 
 async function checkServer(apiUrl: string) {
@@ -51,9 +72,9 @@ function writeConfig(apiUrl: string, apiKey: string) {
   const payload = JSON.stringify(
     {
       remotes: {
-        local: { apiUrl, apiKey, accessToken: apiKey },
+        [REMOTE_NAME]: { apiUrl, apiKey, accessToken: apiKey },
       },
-      defaultRemote: 'local',
+      defaultRemote: REMOTE_NAME,
     },
     null,
     2,
@@ -64,21 +85,22 @@ function writeConfig(apiUrl: string, apiKey: string) {
 }
 
 export async function setup() {
-  const env = getEnv();
-
-  if (env === null) {
-    return;
-  }
-
-  const { apiUrl, apiKey } = env;
+  const { apiUrl, apiKey, mode } = getEnv();
+  testInstanceMode = mode;
 
   await checkServer(apiUrl);
 
   writeConfig(apiUrl, apiKey);
   didConfigureRemote = true;
 
+  if (mode === 'target') {
+    return;
+  }
+
+  guardOperation('uninstall', mode);
   await appUninstall({ appPath: APP_PATH }).catch(() => {});
 
+  guardOperation('sync', mode);
   const result = await appDevOnce({
     appPath: APP_PATH,
     onProgress: (message: string) => console.log(`[dev] ${message}`),
@@ -92,15 +114,18 @@ export async function setup() {
 }
 
 export async function teardown() {
-  if (!didConfigureRemote) {
+  if (!didConfigureRemote || testInstanceMode !== 'ephemeral') {
     return;
   }
 
+  guardOperation('uninstall', testInstanceMode);
   const uninstallResult = await appUninstall({ appPath: APP_PATH });
 
   if (!uninstallResult.success) {
     console.warn(
-      `App uninstall failed: ${uninstallResult.error?.message ?? 'Unknown error'}`,
+      `App uninstall failed: ${
+        uninstallResult.error?.message ?? 'Unknown error'
+      }`,
     );
   }
 }

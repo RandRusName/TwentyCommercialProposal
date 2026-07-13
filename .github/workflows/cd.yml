@@ -15,10 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy-and-install:
+  validate-private-artifact:
     runs-on: ubuntu-latest
-    env:
-      TWENTY_DEPLOY_REMOTE: production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,31 +34,39 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Build app
-        run: yarn twenty dev:build .
+      - name: Lint
+        run: yarn lint
 
-      - name: Configure remote
-        run: >
-          yarn twenty remote:add
-          --as "$TWENTY_DEPLOY_REMOTE"
-          --url "$TWENTY_DEPLOY_URL"
-          --api-key "$TWENTY_DEPLOY_API_KEY"
-        env:
-          TWENTY_DEPLOY_URL: ${{ secrets.TWENTY_DEPLOY_URL }}
-          TWENTY_DEPLOY_API_KEY: ${{ secrets.TWENTY_DEPLOY_API_KEY }}
+      - name: Typecheck
+        run: yarn typecheck
 
-      - name: Plan metadata changes
-        run: yarn twenty plan -r "$TWENTY_DEPLOY_REMOTE" . | tee twenty-plan.log
+      - name: Unit tests
+        run: yarn test:unit
 
-      - name: Stop on destructive plan
+      - name: Build private tarball locally
+        run: yarn twenty dev:build --tarball .
+
+      - name: Validate tarball without publishing
         run: |
-          if grep -Eiq '(destructive|delete|drop|remove)' twenty-plan.log; then
-            echo "Metadata plan may contain destructive changes. Aborting."
+          tarball="$(find .twenty/output -name '*.tgz' -type f | head -n 1)"
+          if [ -z "$tarball" ]; then
+            echo "No .tgz tarball was created"
             exit 1
           fi
+          if [ ! -s "$tarball" ]; then
+            echo "Tarball is empty: $tarball"
+            exit 1
+          fi
+          tar -tzf "$tarball" | grep -q 'manifest.json'
+          tar -tzf "$tarball" | grep -q 'front-components'
+          tar -tzf "$tarball" | grep -q 'logic-functions'
+          if tar -tzf "$tarball" | grep -E '(^|/)\.env($|\.|/)'; then
+            echo "Tarball contains env files"
+            exit 1
+          fi
+          sha256sum "$tarball"
 
-      - name: Apply metadata changes
-        run: yarn twenty apply -r "$TWENTY_DEPLOY_REMOTE" .
-
-      - name: Install app
-        run: yarn twenty app:install -r "$TWENTY_DEPLOY_REMOTE" .
+      - name: Confirm no internal deployment
+        run: |
+          echo "This workflow intentionally does not publish or install the app."
+          echo "Production private tarball is built and deployed locally inside the internal network."

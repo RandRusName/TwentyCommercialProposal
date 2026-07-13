@@ -14,16 +14,23 @@ Executed on 2026-07-13:
 - `yarn.cmd typecheck`: passed.
 - `yarn.cmd lint`: passed, 0 warnings and 0 errors.
 - `yarn.cmd test:unit`: passed, 2 files and 11 tests.
-- `yarn.cmd test`: passed local integration gate; remote setup skipped because
-  `TWENTY_RUN_REMOTE_SMOKE=true` and API credentials were not present.
 - `yarn.cmd twenty dev:build .`: passed.
+- `yarn.cmd twenty dev:build --tarball .`: passed.
+- Tarball created:
+  `.twenty/output/mikoton-commercial-proposals-0.1.0.tgz`.
+- Tarball SHA-256:
+  `32ce56f46e8b7246b5bf0e994e789c312f80b65c8f440da1eb50b34371ad6059`.
+- Tarball contains `manifest.json`, front component bundle and logic function
+  bundles.
+- Tarball does not contain `.env` files.
 
 ## Remote UI Smoke
 
 Not executed on 2026-07-13.
 
-Reason: no API key was available in the environment. The app was not synced,
-installed, or activated on `http://192.168.100.11:3000` during this session.
+Reason: private publish/install was not executed on `http://192.168.100.11:3000`
+from this session. The app was not installed or activated on the target
+Workspace here.
 
 The following checks still need real execution and must not be marked passed
 until observed on the target Workspace:
@@ -51,8 +58,8 @@ None. No draft was created on the target Workspace in this session.
 ```powershell
 $env:TWENTY_API_URL = "http://192.168.100.11:3000"
 $env:TWENTY_API_KEY = "<TWENTY_API_KEY>"
-$env:TWENTY_RUN_REMOTE_SMOKE = "true"
-yarn.cmd test
+$env:TWENTY_TEST_INSTANCE_MODE = "target"
+yarn.cmd test:target-smoke
 ```
 
 Manual UI smoke must follow only after the metadata plan has been reviewed and

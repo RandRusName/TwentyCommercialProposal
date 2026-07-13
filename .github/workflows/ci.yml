@@ -56,11 +56,34 @@ jobs:
         run: yarn test:unit
 
       - name: Integration tests
-        run: yarn test
+        run: yarn test:integration
         env:
-          TWENTY_RUN_REMOTE_SMOKE: 'true'
+          TWENTY_TEST_INSTANCE_MODE: ephemeral
           TWENTY_API_URL: ${{ steps.twenty.outputs.server-url }}
           TWENTY_API_KEY: ${{ steps.twenty.outputs.api-key }}
 
       - name: Build app
         run: yarn twenty dev:build .
+
+      - name: Build private tarball
+        run: yarn twenty dev:build --tarball .
+
+      - name: Validate tarball
+        run: |
+          tarball="$(find .twenty/output -name '*.tgz' -type f | head -n 1)"
+          if [ -z "$tarball" ]; then
+            echo "No .tgz tarball was created"
+            exit 1
+          fi
+          if [ ! -s "$tarball" ]; then
+            echo "Tarball is empty: $tarball"
+            exit 1
+          fi
+          tar -tzf "$tarball" | grep -q 'manifest.json'
+          tar -tzf "$tarball" | grep -q 'front-components'
+          tar -tzf "$tarball" | grep -q 'logic-functions'
+          if tar -tzf "$tarball" | grep -E '(^|/)\.env($|\.|/)'; then
+            echo "Tarball contains env files"
+            exit 1
+          fi
+          sha256sum "$tarball"

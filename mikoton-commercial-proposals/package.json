@@ -4,6 +4,7 @@
   "license": "MIT",
   "engines": {
     "node": "^24.5.0",
+    "twenty": ">=2.20.0 <2.21.0",
     "npm": "please-use-yarn",
     "yarn": ">=4.0.2"
   },
@@ -14,9 +15,11 @@
     "lint": "oxlint -c .oxlintrc.json .",
     "lint:fix": "oxlint --fix -c .oxlintrc.json .",
     "typecheck": "tsgo --noEmit -p tsconfig.spec.json",
-    "test": "vitest run",
+    "test": "yarn test:unit",
     "test:watch": "vitest",
-    "test:unit": "vitest run --config vitest.unit.config.ts"
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:target-smoke": "vitest run --config vitest.target-smoke.config.ts"
   },
   "devDependencies": {
     "@types/node": "^24.7.2",

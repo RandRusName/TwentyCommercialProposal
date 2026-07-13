@@ -45,11 +45,39 @@ yarn.cmd install --immutable
 yarn.cmd lint
 yarn.cmd typecheck
 yarn.cmd test:unit
-yarn.cmd test
+yarn.cmd test:integration
 yarn.cmd twenty dev:build .
+yarn.cmd twenty dev:build --tarball .
+```
+
+`test:integration` requires an ephemeral Twenty instance:
+
+```powershell
+$env:TWENTY_TEST_INSTANCE_MODE = "ephemeral"
+$env:TWENTY_API_URL = "<ephemeral-url>"
+$env:TWENTY_API_KEY = "<ephemeral-api-key>"
+yarn.cmd test:integration
 ```
 
 Remote metadata `plan/apply` and UI smoke require an API key for the target
 Twenty instance. The app must not be considered ready for Phase 3 until those
 checks are run and documented in `docs/dry-run-report.md` and
 `docs/smoke-test-report.md`.
+
+## Private Deployment
+
+The target Twenty server is on a private network. GitHub Actions must not deploy
+to it and must not receive its API key.
+
+Local private deployment flow:
+
+```powershell
+cd C:\IT_Projects\TwentyCommercialProposals\mikoton-commercial-proposals
+$env:TWENTY_API_KEY = "<target-api-key>"
+.\scripts\deploy-private.ps1 `
+  -TwentyUrl "http://192.168.100.11:3000" `
+  -RemoteName "mikoton-target"
+```
+
+See `docs/private-deployment.md`, `docs/tarball-build.md`, `docs/upgrade.md`
+and `docs/rollback.md`.
