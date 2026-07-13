@@ -1,4 +1,8 @@
-import { defineCommandMenuItem, STANDARD_OBJECT } from 'twenty-sdk/define';
+import {
+  defineCommandMenuItem,
+  numberOfSelectedRecords,
+  STANDARD_OBJECT,
+} from 'twenty-sdk/define';
 
 import {
   CREATE_COMMERCIAL_PROPOSAL_COMMAND_MENU_ITEM_UNIVERSAL_IDENTIFIER,
@@ -14,7 +18,7 @@ export default defineCommandMenuItem({
   availabilityType: 'GLOBAL_OBJECT_CONTEXT',
   availabilityObjectUniversalIdentifier:
     STANDARD_OBJECT.opportunity.universalIdentifier,
-  conditionalAvailabilityExpression: 'numberOfSelectedRecords == 1',
+  conditionalAvailabilityExpression: numberOfSelectedRecords === 1,
   frontComponentUniversalIdentifier:
     CREATE_COMMERCIAL_PROPOSAL_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER,
 });
