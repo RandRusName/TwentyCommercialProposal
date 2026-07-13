@@ -41,11 +41,13 @@ type Styles = ReturnType<typeof getStyles>;
 
 type SafeAppRouteDiagnostic = {
   code: string;
+  routeUrl: string;
   refreshApiAvailable: boolean;
   tokenReceived: boolean;
   tokenLength: number;
   responseStatus?: number;
   responseStatusText?: string;
+  responseBodyPresent?: boolean;
 };
 
 const getSafeAppRouteDiagnostic = (
@@ -57,11 +59,13 @@ const getSafeAppRouteDiagnostic = (
 
   return {
     code: caughtError.code,
+    routeUrl: caughtError.diagnostic.routeUrl,
     refreshApiAvailable: caughtError.diagnostic.refreshApiAvailable,
     tokenReceived: caughtError.diagnostic.tokenReceived,
     tokenLength: caughtError.diagnostic.tokenLength,
     responseStatus: caughtError.diagnostic.responseStatus,
     responseStatusText: caughtError.diagnostic.responseStatusText,
+    responseBodyPresent: caughtError.diagnostic.responseBodyPresent,
   };
 };
 
@@ -350,6 +354,7 @@ const CreateCommercialProposal = () => {
         <div
           style={styles.error}
           data-app-route-error-code={routeDiagnostic?.code}
+          data-app-route-url={routeDiagnostic?.routeUrl}
           data-app-route-refresh-api-available={
             routeDiagnostic?.refreshApiAvailable
           }
@@ -358,6 +363,9 @@ const CreateCommercialProposal = () => {
           data-app-route-response-status={routeDiagnostic?.responseStatus}
           data-app-route-response-status-text={
             routeDiagnostic?.responseStatusText
+          }
+          data-app-route-response-body-present={
+            routeDiagnostic?.responseBodyPresent
           }
         >
           {error}
