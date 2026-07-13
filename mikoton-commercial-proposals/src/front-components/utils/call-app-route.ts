@@ -71,16 +71,6 @@ const getFrontComponentApiOrigin = () =>
   resolveHttpOrigin(String(globalThis.location ?? '')) ??
   resolveHttpOrigin(TARGET_TWENTY_API_URL);
 
-const getInitialApplicationAccessToken = () => {
-  const token = process.env.TWENTY_APP_ACCESS_TOKEN;
-
-  if (token === undefined || token.trim() === '') {
-    return null;
-  }
-
-  return token;
-};
-
 const getFrontComponentFunctionsBaseUrl = () =>
   process.env.TWENTY_FUNCTIONS_URL ??
   getApplicationVariable(APPLICATION_FUNCTIONS_URL_VARIABLE);
@@ -149,15 +139,6 @@ const getStructuredErrorMessage = (payload: object | null) => {
 };
 
 const getApplicationAccessToken = async (diagnostic: AppRouteDiagnostic) => {
-  const initialToken = getInitialApplicationAccessToken();
-
-  if (initialToken !== null) {
-    diagnostic.tokenReceived = true;
-    diagnostic.tokenLength = initialToken.length;
-
-    return initialToken;
-  }
-
   const requestToken =
     globalThis.frontComponentHostCommunicationApi?.requestAccessTokenRefresh;
 

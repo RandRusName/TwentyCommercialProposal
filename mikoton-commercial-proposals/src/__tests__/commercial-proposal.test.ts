@@ -531,22 +531,18 @@ describe('commercial proposal front component helpers', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('uses the initial application access token from worker env', async () => {
+  it('does not use a worker env token when the host refresh API is unavailable', async () => {
     process.env.TWENTY_APP_ACCESS_TOKEN = 'initial-application-token';
     process.env.TWENTY_API_URL = 'http://twenty.example.test';
-    const fetchSpy = vi.fn(async () => new Response('{"status":"success"}'));
+    const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
     vi.stubGlobal('frontComponentHostCommunicationApi', {});
 
-    await expect(callAppRoute('/commercial-proposals/drafts', {})).resolves.toEqual({
-      status: 'success',
+    await expect(callAppRoute('/commercial-proposals/drafts', {})).rejects.toMatchObject({
+      code: 'APP_TOKEN_API_UNAVAILABLE',
     });
 
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'http://twenty.example.test/s/commercial-proposals/drafts',
-      expect.any(Object),
-    );
-    expectFetchAuthorization(fetchSpy, 'initial-application-token');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('does not fetch when host token refresh throws', async () => {
