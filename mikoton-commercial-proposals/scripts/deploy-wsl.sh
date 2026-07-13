@@ -199,8 +199,10 @@ async function main() {
 
   const config = await response.json();
   const version =
+    config.appVersion ??
     config.version ??
     config.serverVersion ??
+    config.sentry?.release ??
     config.data?.version ??
     '';
 

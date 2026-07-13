@@ -83,12 +83,25 @@ function Get-PackageJson {
 function Get-ClientConfigVersion([string]$BaseUrl) {
   $config = Invoke-RestMethod -Uri "$BaseUrl/client-config" -Method Get
 
+  if ($config.PSObject.Properties.Name -contains "appVersion" -and $null -ne $config.appVersion) {
+    return [string]$config.appVersion
+  }
+
   if ($config.PSObject.Properties.Name -contains "version" -and $null -ne $config.version) {
     return [string]$config.version
   }
 
   if ($config.PSObject.Properties.Name -contains "serverVersion" -and $null -ne $config.serverVersion) {
     return [string]$config.serverVersion
+  }
+
+  if (
+    $config.PSObject.Properties.Name -contains "sentry" -and
+    $null -ne $config.sentry -and
+    $config.sentry.PSObject.Properties.Name -contains "release" -and
+    $null -ne $config.sentry.release
+  ) {
+    return [string]$config.sentry.release
   }
 
   if (
