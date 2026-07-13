@@ -142,6 +142,14 @@ restore_version() {
     return 0
   fi
 
+  if [[ "$PUBLISH_SUCCEEDED" == true ]]; then
+    local kept_version
+    kept_version="$(node -p "require('./package.json').version")"
+    echo "Keeping package.json at version ${kept_version} because publish already succeeded." >&2
+    echo "Commit the version bump, then rerun deploy.bat --no-bump if you only need install." >&2
+    return 0
+  fi
+
   if [[ -n "$BACKUP_DIR" && -f "$BACKUP_DIR/package.json" ]]; then
     cp "$BACKUP_DIR/package.json" "$PROJECT_DIR/package.json"
     echo "Restored package.json to version ${ORIGINAL_VERSION} after failed deploy." >&2
@@ -278,6 +286,80 @@ find_latest_tarball() {
   find .twenty/output -type f -name '*.tgz' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -n1 | cut -d' ' -f2-
 }
 
+refresh_release_paths() {
+  PACKAGE_NAME="$(node -p "require('./package.json').name")"
+  NEW_VERSION="$(node -p "require('./package.json').version")"
+  RELEASE_TARBALL_NAME="${PACKAGE_NAME}-${NEW_VERSION}.tgz"
+  RELEASE_TARBALL_PATH="$PROJECT_DIR/release-artifacts/$RELEASE_TARBALL_NAME"
+
+  if [[ ! -s "$RELEASE_TARBALL_PATH" ]]; then
+    fail "Expected release tarball was not created: $RELEASE_TARBALL_PATH"
+  fi
+
+  SHA256_HASH="$(sha256sum "$RELEASE_TARBALL_PATH" | awk '{print $1}')"
+}
+
+run_build() {
+  bash "$SCRIPT_DIR/build-wsl.sh" "${BUILD_ARGS[@]}"
+  refresh_release_paths
+}
+
+finalize_publish_tarball() {
+  local post_publish_tarball post_publish_tarball_abs
+
+  post_publish_tarball="$(find_latest_tarball)"
+  if [[ -n "$post_publish_tarball" && -s "$post_publish_tarball" ]]; then
+    echo
+    echo "Re-validating tarball produced by app:publish..."
+    post_publish_tarball_abs="$(cd "$(dirname "$post_publish_tarball")" && pwd)/$(basename "$post_publish_tarball")"
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/validate-tarball.sh"
+    validate_tarball "$post_publish_tarball_abs" "$PROJECT_DIR"
+    cp "$post_publish_tarball_abs" "$RELEASE_TARBALL_PATH"
+    SHA256_HASH="$(sha256sum "$RELEASE_TARBALL_PATH" | awk '{print $1}')"
+  fi
+}
+
+publish_private_app() {
+  local publish_output publish_exit deployed_version
+
+  echo
+  echo "Private publishing to ${REMOTE_NAME}..."
+  set +e
+  publish_output="$(corepack yarn twenty app:publish --private -r "$REMOTE_NAME" . 2>&1)"
+  publish_exit=$?
+  set -e
+  echo "$publish_output"
+
+  if [[ $publish_exit -eq 0 ]]; then
+    PUBLISH_SUCCEEDED=true
+    finalize_publish_tarball
+    return 0
+  fi
+
+  if [[ "$publish_output" =~ currently\ deployed\ version\ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+    deployed_version="${BASH_REMATCH[1]}"
+    echo
+    echo "Remote already has version ${deployed_version}. Bumping above it and retrying once..."
+    node "$SCRIPT_DIR/version-bump.mjs" --above "$deployed_version"
+    NEW_VERSION="$(node -p "require('./package.json').version")"
+    echo "Rebuilding version ${NEW_VERSION}..."
+    run_build
+    set +e
+    publish_output="$(corepack yarn twenty app:publish --private -r "$REMOTE_NAME" . 2>&1)"
+    publish_exit=$?
+    set -e
+    echo "$publish_output"
+    if [[ $publish_exit -eq 0 ]]; then
+      PUBLISH_SUCCEEDED=true
+      finalize_publish_tarball
+      return 0
+    fi
+  fi
+
+  fail "twenty app:publish failed"
+}
+
 write_release_manifest() {
   local manifest_path="$PROJECT_DIR/release-artifacts/release-${NEW_VERSION}.json"
   local published_at
@@ -372,37 +454,9 @@ if [[ "$CLEAN_DEPS" == true ]]; then
   BUILD_ARGS+=(--clean)
 fi
 
-bash "$SCRIPT_DIR/build-wsl.sh" "${BUILD_ARGS[@]}"
+run_build
 
-PACKAGE_NAME="$(node -p "require('./package.json').name")"
-RELEASE_TARBALL_NAME="${PACKAGE_NAME}-${NEW_VERSION}.tgz"
-RELEASE_TARBALL_PATH="$PROJECT_DIR/release-artifacts/$RELEASE_TARBALL_NAME"
-
-if [[ ! -s "$RELEASE_TARBALL_PATH" ]]; then
-  fail "Expected release tarball was not created: $RELEASE_TARBALL_PATH"
-fi
-
-SHA256_HASH="$(sha256sum "$RELEASE_TARBALL_PATH" | awk '{print $1}')"
-
-echo
-echo "Private publishing to ${REMOTE_NAME}..."
-if corepack yarn twenty app:publish --private -r "$REMOTE_NAME" .; then
-  PUBLISH_SUCCEEDED=true
-else
-  fail "twenty app:publish failed"
-fi
-
-POST_PUBLISH_TARBALL="$(find_latest_tarball)"
-if [[ -n "$POST_PUBLISH_TARBALL" && -s "$POST_PUBLISH_TARBALL" ]]; then
-  echo
-  echo "Re-validating tarball produced by app:publish..."
-  POST_PUBLISH_TARBALL_ABS="$(cd "$(dirname "$POST_PUBLISH_TARBALL")" && pwd)/$(basename "$POST_PUBLISH_TARBALL")"
-  # shellcheck source=/dev/null
-  source "$SCRIPT_DIR/validate-tarball.sh"
-  validate_tarball "$POST_PUBLISH_TARBALL_ABS" "$PROJECT_DIR"
-  cp "$POST_PUBLISH_TARBALL_ABS" "$RELEASE_TARBALL_PATH"
-  SHA256_HASH="$(sha256sum "$RELEASE_TARBALL_PATH" | awk '{print $1}')"
-fi
+publish_private_app
 
 if [[ "$NO_INSTALL" == true ]]; then
   echo
