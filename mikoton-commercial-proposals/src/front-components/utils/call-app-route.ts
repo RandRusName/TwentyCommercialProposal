@@ -228,7 +228,6 @@ export const callAppRoute = async <TResponse extends object>(
   const response = await fetch(routeUrl, {
       method: 'POST',
       headers,
-      credentials: 'include',
       body: JSON.stringify(body),
     }).catch(() =>
     throwAppRouteError(

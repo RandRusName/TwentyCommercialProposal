@@ -534,6 +534,12 @@ describe('commercial proposal front component helpers', () => {
           },
         }),
     );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.not.objectContaining({
+        credentials: expect.any(String),
+      }),
+    );
   });
 
   it('does not fetch when host token refresh throws', async () => {
