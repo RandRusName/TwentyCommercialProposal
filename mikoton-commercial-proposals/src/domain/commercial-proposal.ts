@@ -107,11 +107,6 @@ export type CreateDraftRequest = {
   idempotencyKey: string;
 };
 
-export type DeprecatedCreateDraftRequest = {
-  opportunityId?: string;
-  idempotencyKey?: string;
-};
-
 export type CreateDraftInput = {
   source: {
     object: 'opportunity';
@@ -228,17 +223,13 @@ const getRequiredString = (value: unknown, fieldName: string) => {
 };
 
 export const normalizeCreateDraftRequest = (
-  body: Partial<CreateDraftRequest & DeprecatedCreateDraftRequest> | undefined,
+  body: Partial<CreateDraftRequest> | undefined,
 ): CreateDraftInput => {
   if (body === undefined || body === null) {
     throw new ApplicationError('INVALID_INPUT', 'Request body is required');
   }
 
-  const source =
-    body.source ??
-    (body.opportunityId === undefined
-      ? undefined
-      : { object: 'opportunity', recordId: body.opportunityId });
+  const source = body.source;
 
   if (source === undefined || source === null) {
     throw new ApplicationError('INVALID_INPUT', 'source is required');

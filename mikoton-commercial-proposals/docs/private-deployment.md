@@ -169,12 +169,6 @@ corepack yarn twenty app:install -r mikoton-target .
 option in SDK `2.20.0` to publish a prebuilt `.tgz` path directly, so the script
 re-validates the tarball produced by publish.
 
-## Legacy PowerShell Script
-
-`scripts/deploy-private.ps1` remains available for manual use, but it builds on
-Windows and can produce Windows path separators in `manifest.json`. Prefer
-`deploy.bat` for production releases.
-
 ## What Deploy Does Not Do
 
 - no Git push;

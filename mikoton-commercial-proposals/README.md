@@ -260,18 +260,5 @@ deploy.bat
 `deploy.bat` bumps the patch version, runs the WSL build, private publishes to
 `mikoton-target`, and installs or upgrades the app on `http://192.168.100.11:3000`.
 
-Legacy PowerShell deployment script:
-
-```powershell
-cd C:\IT_Projects\TwentyCommercialProposals\mikoton-commercial-proposals
-$env:TWENTY_API_KEY = "<target-api-key>"
-.\scripts\deploy-private.ps1 `
-  -TwentyUrl "http://192.168.100.11:3000" `
-  -RemoteName "mikoton-target"
-```
-
-The legacy script builds on Windows and should be avoided for production
-tarballs. Use `deploy.bat` for WSL-only build, publish, and install.
-
 See `docs/private-deployment.md`, `docs/tarball-build.md`, `docs/upgrade.md`
 and `docs/rollback.md`.

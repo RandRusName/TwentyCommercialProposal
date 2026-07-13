@@ -1,37 +1,18 @@
 import { defineLogicFunction, HTTPMethod } from 'twenty-sdk/define';
-import { Response, type RoutePayload } from 'twenty-sdk/logic-function';
+import { type RoutePayload } from 'twenty-sdk/logic-function';
 
 import { GET_OPPORTUNITY_CONTEXT_LOGIC_FUNCTION_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 import { ApplicationError } from 'src/domain/commercial-proposal';
+import {
+  failure,
+  json,
+  toApplicationError,
+} from 'src/logic-functions/http-response';
 import { TwentyRecordRepository } from 'src/services/twenty-record-repository';
 
 type OpportunityContextRequest = {
   opportunityId?: string;
 };
-
-const HTTP_STATUS_BY_ERROR_CODE = {
-  INVALID_INPUT: 400,
-  UNSUPPORTED_SOURCE: 400,
-  OPPORTUNITY_NOT_FOUND: 404,
-  OPPORTUNITY_FORBIDDEN: 403,
-  DUPLICATE_REQUEST: 409,
-  COMMERCIAL_PROPOSAL_CREATE_FAILED: 500,
-  COMMERCIAL_PROPOSAL_NOT_FOUND: 404,
-  COMMERCIAL_PROPOSAL_FORBIDDEN: 403,
-  COMMERCIAL_PROPOSAL_INVALID_STATUS: 409,
-  DOCUMENT_SERVICE_UNAVAILABLE: 503,
-  DOCUMENT_SERVICE_TIMEOUT: 504,
-  DOCUMENT_GENERATION_FAILED: 500,
-  INTERNAL_ERROR: 500,
-} as const;
-
-const json = (body: unknown, status = 200) =>
-  new Response(body, {
-    status,
-    headers: {
-      'content-type': 'application/json',
-    },
-  });
 
 const handler = async (event: RoutePayload<OpportunityContextRequest>) => {
   try {
@@ -46,14 +27,7 @@ const handler = async (event: RoutePayload<OpportunityContextRequest>) => {
 
     return json({ status: 'success', opportunity });
   } catch (error) {
-    const applicationError =
-      error instanceof ApplicationError
-        ? error
-        : new ApplicationError(
-            'INTERNAL_ERROR',
-            'Внутренняя ошибка приложения',
-            error,
-          );
+    const applicationError = toApplicationError(error);
 
     console.error('get-opportunity-context failed', {
       code: applicationError.code,
@@ -63,16 +37,7 @@ const handler = async (event: RoutePayload<OpportunityContextRequest>) => {
           : undefined,
     });
 
-    return json(
-      {
-        status: 'failed',
-        error: {
-          code: applicationError.code,
-          message: applicationError.message,
-        },
-      },
-      HTTP_STATUS_BY_ERROR_CODE[applicationError.code],
-    );
+    return failure(applicationError);
   }
 };
 
