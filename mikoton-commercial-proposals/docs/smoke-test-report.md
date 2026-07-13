@@ -11,12 +11,12 @@ Date: 2026-07-13.
 
 ## Latest Deployment
 
-- Source commit before version bump: `a3642e3` (`Use Twenty functions base for app routes`)
-- Published version: `0.1.16`
+- Source commit before version bump: `29eff4e` (`Require refreshed app route access tokens`)
+- Published version: `0.1.20`
 - Private publish: succeeded.
 - Install/upgrade: succeeded.
-- Tarball: `release-artifacts/mikoton-commercial-proposals-0.1.16.tgz`
-- SHA-256: `fd19fc166782ccdb5dea9e58713477dca5636ac0da2717f88b335cc17c7236e8`
+- Tarball: `release-artifacts/mikoton-commercial-proposals-0.1.20.tgz`
+- SHA-256: `83f4f0a5a515e8d46626fb1a9ecc307aa6a0a90c799f647c0f95c903fd68e23e`
 - Tarball validation: passed.
 
 ## Local Validation
@@ -65,26 +65,49 @@ Blocked:
 
 ## Auth Route Diagnostics
 
-Observed for `POST /s/commercial-proposals/opportunity-context` from the front component after version `0.1.16`:
+Observed for `POST /s/commercial-proposals/opportunity-context` from the front component after version `0.1.20`:
 
 | Signal | Result |
 | --- | --- |
 | Token acquisition | application access token present |
 | Token value rendered/logged | no |
 | Token length diagnostic | `612` |
-| Refresh API availability diagnostic | `false` because the Worker used `TWENTY_APP_ACCESS_TOKEN` directly |
-| POST Authorization header | expected Bearer token from app Worker environment |
+| Refresh API availability diagnostic | present; React renders true boolean data attributes as an empty string |
+| POST Authorization header | Bearer token sent from `requestAccessTokenRefresh` |
 | POST status | `403` |
 | POST status text | `Forbidden` |
 | Response body shown to user | no raw body; safe localized message only |
 | Function logs | no handler log output observed |
+| Direct API-key route probe | same HTTP `403` with platform error body |
+
+Direct API-key route response body, with the key redacted:
+
+```json
+{
+  "statusCode": 403,
+  "error": "Error",
+  "messages": [
+    "Logic function execution failed for d57a0087-7fe1-4a8a-9ad7-7ee61ab82c9f"
+  ],
+  "code": "FORBIDDEN_EXCEPTION"
+}
+```
+
+Preflight check:
+
+- `OPTIONS /s/commercial-proposals/opportunity-context`: HTTP `204`.
+- `Access-Control-Allow-Headers` includes `authorization,content-type`.
+- CORS/preflight is not the current blocker.
 
 Interpretation:
 
 - The previous unauthenticated fallback has been removed.
 - The front component obtains an application access token and attempts the authenticated request with Bearer auth.
-- Twenty rejects the request before the logic function handler runs.
-- Current blocker stage: `route authentication`.
+- Twenty route authentication is reached with a Bearer token and the platform proceeds far enough to attempt logic function execution.
+- The handler itself is not invoked; Twenty returns a platform `FORBIDDEN_EXCEPTION` saying logic function execution failed.
+- Upstream Twenty `v2.20.0` maps `LOGIC_FUNCTION_DISABLED` from the logic function driver to this route-level `403`.
+- The upstream disabled driver throws: `Logic function execution is disabled. Set LOGIC_FUNCTION_TYPE to LOCAL or LAMBDA to enable.`
+- Current blocker stage: `route execution` / `logic function execution`.
 
 ## Target API Smoke
 
@@ -107,8 +130,9 @@ Observed:
 
 Interpretation:
 
-- API-key GraphQL access does not prove authenticated app-route access.
-- The target blocker is app-route authentication, not business repository execution.
+- API-key GraphQL access is valid and can read metadata.
+- The same route fails with both the front-component application token and an API key.
+- The target blocker is Twenty logic function execution being disabled on the server, not business repository execution.
 
 ## Created Draft
 
@@ -129,7 +153,12 @@ None through the Phase 3 UI/app route during this smoke session.
 
 `NOT READY FOR PHASE 4`
 
-Blocker: `route authentication` - authenticated front component request to
+Blocker: `route execution` - authenticated front component request to
 `POST /s/commercial-proposals/opportunity-context` returns HTTP `403 Forbidden`
-with an application Bearer token present. The logic function handler is not
-invoked, so Opportunity context cannot load and DRAFT creation remains disabled.
+with an application Bearer token present. The response is a Twenty platform
+`FORBIDDEN_EXCEPTION` for logic function execution failure. Upstream
+Twenty `v2.20.0` shows this status is produced when the logic function driver is
+disabled; target Twenty must enable logic function execution with
+`LOGIC_FUNCTION_TYPE=LOCAL` or `LOGIC_FUNCTION_TYPE=LAMBDA`. The logic function
+handler is not invoked, so Opportunity context cannot load and DRAFT creation
+remains disabled.
