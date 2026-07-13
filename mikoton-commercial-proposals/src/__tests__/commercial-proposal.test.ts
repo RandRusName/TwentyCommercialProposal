@@ -411,6 +411,33 @@ describe('commercial proposal front component helpers', () => {
     expect(() => createIdempotencyKey()).toThrow(CREATE_IDEMPOTENCY_KEY_ERROR);
   });
 
+  it('creates a UUID v4 idempotency key with getRandomValues fallback', () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues: (bytes: Uint8Array) => {
+        bytes.set([
+          0x12, 0x3e, 0x45, 0x67, 0xe8, 0x9b, 0x02, 0xd3, 0x24, 0x56, 0x42,
+          0x66, 0x14, 0x17, 0x40, 0x00,
+        ]);
+        return bytes;
+      },
+    });
+
+    const key = createIdempotencyKey();
+
+    expect(key).toBe('123e4567-e89b-42d3-a456-426614174000');
+    expect(() =>
+      normalizeCreateDraftRequest({
+        source: {
+          object: 'opportunity',
+          recordId: 'opportunity-id',
+        },
+        templateCode: SUPPORTED_TEMPLATE_CODE,
+        language: SUPPORTED_LANGUAGE,
+        idempotencyKey: key,
+      }),
+    ).not.toThrow();
+  });
+
   it('reuses one stable idempotency key for one operation and retry', () => {
     const stableKey = '123e4567-e89b-12d3-a456-426614174000';
     const firstRequest = buildCreateDraftRequest({
