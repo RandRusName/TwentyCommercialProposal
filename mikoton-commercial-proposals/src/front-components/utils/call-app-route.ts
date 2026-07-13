@@ -30,6 +30,27 @@ const getFrontComponentApiOrigin = () =>
   resolveHttpOrigin(String(globalThis.location ?? '')) ??
   resolveHttpOrigin(TARGET_TWENTY_API_URL);
 
+const buildAppRouteHeaders = async () => {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+  };
+
+  const requestToken =
+    globalThis.frontComponentHostCommunicationApi?.requestAccessTokenRefresh;
+
+  if (requestToken === undefined) {
+    return headers;
+  }
+
+  const token = await requestToken();
+
+  if (token !== '') {
+    headers.authorization = `Bearer ${token}`;
+  }
+
+  return headers;
+};
+
 export const buildAppRouteUrl = (path: string) => {
   const appPath = `/s${path}`;
   const origin = getFrontComponentApiOrigin();
@@ -47,9 +68,8 @@ export const callAppRoute = async <TResponse extends object>(
 ) => {
   const response = await fetch(buildAppRouteUrl(path), {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-    },
+    headers: await buildAppRouteHeaders(),
+    credentials: 'include',
     body: JSON.stringify(body),
   });
 
