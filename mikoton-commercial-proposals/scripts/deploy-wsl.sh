@@ -94,6 +94,49 @@ load_dotenv() {
   done <"$env_file"
 }
 
+windows_health_check() {
+  local win_curl=""
+
+  for candidate in \
+    "/mnt/c/Windows/System32/curl.exe" \
+    "/mnt/c/Windows/Sysnative/curl.exe"; do
+    if [[ -x "$candidate" ]]; then
+      win_curl="$candidate"
+      break
+    fi
+  done
+
+  if [[ -z "$win_curl" ]]; then
+    return 1
+  fi
+
+  "$win_curl" -fsS --connect-timeout 10 "${TWENTY_URL}/healthz" >/dev/null 2>&1
+}
+
+assert_wsl_can_reach_twenty() {
+  echo "Checking WSL network access to ${TWENTY_URL}..."
+
+  if TWENTY_URL="$TWENTY_URL" node "$SCRIPT_DIR/network-preflight.mjs" >/dev/null 2>&1; then
+    echo "WSL network access: OK"
+    return 0
+  fi
+
+  echo "ERROR: WSL cannot reach ${TWENTY_URL}." >&2
+
+  if windows_health_check; then
+    echo "Windows can reach ${TWENTY_URL}, but WSL cannot." >&2
+    echo "This is a WSL2 NAT limitation for internal LAN hosts." >&2
+    echo "Fix it once with:" >&2
+    echo "  powershell -ExecutionPolicy Bypass -File scripts/setup-wsl-mirrored-network.ps1 -Apply" >&2
+    echo "Then run deploy.bat again." >&2
+  else
+    echo "Windows also cannot reach ${TWENTY_URL}." >&2
+    echo "Verify VPN/internal network access and that Twenty is running." >&2
+  fi
+
+  exit 1
+}
+
 restore_version() {
   if [[ "$DEPLOY_SUCCEEDED" == true ]]; then
     return 0
@@ -134,7 +177,7 @@ check_twenty_health() {
   local health_json
 
   echo "Checking Twenty health at ${TWENTY_URL}..."
-  if ! health_json="$(curl -fsS "${TWENTY_URL}/healthz")"; then
+  if ! health_json="$(TWENTY_URL="$TWENTY_URL" node "$SCRIPT_DIR/network-preflight.mjs")"; then
     fail "Twenty health check failed for ${TWENTY_URL}"
   fi
 
@@ -143,11 +186,13 @@ check_twenty_health() {
   fi
 
   local server_version
-  server_version="$(node - "$TWENTY_URL" <<'NODE'
-const serverUrl = process.argv[2];
+  server_version="$(TWENTY_URL="$TWENTY_URL" node - <<'NODE'
+const serverUrl = process.env.TWENTY_URL;
 
 async function main() {
-  const response = await fetch(`${serverUrl}/client-config`);
+  const response = await fetch(`${serverUrl}/client-config`, {
+    signal: AbortSignal.timeout(10000),
+  });
   if (!response.ok) {
     throw new Error(`client-config failed with HTTP ${response.status}`);
   }
@@ -301,6 +346,8 @@ ORIGINAL_VERSION="$(node -p "require('./package.json').version")"
 BACKUP_DIR="$(mktemp -d)"
 cp "$PROJECT_DIR/package.json" "$BACKUP_DIR/package.json"
 
+load_dotenv
+assert_wsl_can_reach_twenty
 check_twenty_health
 ensure_remote_ready
 

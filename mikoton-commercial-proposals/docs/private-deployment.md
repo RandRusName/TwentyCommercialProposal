@@ -56,6 +56,27 @@ The deploy script reads the API key only from the WSL environment or local
 If remote `mikoton-target` is already configured in the Twenty CLI, the deploy
 script uses that configuration and does not require `TWENTY_API_KEY` again.
 
+## WSL Networking
+
+Private deploy reaches `http://192.168.100.11:3000` from inside WSL. On some
+WSL2 NAT setups Windows can reach the internal host, while WSL cannot.
+
+Symptom:
+
+```text
+ERROR: WSL cannot reach http://192.168.100.11:3000
+Windows can reach http://192.168.100.11:3000, but WSL cannot.
+```
+
+Fix once with mirrored networking:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup-wsl-mirrored-network.ps1 -Apply
+```
+
+This writes `%USERPROFILE%\.wslconfig`, restarts WSL, and re-checks access.
+After that, run `deploy.bat` again.
+
 ## Build Only
 
 Use `build.bat` when you need a validated tarball without contacting Twenty:

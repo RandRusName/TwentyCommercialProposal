@@ -118,7 +118,20 @@ run `build.bat` again.
 If dependencies were previously installed from Windows with `yarn.cmd install`,
 run `build.bat --clean` once before the first WSL production build.
 
-See `docs/tarball-build.md` for tarball validation details and output location.
+### WSL networking for private deploy
+
+`deploy.bat` must reach the internal Twenty host from inside WSL. On some WSL2
+NAT setups Windows can open `http://192.168.100.11:3000`, while WSL cannot.
+
+If deploy fails with a WSL network error, enable mirrored networking once:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup-wsl-mirrored-network.ps1 -Apply
+```
+
+Then run `deploy.bat` again.
+
+See `docs/private-deployment.md` for tarball validation details and output location.
 
 `test:integration` requires an ephemeral Twenty instance:
 
