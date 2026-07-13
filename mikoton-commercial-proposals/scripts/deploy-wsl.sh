@@ -370,6 +370,7 @@ const fs = require('node:fs');
 
 const [
   ,
+  ,
   manifestPath,
   appName,
   version,
