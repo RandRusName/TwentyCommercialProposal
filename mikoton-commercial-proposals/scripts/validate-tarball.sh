@@ -16,9 +16,18 @@ validate_tarball() {
   local cleanup_needed=false
 
   cleanup_validate_temp() {
-    rm -f "$tarball_list_file"
-    if [[ "$cleanup_needed" == true && -n "$tmp_dir" && -d "$tmp_dir" ]]; then
-      rm -rf "$tmp_dir"
+    trap - RETURN
+
+    local list_file="${tarball_list_file:-}"
+    local extracted_dir="${tmp_dir:-}"
+    local should_cleanup="${cleanup_needed:-false}"
+
+    if [[ -n "$list_file" ]]; then
+      rm -f "$list_file"
+    fi
+
+    if [[ "$should_cleanup" == true && -n "$extracted_dir" && -d "$extracted_dir" ]]; then
+      rm -rf "$extracted_dir"
     fi
   }
 
