@@ -3,6 +3,44 @@ import { getApplicationVariable } from 'twenty-sdk/front-component';
 const APPLICATION_API_URL_VARIABLE = 'TWENTY_API_URL';
 const TARGET_TWENTY_API_URL = 'http://192.168.100.11:3000';
 
+export type AppRouteErrorCode =
+  | 'APP_TOKEN_API_UNAVAILABLE'
+  | 'APP_TOKEN_REFRESH_FAILED'
+  | 'APP_TOKEN_EMPTY'
+  | 'APP_ROUTE_NETWORK_ERROR'
+  | 'APP_ROUTE_FORBIDDEN'
+  | 'APP_ROUTE_UNAUTHORIZED'
+  | 'APP_ROUTE_INVALID_RESPONSE'
+  | 'APP_ROUTE_APPLICATION_ERROR';
+
+type AppRouteDiagnostic = {
+  routeUrl: string;
+  refreshApiAvailable: boolean;
+  tokenReceived: boolean;
+  tokenLength: number;
+  responseStatus?: number;
+  responseStatusText?: string;
+  responseBodyPresent?: boolean;
+};
+
+type AppRouteFailurePayload = {
+  error?: string | { code?: string; message?: string };
+};
+
+const APP_ROUTE_AUTH_MESSAGE =
+  'Не удалось авторизовать запрос приложения.\nОбновите страницу и повторите попытку.';
+
+export class AppRouteError extends Error {
+  constructor(
+    readonly code: AppRouteErrorCode,
+    message: string,
+    readonly diagnostic: AppRouteDiagnostic,
+  ) {
+    super(message);
+    this.name = 'AppRouteError';
+  }
+}
+
 const resolveHttpOrigin = (value: string | undefined) => {
   if (value === undefined || value.trim() === '') {
     return null;
@@ -30,31 +68,6 @@ const getFrontComponentApiOrigin = () =>
   resolveHttpOrigin(String(globalThis.location ?? '')) ??
   resolveHttpOrigin(TARGET_TWENTY_API_URL);
 
-const buildAppRouteHeaders = async () => {
-  const headers: Record<string, string> = {
-    'content-type': 'application/json',
-  };
-
-  const requestToken =
-    globalThis.frontComponentHostCommunicationApi?.requestAccessTokenRefresh;
-
-  if (requestToken === undefined) {
-    return headers;
-  }
-
-  try {
-    const token = await requestToken();
-
-    if (token !== '') {
-      headers.authorization = `Bearer ${token}`;
-    }
-  } catch {
-    return headers;
-  }
-
-  return headers;
-};
-
 export const buildAppRouteUrl = (path: string) => {
   const appPath = `/s${path}`;
   const origin = getFrontComponentApiOrigin();
@@ -66,34 +79,173 @@ export const buildAppRouteUrl = (path: string) => {
   return new URL(appPath, origin).toString();
 };
 
+const logRouteDiagnostic = (
+  message: string,
+  diagnostic: AppRouteDiagnostic,
+) => {
+  console.info('commercial-proposal app route diagnostic', {
+    message,
+    routeUrl: diagnostic.routeUrl,
+    refreshApiAvailable: diagnostic.refreshApiAvailable,
+    tokenReceived: diagnostic.tokenReceived,
+    tokenLength: diagnostic.tokenLength,
+    responseStatus: diagnostic.responseStatus,
+    responseStatusText: diagnostic.responseStatusText,
+    responseBodyPresent: diagnostic.responseBodyPresent,
+  });
+};
+
+const throwAppRouteError = (
+  code: AppRouteErrorCode,
+  message: string,
+  diagnostic: AppRouteDiagnostic,
+): never => {
+  logRouteDiagnostic(code, diagnostic);
+  throw new AppRouteError(code, message, diagnostic);
+};
+
+const parseResponsePayload = (
+  responseText: string,
+  diagnostic: AppRouteDiagnostic,
+): object | null => {
+  if (responseText.trim() === '') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(responseText) as object;
+  } catch {
+    return throwAppRouteError(
+      'APP_ROUTE_INVALID_RESPONSE',
+      'App route returned a non-JSON response',
+      diagnostic,
+    );
+  }
+};
+
+const getStructuredErrorMessage = (payload: object | null) => {
+  if (payload === null || !('error' in payload)) {
+    return null;
+  }
+
+  const error = (payload as AppRouteFailurePayload).error;
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (typeof error?.message === 'string') {
+    return error.message;
+  }
+
+  return null;
+};
+
+const buildAppRouteHeaders = async (diagnostic: AppRouteDiagnostic) => {
+  const requestToken =
+    globalThis.frontComponentHostCommunicationApi?.requestAccessTokenRefresh;
+
+  if (requestToken === undefined) {
+    return throwAppRouteError(
+      'APP_TOKEN_API_UNAVAILABLE',
+      APP_ROUTE_AUTH_MESSAGE,
+      diagnostic,
+    );
+  }
+
+  diagnostic.refreshApiAvailable = true;
+
+  const token = await requestToken().catch(() =>
+    throwAppRouteError(
+      'APP_TOKEN_REFRESH_FAILED',
+      APP_ROUTE_AUTH_MESSAGE,
+      diagnostic,
+    ),
+  );
+
+  diagnostic.tokenReceived = token !== '';
+  diagnostic.tokenLength = token.length;
+
+  if (token === '') {
+    return throwAppRouteError('APP_TOKEN_EMPTY', APP_ROUTE_AUTH_MESSAGE, diagnostic);
+  }
+
+  return {
+    authorization: `Bearer ${token}`,
+    'content-type': 'application/json',
+  };
+};
+
 export const callAppRoute = async <TResponse extends object>(
   path: string,
   body: Record<string, unknown>,
 ) => {
-  const response = await fetch(buildAppRouteUrl(path), {
-    method: 'POST',
-    headers: await buildAppRouteHeaders(),
-    credentials: 'include',
-    body: JSON.stringify(body),
-  });
+  const routeUrl = buildAppRouteUrl(path);
+  const diagnostic: AppRouteDiagnostic = {
+    routeUrl,
+    refreshApiAvailable: false,
+    tokenReceived: false,
+    tokenLength: 0,
+  };
 
-  const payload = (await response.json()) as
-    | TResponse
-    | {
-        error?: string | { code: string; message: string };
-      };
+  const headers = await buildAppRouteHeaders(diagnostic);
+
+  const response = await fetch(routeUrl, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify(body),
+    }).catch(() =>
+    throwAppRouteError(
+      'APP_ROUTE_NETWORK_ERROR',
+      'Не удалось выполнить запрос приложения. Проверьте сеть и повторите попытку.',
+      diagnostic,
+    ),
+  );
+
+  const responseText = await response.text();
+
+  diagnostic.responseStatus = response.status;
+  diagnostic.responseStatusText = response.statusText;
+  diagnostic.responseBodyPresent = responseText.trim() !== '';
+
+  const payload = parseResponsePayload(responseText, diagnostic);
+
+  if (response.status === 401) {
+    throwAppRouteError('APP_ROUTE_UNAUTHORIZED', APP_ROUTE_AUTH_MESSAGE, diagnostic);
+  }
+
+  if (response.status === 403) {
+    throwAppRouteError('APP_ROUTE_FORBIDDEN', APP_ROUTE_AUTH_MESSAGE, diagnostic);
+  }
 
   if (!response.ok) {
-    if ('error' in payload && payload.error) {
-      throw new Error(
-        typeof payload.error === 'string'
-          ? payload.error
-          : payload.error.message,
+    const structuredMessage = getStructuredErrorMessage(payload);
+
+    if (structuredMessage !== null) {
+      throwAppRouteError(
+        'APP_ROUTE_APPLICATION_ERROR',
+        structuredMessage,
+        diagnostic,
       );
     }
 
-    throw new Error(`App route failed with status ${response.status}`);
+    throwAppRouteError(
+      'APP_ROUTE_INVALID_RESPONSE',
+      `App route failed: ${response.status} ${response.statusText}`,
+      diagnostic,
+    );
   }
+
+  if (payload === null) {
+    throwAppRouteError(
+      'APP_ROUTE_INVALID_RESPONSE',
+      'App route returned an empty response',
+      diagnostic,
+    );
+  }
+
+  logRouteDiagnostic('APP_ROUTE_SUCCESS', diagnostic);
 
   return payload as TResponse;
 };

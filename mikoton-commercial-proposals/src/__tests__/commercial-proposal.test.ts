@@ -16,7 +16,11 @@ import {
   getSafeErrorMessage,
   isCreateDraftDisabled,
 } from 'src/front-components/create-commercial-proposal.helpers';
-import { buildAppRouteUrl } from 'src/front-components/utils/call-app-route';
+import {
+  AppRouteError,
+  buildAppRouteUrl,
+  callAppRoute,
+} from 'src/front-components/utils/call-app-route';
 import {
   normalizeOpportunityAmount,
   normalizeOpportunityCurrency,
@@ -483,5 +487,159 @@ describe('commercial proposal front component helpers', () => {
     );
 
     restoreApplicationVariables(previousApplicationVariables);
+  });
+
+  it('does not fetch when host token refresh API is unavailable', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.stubGlobal('frontComponentHostCommunicationApi', {});
+
+    await expect(callAppRoute('/commercial-proposals/drafts', {})).rejects.toMatchObject({
+      code: 'APP_TOKEN_API_UNAVAILABLE',
+      message:
+        'Не удалось авторизовать запрос приложения.\nОбновите страницу и повторите попытку.',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch when host token refresh throws', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.stubGlobal('frontComponentHostCommunicationApi', {
+      requestAccessTokenRefresh: vi.fn(async () => {
+        throw new Error('refresh failed with secret-token-value');
+      }),
+    });
+
+    await expect(callAppRoute('/commercial-proposals/drafts', {})).rejects.toMatchObject({
+      code: 'APP_TOKEN_REFRESH_FAILED',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch when host token refresh returns an empty token', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.stubGlobal('frontComponentHostCommunicationApi', {
+      requestAccessTokenRefresh: vi.fn(async () => ''),
+    });
+
+    await expect(callAppRoute('/commercial-proposals/drafts', {})).rejects.toMatchObject({
+      code: 'APP_TOKEN_EMPTY',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('adds a valid application access token as a Bearer token', async () => {
+    const fetchSpy = vi.fn(async () => new Response('{"status":"success"}'));
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.stubGlobal('frontComponentHostCommunicationApi', {
+      requestAccessTokenRefresh: vi.fn(async () => 'application-access-token'),
+    });
+
+    await expect(callAppRoute('/commercial-proposals/drafts', {})).resolves.toEqual({
+      status: 'success',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://192.168.100.11:3000/s/commercial-proposals/drafts',
+      expect.objectContaining({
+        headers: {
+          authorization: 'Bearer application-access-token',
+          'content-type': 'application/json',
+        },
+      }),
+    );
+  });
+
+  it('maps HTTP 401 to a safe auth error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401, statusText: 'Unauthorized' })));
+    vi.stubGlobal('frontComponentHostCommunicationApi', {
+      requestAccessTokenRefresh: vi.fn(async () => 'application-access-token'),
+    });
+
+    await expect(callAppRoute('/commercial-proposals/drafts', {})).rejects.toMatchObject({
+      code: 'APP_ROUTE_UNAUTHORIZED',
+      message:
+        'Не удалось авторизовать запрос приложения.\nОбновите страницу и повторите попытку.',
+    });
+  });
+
+  it('maps HTTP 403 with an empty body to a safe auth error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 403, statusText: 'Forbidden' })));
+    vi.stubGlobal('frontComponentHostCommunicationApi', {
+      requestAccessTokenRefresh: vi.fn(async () => 'application-access-token'),
+    });
+
+    await expect(callAppRoute('/commercial-proposals/drafts', {})).rejects.toMatchObject({
+      code: 'APP_ROUTE_FORBIDDEN',
+      message:
+        'Не удалось авторизовать запрос приложения.\nОбновите страницу и повторите попытку.',
+      diagnostic: expect.objectContaining({
+        responseStatus: 403,
+        responseStatusText: 'Forbidden',
+        responseBodyPresent: false,
+      }),
+    });
+  });
+
+  it('maps structured JSON errors without leaking tokens', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            '{"status":"failed","error":{"code":"INVALID_INPUT","message":"Некорректный запрос"}}',
+            { status: 400, statusText: 'Bad Request' },
+          ),
+      ),
+    );
+    vi.stubGlobal('frontComponentHostCommunicationApi', {
+      requestAccessTokenRefresh: vi.fn(async () => 'secret-application-token'),
+    });
+
+    let caught: unknown;
+    try {
+      await callAppRoute('/commercial-proposals/drafts', {});
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AppRouteError);
+    expect(caught).toMatchObject({
+      code: 'APP_ROUTE_APPLICATION_ERROR',
+      message: 'Некорректный запрос',
+    });
+    expect(JSON.stringify(caught)).not.toContain('secret-application-token');
+  });
+
+  it('maps non-JSON error bodies to invalid response errors', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('Forbidden text', { status: 500, statusText: 'Server Error' })),
+    );
+    vi.stubGlobal('frontComponentHostCommunicationApi', {
+      requestAccessTokenRefresh: vi.fn(async () => 'application-access-token'),
+    });
+
+    await expect(callAppRoute('/commercial-proposals/drafts', {})).rejects.toMatchObject({
+      code: 'APP_ROUTE_INVALID_RESPONSE',
+      message: 'App route returned a non-JSON response',
+    });
+  });
+
+  it('returns successful JSON responses', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{"status":"success","value":42}', { status: 200 })),
+    );
+    vi.stubGlobal('frontComponentHostCommunicationApi', {
+      requestAccessTokenRefresh: vi.fn(async () => 'application-access-token'),
+    });
+
+    await expect(callAppRoute('/commercial-proposals/drafts', {})).resolves.toEqual({
+      status: 'success',
+      value: 42,
+    });
   });
 });
