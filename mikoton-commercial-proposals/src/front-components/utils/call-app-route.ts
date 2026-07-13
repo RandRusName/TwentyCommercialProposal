@@ -42,10 +42,14 @@ const buildAppRouteHeaders = async () => {
     return headers;
   }
 
-  const token = await requestToken();
+  try {
+    const token = await requestToken();
 
-  if (token !== '') {
-    headers.authorization = `Bearer ${token}`;
+    if (token !== '') {
+      headers.authorization = `Bearer ${token}`;
+    }
+  } catch {
+    return headers;
   }
 
   return headers;
