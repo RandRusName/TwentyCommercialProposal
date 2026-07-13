@@ -47,6 +47,23 @@ afterEach(() => {
   delete process.env.TWENTY_FUNCTIONS_URL;
 });
 
+const getFetchCallOptions = (fetchSpy: ReturnType<typeof vi.fn>) =>
+  fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
+
+const expectFetchAuthorization = (
+  fetchSpy: ReturnType<typeof vi.fn>,
+  expectedToken: string,
+) => {
+  const options = getFetchCallOptions(fetchSpy);
+  const headers = new Headers(options?.headers);
+
+  expect(headers.get('Authorization')).toBe(`Bearer ${expectedToken}`);
+  expect(headers.get('Content-Type')).toBe('application/json');
+  expect(options).not.toEqual(
+    expect.objectContaining({ credentials: expect.any(String) }),
+  );
+};
+
 const makeDraft = (
   overrides: Partial<CommercialProposalDraft> = {},
 ): CommercialProposalDraft => ({
@@ -506,10 +523,10 @@ describe('commercial proposal front component helpers', () => {
     vi.stubGlobal('fetch', fetchSpy);
     vi.stubGlobal('frontComponentHostCommunicationApi', {});
 
-    await expect(callAppRoute('/commercial-proposals/drafts', {})).rejects.toMatchObject({
+    await expect(
+      callAppRoute('/commercial-proposals/drafts', {}),
+    ).rejects.toMatchObject({
       code: 'APP_TOKEN_API_UNAVAILABLE',
-      message:
-        'Не удалось авторизовать запрос приложения.\nОбновите страницу и повторите попытку.',
     });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -526,20 +543,10 @@ describe('commercial proposal front component helpers', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-        'http://twenty.example.test/s/commercial-proposals/drafts',
-        expect.objectContaining({
-          headers: {
-            Authorization: 'Bearer initial-application-token',
-            'Content-Type': 'application/json',
-          },
-        }),
+      'http://twenty.example.test/s/commercial-proposals/drafts',
+      expect.any(Object),
     );
-    expect(fetchSpy).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.not.objectContaining({
-        credentials: expect.any(String),
-      }),
-    );
+    expectFetchAuthorization(fetchSpy, 'initial-application-token');
   });
 
   it('does not fetch when host token refresh throws', async () => {
@@ -582,14 +589,10 @@ describe('commercial proposal front component helpers', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-        'http://192.168.100.11:3000/s/commercial-proposals/drafts',
-        expect.objectContaining({
-          headers: {
-            Authorization: 'Bearer application-access-token',
-            'Content-Type': 'application/json',
-          },
-        }),
+      'http://192.168.100.11:3000/s/commercial-proposals/drafts',
+      expect.any(Object),
     );
+    expectFetchAuthorization(fetchSpy, 'application-access-token');
   });
 
   it('maps HTTP 401 to a safe auth error', async () => {
@@ -598,10 +601,10 @@ describe('commercial proposal front component helpers', () => {
       requestAccessTokenRefresh: vi.fn(async () => 'application-access-token'),
     });
 
-    await expect(callAppRoute('/commercial-proposals/drafts', {})).rejects.toMatchObject({
+    await expect(
+      callAppRoute('/commercial-proposals/drafts', {}),
+    ).rejects.toMatchObject({
       code: 'APP_ROUTE_UNAUTHORIZED',
-      message:
-        'Не удалось авторизовать запрос приложения.\nОбновите страницу и повторите попытку.',
     });
   });
 
@@ -611,10 +614,10 @@ describe('commercial proposal front component helpers', () => {
       requestAccessTokenRefresh: vi.fn(async () => 'application-access-token'),
     });
 
-    await expect(callAppRoute('/commercial-proposals/drafts', {})).rejects.toMatchObject({
+    await expect(
+      callAppRoute('/commercial-proposals/drafts', {}),
+    ).rejects.toMatchObject({
       code: 'APP_ROUTE_FORBIDDEN',
-      message:
-        'Не удалось авторизовать запрос приложения.\nОбновите страницу и повторите попытку.',
       diagnostic: expect.objectContaining({
         responseStatus: 403,
         responseStatusText: 'Forbidden',

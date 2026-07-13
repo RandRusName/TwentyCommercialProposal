@@ -1,3 +1,4 @@
+import { RestApiClient, RestApiClientError } from 'twenty-client-sdk/rest';
 import { getApplicationVariable } from 'twenty-sdk/front-component';
 
 const APPLICATION_API_URL_VARIABLE = 'TWENTY_API_URL';
@@ -96,7 +97,9 @@ export const buildAppRouteUrl = (path: string) => {
   const origin = getFrontComponentApiOrigin();
 
   if (origin === null) {
-    throw new Error('Не удалось определить адрес Twenty для вызова app route');
+    throw new Error(
+      'Не удалось определить адрес Twenty для вызова app route',
+    );
   }
 
   return new URL(appPath, origin).toString();
@@ -127,25 +130,6 @@ const throwAppRouteError = (
   throw new AppRouteError(code, message, diagnostic);
 };
 
-const parseResponsePayload = (
-  responseText: string,
-  diagnostic: AppRouteDiagnostic,
-): object | null => {
-  if (responseText.trim() === '') {
-    return null;
-  }
-
-  try {
-    return JSON.parse(responseText) as object;
-  } catch {
-    return throwAppRouteError(
-      'APP_ROUTE_INVALID_RESPONSE',
-      'App route returned a non-JSON response',
-      diagnostic,
-    );
-  }
-};
-
 const getStructuredErrorMessage = (payload: object | null) => {
   if (payload === null || !('error' in payload)) {
     return null;
@@ -164,17 +148,14 @@ const getStructuredErrorMessage = (payload: object | null) => {
   return null;
 };
 
-const buildAppRouteHeaders = async (diagnostic: AppRouteDiagnostic) => {
+const getApplicationAccessToken = async (diagnostic: AppRouteDiagnostic) => {
   const initialToken = getInitialApplicationAccessToken();
 
   if (initialToken !== null) {
     diagnostic.tokenReceived = true;
     diagnostic.tokenLength = initialToken.length;
 
-    return {
-      Authorization: `Bearer ${initialToken}`,
-      'Content-Type': 'application/json',
-    };
+    return initialToken;
   }
 
   const requestToken =
@@ -202,14 +183,27 @@ const buildAppRouteHeaders = async (diagnostic: AppRouteDiagnostic) => {
   diagnostic.tokenLength = token.length;
 
   if (token === '') {
-    return throwAppRouteError('APP_TOKEN_EMPTY', APP_ROUTE_AUTH_MESSAGE, diagnostic);
+    return throwAppRouteError(
+      'APP_TOKEN_EMPTY',
+      APP_ROUTE_AUTH_MESSAGE,
+      diagnostic,
+    );
   }
 
+  return token;
+};
+
+const splitRouteUrl = (routeUrl: string) => {
+  const parsedUrl = new URL(routeUrl);
+
   return {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
+    baseUrl: parsedUrl.origin,
+    path: `${parsedUrl.pathname}${parsedUrl.search}`,
   };
 };
+
+const isObjectPayload = (payload: unknown): payload is object =>
+  typeof payload === 'object' && payload !== null && !Array.isArray(payload);
 
 export const callAppRoute = async <TResponse extends object>(
   path: string,
@@ -223,58 +217,81 @@ export const callAppRoute = async <TResponse extends object>(
     tokenLength: 0,
   };
 
-  const headers = await buildAppRouteHeaders(diagnostic);
+  const token = await getApplicationAccessToken(diagnostic);
+  const { baseUrl, path: routePath } = splitRouteUrl(routeUrl);
+  const client = new RestApiClient({ baseUrl, token });
 
-  const response = await fetch(routeUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    }).catch(() =>
-    throwAppRouteError(
-      'APP_ROUTE_NETWORK_ERROR',
-      'Не удалось выполнить запрос приложения. Проверьте сеть и повторите попытку.',
-      diagnostic,
-    ),
-  );
+  let payload: unknown;
 
-  const responseText = await response.text();
+  try {
+    payload = await client.post(routePath, body);
+    diagnostic.responseStatus = 200;
+    diagnostic.responseStatusText = '';
+    diagnostic.responseBodyPresent = payload !== undefined;
+  } catch (error) {
+    if (!(error instanceof RestApiClientError)) {
+      return throwAppRouteError(
+        'APP_ROUTE_NETWORK_ERROR',
+        'Не удалось выполнить запрос приложения. Проверьте сеть и повторите попытку.',
+        diagnostic,
+      );
+    }
 
-  diagnostic.responseStatus = response.status;
-  diagnostic.responseStatusText = response.statusText;
-  diagnostic.responseBodyPresent = responseText.trim() !== '';
+    diagnostic.responseStatus = error.status;
+    diagnostic.responseStatusText = error.statusText;
+    diagnostic.responseBodyPresent = error.body !== undefined;
 
-  const payload = parseResponsePayload(responseText, diagnostic);
+    const errorPayload = isObjectPayload(error.body) ? error.body : null;
 
-  if (response.status === 401) {
-    throwAppRouteError('APP_ROUTE_UNAUTHORIZED', APP_ROUTE_AUTH_MESSAGE, diagnostic);
-  }
+    if (error.status === 401) {
+      return throwAppRouteError(
+        'APP_ROUTE_UNAUTHORIZED',
+        APP_ROUTE_AUTH_MESSAGE,
+        diagnostic,
+      );
+    }
 
-  if (response.status === 403) {
-    throwAppRouteError('APP_ROUTE_FORBIDDEN', APP_ROUTE_AUTH_MESSAGE, diagnostic);
-  }
+    if (error.status === 403) {
+      return throwAppRouteError(
+        'APP_ROUTE_FORBIDDEN',
+        APP_ROUTE_AUTH_MESSAGE,
+        diagnostic,
+      );
+    }
 
-  if (!response.ok) {
-    const structuredMessage = getStructuredErrorMessage(payload);
+    const structuredMessage = getStructuredErrorMessage(errorPayload);
 
     if (structuredMessage !== null) {
-      throwAppRouteError(
+      return throwAppRouteError(
         'APP_ROUTE_APPLICATION_ERROR',
         structuredMessage,
         diagnostic,
       );
     }
 
-    throwAppRouteError(
+    if (typeof error.body === 'string') {
+      return throwAppRouteError(
+        'APP_ROUTE_INVALID_RESPONSE',
+        'App route returned a non-JSON response',
+        diagnostic,
+      );
+    }
+
+    return throwAppRouteError(
       'APP_ROUTE_INVALID_RESPONSE',
-      `App route failed: ${response.status} ${response.statusText}`,
+      `App route failed: ${error.status ?? 'unknown'} ${
+        error.statusText ?? ''
+      }`.trim(),
       diagnostic,
     );
   }
 
-  if (payload === null) {
+  if (!isObjectPayload(payload)) {
     throwAppRouteError(
       'APP_ROUTE_INVALID_RESPONSE',
-      'App route returned an empty response',
+      payload === undefined
+        ? 'App route returned an empty response'
+        : 'App route returned a non-JSON response',
       diagnostic,
     );
   }
