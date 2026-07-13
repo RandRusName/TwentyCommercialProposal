@@ -3,6 +3,7 @@ setlocal EnableExtensions
 
 set "EXIT_CODE=0"
 set "PROJECT_DIR=%~dp0"
+if "%PROJECT_DIR:~-1%"=="\" set "PROJECT_DIR=%PROJECT_DIR:~0,-1%"
 
 set "DEPLOY_ARGS="
 :parse_args
