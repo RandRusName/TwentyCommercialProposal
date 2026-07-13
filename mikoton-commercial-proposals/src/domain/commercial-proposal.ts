@@ -20,6 +20,12 @@ export type ApplicationErrorCode =
   | 'OPPORTUNITY_FORBIDDEN'
   | 'DUPLICATE_REQUEST'
   | 'COMMERCIAL_PROPOSAL_CREATE_FAILED'
+  | 'COMMERCIAL_PROPOSAL_NOT_FOUND'
+  | 'COMMERCIAL_PROPOSAL_FORBIDDEN'
+  | 'COMMERCIAL_PROPOSAL_INVALID_STATUS'
+  | 'DOCUMENT_SERVICE_UNAVAILABLE'
+  | 'DOCUMENT_SERVICE_TIMEOUT'
+  | 'DOCUMENT_GENERATION_FAILED'
   | 'INTERNAL_ERROR';
 
 export class ApplicationError extends Error {
@@ -54,6 +60,23 @@ export type DraftPayloadSnapshot = {
   idempotencyKey: string;
 };
 
+export type CommercialProposalGenerationFile = {
+  format: 'xlsm' | 'pdf';
+  fileName: string;
+  contentType: string;
+  size: number;
+  sha256: string;
+  url: string;
+};
+
+export type CommercialProposalResultMetadata = {
+  generationId: string;
+  generationIdempotencyKey: string;
+  templateCode: 'mikoton-commercial-proposal';
+  templateVersion: '1';
+  files: CommercialProposalGenerationFile[];
+};
+
 export type CommercialProposalDraft = {
   id: string;
   title: string;
@@ -64,7 +87,7 @@ export type CommercialProposalDraft = {
   templateVersion: string | null;
   language: string;
   payloadSnapshot: DraftPayloadSnapshot | null;
-  resultMetadata: Record<string, unknown> | null;
+  resultMetadata: CommercialProposalResultMetadata | Record<string, unknown> | null;
   opportunityId: string;
   companyId: string | null;
   amount: number | null;
@@ -107,7 +130,87 @@ export type CommercialProposalRepository = {
   createDraft: (
     draft: Omit<CommercialProposalDraft, 'id'>,
   ) => Promise<CommercialProposalDraft>;
+  getCommercialProposal: (
+    commercialProposalId: string,
+  ) => Promise<CommercialProposalDraft>;
+  updateCommercialProposal: (
+    commercialProposalId: string,
+    patch: Partial<Omit<CommercialProposalDraft, 'id'>>,
+  ) => Promise<CommercialProposalDraft>;
   isDuplicateConflict?: (error: unknown) => boolean;
+};
+
+export type GenerateCommercialProposalRequest = {
+  commercialProposalId?: string;
+  idempotencyKey?: string;
+};
+
+export type GenerateCommercialProposalInput = {
+  commercialProposalId: string;
+  idempotencyKey: string;
+};
+
+export type DocumentGenerationPayload = {
+  schemaVersion: '1.0';
+  templateCode: 'mikoton-commercial-proposal';
+  templateVersion: '1';
+  proposal: {
+    id: string;
+    number: string;
+    title: string;
+    date: string;
+    language: 'ru-RU';
+    currencyCode: string;
+    validityDays: number;
+  };
+  customer: {
+    companyId: string | null;
+    companyName: string;
+    contactName: string;
+  };
+  contractor: {
+    name: string;
+    email: string;
+  };
+  content: {
+    contextAndGoal: string;
+    workItems: Array<{
+      position: number;
+      block: string;
+      description: string;
+      quantity: number;
+      unit: string;
+      rate: number;
+      discount: number;
+    }>;
+    plan: Array<{
+      position: number;
+      title: string;
+      result: string;
+      duration: string;
+    }>;
+    paymentTerms: string;
+    assumptions: string;
+    nextStep: string;
+  };
+};
+
+export type DocumentGenerationResult = {
+  status: 'success';
+  generationId: string;
+  templateCode: 'mikoton-commercial-proposal';
+  templateVersion: '1';
+  generatedAt: string;
+  files: CommercialProposalGenerationFile[];
+};
+
+export type DocumentGenerationClient = {
+  generate: (request: {
+    requestId: string;
+    idempotencyKey: string;
+    payload: DocumentGenerationPayload;
+    requestedFormats: Array<'xlsm' | 'pdf'>;
+  }) => Promise<DocumentGenerationResult>;
 };
 
 const UUID_REGEX =
@@ -178,6 +281,36 @@ export const normalizeCreateDraftRequest = (
     language,
     idempotencyKey: requestIdempotencyKey,
   };
+};
+
+export const normalizeGenerateCommercialProposalRequest = (
+  body: GenerateCommercialProposalRequest | undefined,
+): GenerateCommercialProposalInput => {
+  if (body === undefined || body === null) {
+    throw new ApplicationError('INVALID_INPUT', 'Request body is required');
+  }
+
+  const commercialProposalId = getRequiredString(
+    body.commercialProposalId,
+    'commercialProposalId',
+  );
+  const idempotencyKey = getRequiredString(
+    body.idempotencyKey,
+    'idempotencyKey',
+  );
+
+  if (!UUID_REGEX.test(commercialProposalId)) {
+    throw new ApplicationError(
+      'INVALID_INPUT',
+      'commercialProposalId must be a UUID',
+    );
+  }
+
+  if (!UUID_REGEX.test(idempotencyKey)) {
+    throw new ApplicationError('INVALID_INPUT', 'idempotencyKey must be a UUID');
+  }
+
+  return { commercialProposalId, idempotencyKey };
 };
 
 export const buildCommercialProposalNumberSuffix = () => {
@@ -319,4 +452,174 @@ export const createCommercialProposalDraft = async ({
     'COMMERCIAL_PROPOSAL_CREATE_FAILED',
     'Не удалось создать уникальный номер коммерческого предложения',
   );
+};
+
+export const buildDocumentGenerationPayload = ({
+  draft,
+  opportunity,
+  now = new Date(),
+}: {
+  draft: CommercialProposalDraft;
+  opportunity: OpportunityContext;
+  now?: Date;
+}): DocumentGenerationPayload => {
+  const amount = draft.amount ?? opportunity.amount ?? 0;
+  const currencyCode = draft.currencyCode ?? opportunity.currencyCode ?? 'RUB';
+  const proposalDate = now.toISOString().slice(0, 10);
+  const companyName = opportunity.company?.name ?? 'Компания не указана';
+
+  return {
+    schemaVersion: '1.0',
+    templateCode: 'mikoton-commercial-proposal',
+    templateVersion: '1',
+    proposal: {
+      id: draft.id,
+      number: draft.number,
+      title: draft.title,
+      date: proposalDate,
+      language: 'ru-RU',
+      currencyCode,
+      validityDays: 14,
+    },
+    customer: {
+      companyId: opportunity.company?.id ?? null,
+      companyName,
+      contactName: 'Не указан',
+    },
+    contractor: {
+      name: 'Шибеев Роман',
+      email: 'consulting@mikoton.ru',
+    },
+    content: {
+      contextAndGoal: `Коммерческое предложение подготовлено по сделке «${opportunity.name}».`,
+      workItems: [
+        {
+          position: 1,
+          block: 'Работы',
+          description: draft.title,
+          quantity: 1,
+          unit: 'проект',
+          rate: amount,
+          discount: 0,
+        },
+      ],
+      plan: [
+        {
+          position: 1,
+          title: 'Согласование и старт',
+          result: 'Согласованный состав работ и дата запуска',
+          duration: '1 день',
+        },
+      ],
+      paymentTerms: 'Оплата: по согласованию сторон.',
+      assumptions: 'Состав работ и сроки могут быть уточнены после согласования деталей.',
+      nextStep: 'Согласовать состав работ, стоимость и дату старта.',
+    },
+  };
+};
+
+const hasGenerationResult = (
+  metadata: CommercialProposalDraft['resultMetadata'],
+  idempotencyKey: string,
+): metadata is CommercialProposalResultMetadata =>
+  metadata !== null &&
+  typeof metadata === 'object' &&
+  'generationIdempotencyKey' in metadata &&
+  metadata.generationIdempotencyKey === idempotencyKey &&
+  'files' in metadata &&
+  Array.isArray(metadata.files);
+
+export const generateCommercialProposalDocuments = async ({
+  input,
+  repository,
+  documentClient,
+  now = new Date(),
+}: {
+  input: GenerateCommercialProposalInput;
+  repository: CommercialProposalRepository;
+  documentClient: DocumentGenerationClient;
+  now?: Date;
+}) => {
+  const draft = await repository.getCommercialProposal(input.commercialProposalId);
+
+  if (
+    draft.status === 'GENERATED' &&
+    hasGenerationResult(draft.resultMetadata, input.idempotencyKey)
+  ) {
+    return {
+      commercialProposal: draft,
+      generated: false,
+      result: draft.resultMetadata,
+    };
+  }
+
+  if (draft.status !== 'DRAFT' && draft.status !== 'FAILED') {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_INVALID_STATUS',
+      'Документ можно сформировать только из статуса DRAFT или FAILED',
+    );
+  }
+
+  const opportunity = await repository.getOpportunityContext(draft.opportunityId);
+  const payload = buildDocumentGenerationPayload({ draft, opportunity, now });
+
+  await repository.updateCommercialProposal(draft.id, {
+    status: 'GENERATING',
+    templateCode: 'mikoton-commercial-proposal',
+    templateVersion: '1',
+    payloadSnapshot: payload as unknown as DraftPayloadSnapshot,
+    lastError: null,
+    generatedAt: null,
+  });
+
+  try {
+    const result = await documentClient.generate({
+      requestId: input.idempotencyKey,
+      idempotencyKey: input.idempotencyKey,
+      payload,
+      requestedFormats: ['xlsm', 'pdf'],
+    });
+
+    const resultMetadata: CommercialProposalResultMetadata = {
+      generationId: result.generationId,
+      generationIdempotencyKey: input.idempotencyKey,
+      templateCode: result.templateCode,
+      templateVersion: result.templateVersion,
+      files: result.files,
+    };
+
+    const updated = await repository.updateCommercialProposal(draft.id, {
+      status: 'GENERATED',
+      templateCode: 'mikoton-commercial-proposal',
+      templateVersion: '1',
+      resultMetadata,
+      generatedAt: result.generatedAt,
+      lastError: null,
+    });
+
+    return {
+      commercialProposal: updated,
+      generated: true,
+      result: resultMetadata,
+    };
+  } catch (error) {
+    await repository.updateCommercialProposal(draft.id, {
+      status: 'FAILED',
+      generatedAt: null,
+      lastError:
+        error instanceof ApplicationError
+          ? error.message
+          : 'Не удалось сформировать документы коммерческого предложения',
+    });
+
+    if (error instanceof ApplicationError) {
+      throw error;
+    }
+
+    throw new ApplicationError(
+      'DOCUMENT_GENERATION_FAILED',
+      'Не удалось сформировать документы коммерческого предложения',
+      error,
+    );
+  }
 };

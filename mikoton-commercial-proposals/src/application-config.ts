@@ -4,6 +4,8 @@ import {
   APP_DESCRIPTION,
   APP_DISPLAY_NAME,
   APPLICATION_UNIVERSAL_IDENTIFIER,
+  DOCUMENT_SERVICE_SECRET_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
+  DOCUMENT_SERVICE_URL_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
   TWENTY_API_URL_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
 } from 'src/constants/universal-identifiers';
 
@@ -18,6 +20,23 @@ export default defineApplication({
       isSecret: false,
       type: FieldType.TEXT,
       value: 'http://192.168.100.11:3000',
+    },
+    DOCUMENT_SERVICE_URL: {
+      universalIdentifier:
+        DOCUMENT_SERVICE_URL_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
+      description:
+        'Server-side document-service base URL used by generation logic functions.',
+      isSecret: false,
+      type: FieldType.TEXT,
+      value: 'http://127.0.0.1:8010',
+    },
+    DOCUMENT_SERVICE_SECRET: {
+      universalIdentifier:
+        DOCUMENT_SERVICE_SECRET_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
+      description:
+        'Server-side bearer secret used to authenticate document-service calls.',
+      isSecret: true,
+      type: FieldType.TEXT,
     },
   },
 });

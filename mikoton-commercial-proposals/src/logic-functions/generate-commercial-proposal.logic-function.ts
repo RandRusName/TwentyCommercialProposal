@@ -1,13 +1,15 @@
 import { defineLogicFunction, HTTPMethod } from 'twenty-sdk/define';
 import { Response, type RoutePayload } from 'twenty-sdk/logic-function';
 
-import { GET_OPPORTUNITY_CONTEXT_LOGIC_FUNCTION_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
-import { ApplicationError } from 'src/domain/commercial-proposal';
+import { GENERATE_COMMERCIAL_PROPOSAL_LOGIC_FUNCTION_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
+import {
+  ApplicationError,
+  generateCommercialProposalDocuments,
+  normalizeGenerateCommercialProposalRequest,
+  type GenerateCommercialProposalRequest,
+} from 'src/domain/commercial-proposal';
+import { HttpDocumentServiceClient } from 'src/services/document-service-client';
 import { TwentyRecordRepository } from 'src/services/twenty-record-repository';
-
-type OpportunityContextRequest = {
-  opportunityId?: string;
-};
 
 const HTTP_STATUS_BY_ERROR_CODE = {
   INVALID_INPUT: 400,
@@ -33,18 +35,19 @@ const json = (body: unknown, status = 200) =>
     },
   });
 
-const handler = async (event: RoutePayload<OpportunityContextRequest>) => {
+const handler = async (
+  event: RoutePayload<GenerateCommercialProposalRequest>,
+) => {
   try {
-    const opportunityId = event.body?.opportunityId;
+    const result = await generateCommercialProposalDocuments({
+      input: normalizeGenerateCommercialProposalRequest(
+        event.body ?? undefined,
+      ),
+      repository: new TwentyRecordRepository(),
+      documentClient: new HttpDocumentServiceClient(),
+    });
 
-    if (!opportunityId) {
-      throw new ApplicationError('INVALID_INPUT', 'opportunityId is required');
-    }
-
-    const repository = new TwentyRecordRepository();
-    const opportunity = await repository.getOpportunityContext(opportunityId);
-
-    return json({ status: 'success', opportunity });
+    return json({ status: 'success', ...result });
   } catch (error) {
     const applicationError =
       error instanceof ApplicationError
@@ -55,7 +58,7 @@ const handler = async (event: RoutePayload<OpportunityContextRequest>) => {
             error,
           );
 
-    console.error('get-opportunity-context failed', {
+    console.error('generate-commercial-proposal failed', {
       code: applicationError.code,
       cause:
         applicationError.cause instanceof Error
@@ -77,12 +80,14 @@ const handler = async (event: RoutePayload<OpportunityContextRequest>) => {
 };
 
 export default defineLogicFunction({
-  universalIdentifier: GET_OPPORTUNITY_CONTEXT_LOGIC_FUNCTION_UNIVERSAL_IDENTIFIER,
-  name: 'Get Opportunity Context',
-  description: 'Returns source opportunity and company context for CP creation',
-  timeoutSeconds: 10,
+  universalIdentifier:
+    GENERATE_COMMERCIAL_PROPOSAL_LOGIC_FUNCTION_UNIVERSAL_IDENTIFIER,
+  name: 'Generate Commercial Proposal Documents',
+  description:
+    'Calls the external document service and stores generated XLSM/PDF metadata',
+  timeoutSeconds: 60,
   httpRouteTriggerSettings: {
-    path: '/commercial-proposals/opportunity-context',
+    path: '/commercial-proposals/generate',
     httpMethod: HTTPMethod.POST,
     isAuthRequired: true,
   },

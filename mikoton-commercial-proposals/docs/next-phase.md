@@ -1,54 +1,38 @@
 # Next Phase
 
-Do not start document generation until the Phase 3 vertical slice is verified
-with an authenticated user session on the target Workspace.
-
 ## Current State
 
-- Phase 3 code is implemented.
-- Private publish and install/upgrade succeeded for app version `0.1.5`.
-- Repeated upgrade succeeded.
-- API-key GraphQL access works for deployment and test data setup.
-- API-key requests to authenticated `/s/...` app routes return HTTP `403`.
-- Browser UI smoke is blocked at the Twenty login screen.
+- Phase 3 is verified on the target Workspace.
+- Phase 4 local implementation has started:
+  - versioned XLSM template asset;
+  - declarative mapping v1;
+  - document-service generator;
+  - XLSM/PDF local generation tests;
+  - Twenty generation command/front component/logic function.
 
-## Required Before Phase 4
+## Required Before Phase 5
 
-1. Sign in to `http://192.168.100.11:3000` as an allowed test user in the browser.
-2. Confirm the installed app version in `Settings -> Applications`.
-3. Create or choose `[SMOKE]` Company and Opportunity records with amount and
-   currency.
-4. Open the Opportunity and run `Создать коммерческое предложение` from the
-   command menu.
-5. Verify the front component loads Opportunity, Company, amount and
-   `currencyCode`.
-6. Create a DRAFT and open the created CommercialProposal record.
-7. Verify:
+1. Deploy document-service where the Twenty server can reach it.
+2. Configure `DOCUMENT_SERVICE_URL` and `DOCUMENT_SERVICE_SECRET` for the app.
+3. Configure production storage for generated files.
+4. Replace or extend ReportLab PDF output with Excel/LibreOffice/Excel COM
+   print-area export.
+5. Deploy the updated Twenty App through `deploy.bat`.
+6. Run target UI smoke:
+   - create DRAFT from Opportunity;
+   - open CommercialProposal;
+   - run `Сформировать документ`;
+   - verify `GENERATED`, `generatedAt`, `resultMetadata`, XLSM and PDF.
+7. Open generated XLSM in Microsoft Excel and confirm no repair warning.
+8. Open generated PDF and visually check it against the template.
+9. Run retry/idempotency check.
+10. Update `docs/phase-4-smoke-test.md` with factual results.
 
-   - relation to Opportunity;
-   - relation to Company when Company exists;
-   - `generatedAt = null`;
-   - `resultMetadata = null`;
-   - `lastError = null`;
-   - `sourceType = OPPORTUNITY`;
-   - `templateCode = standard-commercial-proposal`;
-   - `language = ru-RU`;
-   - amount micros conversion;
-   - source `currencyCode`.
+## Not In Scope Yet
 
-8. Repeat the same request with the same idempotency key using an authenticated
-   route call or UI retry scenario and verify no duplicate draft is created.
-9. Run allowed-user and restricted-user permission checks when suitable users
-   are available.
-10. Update `docs/smoke-test-report.md` with the created draft number,
-    screenshots if available, target smoke results and permission results.
-
-## Phase 4 Candidate Work
-
-Only after the above is complete:
-
-- add document-service contract implementation;
-- generate or fetch DOCX/PDF;
-- store generation result metadata;
-- set `generatedAt` after successful document generation;
-- write files/URLs back to CommercialProposal.
+- visual template editor;
+- arbitrary template upload through UI;
+- regenerate/version history;
+- email sending;
+- approval workflow;
+- e-signature.

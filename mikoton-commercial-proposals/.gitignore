@@ -13,6 +13,9 @@
 
 # codegen
 generated
+/generated-documents
+__pycache__/
+*.pyc
 
 # testing
 /coverage

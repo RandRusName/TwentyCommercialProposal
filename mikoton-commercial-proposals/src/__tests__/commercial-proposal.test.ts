@@ -1,8 +1,11 @@
 import {
   ApplicationError,
+  buildDocumentGenerationPayload,
   buildCommercialProposalNumber,
   createCommercialProposalDraft,
+  generateCommercialProposalDocuments,
   normalizeCreateDraftRequest,
+  normalizeGenerateCommercialProposalRequest,
   SUPPORTED_LANGUAGE,
   SUPPORTED_TEMPLATE_CODE,
   type CommercialProposalDraft,
@@ -105,6 +108,11 @@ const makeRepository = (
     id: 'draft-id',
     ...draft,
   })),
+  getCommercialProposal: vi.fn(async () => makeDraft()),
+  updateCommercialProposal: vi.fn(async (_id, patch) => ({
+    ...makeDraft(),
+    ...patch,
+  })),
   isDuplicateConflict: vi.fn(() => false),
 });
 
@@ -118,6 +126,8 @@ const makeInput = () =>
     language: SUPPORTED_LANGUAGE,
     idempotencyKey,
   });
+
+const generationIdempotencyKey = '123e4567-e89b-42d3-a456-426614174001';
 
 describe('commercial proposal domain', () => {
   it('builds a proposal number with UTC time and a four-character suffix', () => {
@@ -136,6 +146,134 @@ describe('commercial proposal domain', () => {
       language: SUPPORTED_LANGUAGE,
       idempotencyKey,
     });
+  });
+
+  it('normalizes the generation request contract', () => {
+    expect(
+      normalizeGenerateCommercialProposalRequest({
+        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+        idempotencyKey: generationIdempotencyKey,
+      }),
+    ).toEqual({
+      commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+      idempotencyKey: generationIdempotencyKey,
+    });
+  });
+
+  it('builds the document generation payload from a draft snapshot', () => {
+    const payload = buildDocumentGenerationPayload({
+      draft: makeDraft({ amount: 123.45, currencyCode: 'EUR' }),
+      opportunity: {
+        id: 'opportunity-id',
+        name: 'Test opportunity',
+        company: { id: 'company-id', name: 'Test company' },
+        amount: 200,
+        currencyCode: 'RUB',
+      },
+      now: fixedDate,
+    });
+
+    expect(payload.templateCode).toBe('mikoton-commercial-proposal');
+    expect(payload.templateVersion).toBe('1');
+    expect(payload.proposal.date).toBe('2026-07-12');
+    expect(payload.proposal.currencyCode).toBe('EUR');
+    expect(payload.customer.companyName).toBe('Test company');
+    expect(payload.content.workItems).toEqual([
+      expect.objectContaining({
+        quantity: 1,
+        rate: 123.45,
+        discount: 0,
+      }),
+    ]);
+  });
+
+  it('moves a draft through generation and stores result metadata', async () => {
+    const repository = makeRepository();
+    const documentClient = {
+      generate: vi.fn(async () => ({
+        status: 'success' as const,
+        generationId: 'generation-id',
+        templateCode: 'mikoton-commercial-proposal' as const,
+        templateVersion: '1' as const,
+        generatedAt: '2026-07-12T10:11:12Z',
+        files: [
+          {
+            format: 'xlsm' as const,
+            fileName: 'cp.xlsm',
+            contentType: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+            size: 100,
+            sha256: 'sha-xlsm',
+            url: 'file:///cp.xlsm',
+          },
+          {
+            format: 'pdf' as const,
+            fileName: 'cp.pdf',
+            contentType: 'application/pdf',
+            size: 100,
+            sha256: 'sha-pdf',
+            url: 'file:///cp.pdf',
+          },
+        ],
+      })),
+    };
+
+    const result = await generateCommercialProposalDocuments({
+      input: {
+        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+        idempotencyKey: generationIdempotencyKey,
+      },
+      repository,
+      documentClient,
+      now: fixedDate,
+    });
+
+    expect(result.generated).toBe(true);
+    expect(documentClient.generate).toHaveBeenCalledOnce();
+    expect(repository.updateCommercialProposal).toHaveBeenNthCalledWith(
+      1,
+      'draft-id',
+      expect.objectContaining({ status: 'GENERATING' }),
+    );
+    expect(repository.updateCommercialProposal).toHaveBeenNthCalledWith(
+      2,
+      'draft-id',
+      expect.objectContaining({
+        status: 'GENERATED',
+        generatedAt: '2026-07-12T10:11:12Z',
+        resultMetadata: expect.objectContaining({
+          generationIdempotencyKey,
+        }),
+      }),
+    );
+  });
+
+  it('returns an existing generated result for the same generation key', async () => {
+    const repository = makeRepository();
+    const existing = makeDraft({
+      status: 'GENERATED',
+      resultMetadata: {
+        generationId: 'generation-id',
+        generationIdempotencyKey,
+        templateCode: 'mikoton-commercial-proposal',
+        templateVersion: '1',
+        files: [],
+      },
+    });
+    vi.mocked(repository.getCommercialProposal).mockResolvedValue(existing);
+    const documentClient = { generate: vi.fn() };
+
+    const result = await generateCommercialProposalDocuments({
+      input: {
+        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+        idempotencyKey: generationIdempotencyKey,
+      },
+      repository,
+      documentClient,
+    });
+
+    expect(result.generated).toBe(false);
+    expect(documentClient.generate).not.toHaveBeenCalled();
+    expect(repository.updateCommercialProposal).not.toHaveBeenCalled();
   });
 
   it('rejects unsupported source objects with structured errors', () => {

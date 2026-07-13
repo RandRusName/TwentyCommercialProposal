@@ -27,12 +27,18 @@ Implemented in this phase:
 - draft metadata fields for source, template, language and payload snapshot.
 - functional vertical slice from Opportunity command menu to a
   `CommercialProposal` DRAFT success state.
+- Phase 4 local document generation foundation:
+  - versioned XLSM template asset;
+  - declarative mapping v1;
+  - external document-service MVP;
+  - command/front component/route for generation.
 
 Not implemented in this phase:
 
-- DOCX/PDF generation;
-- document-service call;
-- generated file upload/storage flow;
+- DOCX generation;
+- production document-service deployment;
+- production generated file upload/storage flow;
+- Excel/LibreOffice print-area PDF export;
 - Company entry point;
 - record-page widget;
 - proposal items;
@@ -47,6 +53,7 @@ yarn.cmd install --immutable
 yarn.cmd lint
 yarn.cmd typecheck
 yarn.cmd test:unit
+yarn.cmd test:document-service
 yarn.cmd test:integration
 yarn.cmd twenty dev:build .
 yarn.cmd twenty dev:build --tarball .
@@ -202,6 +209,41 @@ Created DRAFT records keep:
 - `amount = Opportunity.amountMicros / 1_000_000` when Opportunity uses Twenty
   currency micros;
 - `currencyCode` from the Opportunity source value, without defaulting to RUB.
+
+## Document Generation
+
+Phase 4 uses an external document-service. The Twenty App does not edit XLSM
+files and does not run VBA inside logic functions.
+
+Local assets:
+
+```text
+templates/mikoton-commercial-proposal-v1.xlsm
+templates/mikoton-commercial-proposal-v1.mapping.json
+document-service/
+```
+
+Local document-service test:
+
+```powershell
+$env:PYTHONPATH = (Resolve-Path .\document-service).Path
+& "C:\Users\user\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" `
+  -m unittest discover -s .\document-service\tests -v
+```
+
+Generation route:
+
+```http
+POST /s/commercial-proposals/generate
+```
+
+The route requires server-side app variables:
+
+- `DOCUMENT_SERVICE_URL`
+- `DOCUMENT_SERVICE_SECRET`
+
+See `docs/document-generation.md`, `docs/template-mapping-v1.md` and
+`docs/document-service-runbook.md`.
 
 ## Private Deployment
 

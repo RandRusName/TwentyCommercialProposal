@@ -45,6 +45,28 @@ type CommercialProposalRecord = {
   company?: { id?: string | null } | null;
 };
 
+const COMMERCIAL_PROPOSAL_SELECTION = {
+  id: true,
+  title: true,
+  number: true,
+  status: true,
+  sourceType: true,
+  templateCode: true,
+  templateVersion: true,
+  language: true,
+  payloadSnapshot: true,
+  resultMetadata: true,
+  amount: true,
+  currencyCode: true,
+  generatedAt: true,
+  idempotencyKey: true,
+  lastError: true,
+  opportunityId: true,
+  companyId: true,
+  opportunity: { id: true },
+  company: { id: true },
+} as const;
+
 export const normalizeOpportunityAmount = (
   amount: OpportunityRecord['amount'],
 ) => {
@@ -179,27 +201,7 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
           },
         },
         edges: {
-          node: {
-            id: true,
-            title: true,
-            number: true,
-            status: true,
-            sourceType: true,
-            templateCode: true,
-            templateVersion: true,
-            language: true,
-            payloadSnapshot: true,
-            resultMetadata: true,
-            amount: true,
-            currencyCode: true,
-            generatedAt: true,
-            idempotencyKey: true,
-            lastError: true,
-            opportunityId: true,
-            companyId: true,
-            opportunity: { id: true },
-            company: { id: true },
-          },
+          node: COMMERCIAL_PROPOSAL_SELECTION,
         },
       },
     });
@@ -236,29 +238,73 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
             ...(draft.companyId === null ? {} : { companyId: draft.companyId }),
           },
         },
-        id: true,
-        title: true,
-        number: true,
-        status: true,
-        sourceType: true,
-        templateCode: true,
-        templateVersion: true,
-        language: true,
-        payloadSnapshot: true,
-        resultMetadata: true,
-        amount: true,
-        currencyCode: true,
-        generatedAt: true,
-        idempotencyKey: true,
-        lastError: true,
-        opportunityId: true,
-        companyId: true,
-        opportunity: { id: true },
-        company: { id: true },
+        ...COMMERCIAL_PROPOSAL_SELECTION,
       },
     });
 
     return mapDraft(response.createCommercialProposal as CommercialProposalRecord);
+  }
+
+  async getCommercialProposal(
+    commercialProposalId: string,
+  ): Promise<CommercialProposalDraft> {
+    let response: Awaited<ReturnType<CoreClient['query']>>;
+
+    try {
+      response = await this.client.query({
+        commercialProposal: {
+          __args: {
+            filter: {
+              id: {
+                eq: commercialProposalId,
+              },
+            },
+          },
+          ...COMMERCIAL_PROPOSAL_SELECTION,
+        },
+      });
+    } catch (error) {
+      throw new ApplicationError(
+        /forbidden|permission|not authorized|unauthorized/i.test(
+          getErrorMessage(error),
+        )
+          ? 'COMMERCIAL_PROPOSAL_FORBIDDEN'
+          : 'COMMERCIAL_PROPOSAL_NOT_FOUND',
+        'Коммерческое предложение не найдено или недоступно',
+        error,
+      );
+    }
+
+    const record = response.commercialProposal as
+      | CommercialProposalRecord
+      | null
+      | undefined;
+
+    if (record === null || record === undefined) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_NOT_FOUND',
+        'Коммерческое предложение не найдено или недоступно',
+      );
+    }
+
+    return mapDraft(record);
+  }
+
+  async updateCommercialProposal(
+    commercialProposalId: string,
+    patch: Partial<Omit<CommercialProposalDraft, 'id'>>,
+  ): Promise<CommercialProposalDraft> {
+    const response = await this.client.mutation({
+      updateCommercialProposal: {
+        __args: {
+          id: commercialProposalId,
+          data: patch,
+        },
+        ...COMMERCIAL_PROPOSAL_SELECTION,
+      },
+    });
+
+    return mapDraft(response.updateCommercialProposal as CommercialProposalRecord);
   }
 
   isDuplicateConflict(error: unknown) {

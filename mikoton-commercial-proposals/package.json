@@ -18,6 +18,7 @@
     "test": "yarn test:unit",
     "test:watch": "vitest",
     "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:document-service": "python -m unittest discover -s document-service/tests -v",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:target-smoke": "vitest run --config vitest.target-smoke.config.ts"
   },

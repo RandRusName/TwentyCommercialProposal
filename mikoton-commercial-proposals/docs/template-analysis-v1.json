@@ -1,0 +1,388 @@
+{
+  "file": "templates\\mikoton-commercial-proposal-v1.xlsm",
+  "size": 27247,
+  "entryCount": 17,
+  "entries": [
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "xl/workbook.xml",
+    "xl/_rels/workbook.xml.rels",
+    "xl/worksheets/sheet1.xml",
+    "xl/theme/theme1.xml",
+    "xl/styles.xml",
+    "xl/sharedStrings.xml",
+    "xl/drawings/drawing1.xml",
+    "xl/drawings/vmlDrawing1.vml",
+    "xl/vbaProject.bin",
+    "xl/worksheets/_rels/sheet1.xml.rels",
+    "xl/printerSettings/printerSettings1.bin",
+    "xl/ctrlProps/ctrlProp1.xml",
+    "xl/calcChain.xml",
+    "docProps/core.xml",
+    "docProps/app.xml"
+  ],
+  "hasVbaProject": true,
+  "hasDrawing1": true,
+  "hasVmlDrawing1": true,
+  "hasPrinterSettings": true,
+  "hasControlProps": true,
+  "sheets": [
+    {
+      "name": "КП",
+      "sheetId": "1",
+      "rid": "rId1",
+      "target": "worksheets/sheet1.xml"
+    }
+  ],
+  "definedNames": [
+    {
+      "name": "_xlnm.Print_Area",
+      "localSheetId": "0",
+      "text": "КП!$A$1:$I$37"
+    }
+  ],
+  "sheetInfo": [
+    {
+      "name": "КП",
+      "path": "xl/worksheets/sheet1.xml",
+      "dimension": "A1:I43",
+      "mergedCells": [
+        "B37:I37",
+        "B2:E2",
+        "B7:D7",
+        "C25:I25",
+        "F9:G9",
+        "C8:D8",
+        "C31:I31",
+        "E32:I32",
+        "F2:I2",
+        "B5:I5",
+        "G22:H22",
+        "C11:I11",
+        "B35:I35",
+        "B12:I12",
+        "B3:E3",
+        "C9:D9",
+        "C15:I15",
+        "E7:G7",
+        "G3:H3",
+        "F8:G8",
+        "H7:I7",
+        "G26:I26",
+        "G27:I27",
+        "G28:I28",
+        "G29:I29",
+        "C34:I34",
+        "B32:D32",
+        "D26:F26",
+        "D27:F27",
+        "D28:E28",
+        "D29:E29"
+      ],
+      "formulas": [
+        {
+          "cell": "I3",
+          "formula": "TODAY()",
+          "attrs": {
+            "ca": "1"
+          }
+        },
+        {
+          "cell": "I17",
+          "formula": "E17*G17*(1-H17)",
+          "attrs": {}
+        },
+        {
+          "cell": "I18",
+          "formula": "E18*G18*(1-H18)",
+          "attrs": {}
+        },
+        {
+          "cell": "I19",
+          "formula": "E19*G19*(1-H19)",
+          "attrs": {}
+        },
+        {
+          "cell": "I20",
+          "formula": "E20*G20*(1-H20)",
+          "attrs": {}
+        },
+        {
+          "cell": "I21",
+          "formula": "E21*G21*(1-H21)",
+          "attrs": {}
+        },
+        {
+          "cell": "I22",
+          "formula": "SUM(I17:I21)",
+          "attrs": {}
+        }
+      ],
+      "sampleCells": [
+        {
+          "cell": "G3",
+          "type": "s",
+          "style": "46",
+          "value": "КП № KP-0001 от",
+          "formula": null
+        },
+        {
+          "cell": "I3",
+          "type": null,
+          "style": "28",
+          "value": "46198",
+          "formula": "TODAY()"
+        },
+        {
+          "cell": "B5",
+          "type": "s",
+          "style": "60",
+          "value": "Реализация коннектора к дистрибьюторам для автоматического получения цен",
+          "formula": null
+        },
+        {
+          "cell": "C8",
+          "type": "s",
+          "style": "43",
+          "value": "ООО «Промобит»",
+          "formula": null
+        },
+        {
+          "cell": "F8",
+          "type": "s",
+          "style": "43",
+          "value": "Шибеев Роман",
+          "formula": null
+        },
+        {
+          "cell": "I8",
+          "type": "s",
+          "style": "6",
+          "value": "14 дней",
+          "formula": null
+        },
+        {
+          "cell": "C9",
+          "type": "s",
+          "style": "43",
+          "value": "Иванов Александр",
+          "formula": null
+        },
+        {
+          "cell": "F9",
+          "type": "s",
+          "style": "43",
+          "value": "consulting@mikoton.ru",
+          "formula": null
+        },
+        {
+          "cell": "I9",
+          "type": "s",
+          "style": "6",
+          "value": "RUB",
+          "formula": null
+        },
+        {
+          "cell": "B12",
+          "type": "s",
+          "style": "65",
+          "value": "Цель работ — реализовать интеграции с основными дистрибьюторами (Merlion, Osc, Treolan и т.д.) для автоматического получения и обновления цен на компоненты и учёт цен в формируемых конфигурациях ",
+          "formula": null
+        },
+        {
+          "cell": "B17",
+          "type": null,
+          "style": "8",
+          "value": "1",
+          "formula": null
+        },
+        {
+          "cell": "C17",
+          "type": "s",
+          "style": "9",
+          "value": "Анализ",
+          "formula": null
+        },
+        {
+          "cell": "D17",
+          "type": "s",
+          "style": "10",
+          "value": "Сбор требований, получение доступов",
+          "formula": null
+        },
+        {
+          "cell": "E17",
+          "type": null,
+          "style": "11",
+          "value": "2",
+          "formula": null
+        },
+        {
+          "cell": "F17",
+          "type": "s",
+          "style": "8",
+          "value": "час",
+          "formula": null
+        },
+        {
+          "cell": "G17",
+          "type": null,
+          "style": "26",
+          "value": "5500",
+          "formula": null
+        },
+        {
+          "cell": "H17",
+          "type": null,
+          "style": "12",
+          "value": "0.15",
+          "formula": null
+        },
+        {
+          "cell": "I17",
+          "type": null,
+          "style": "26",
+          "value": "9350",
+          "formula": "E17*G17*(1-H17)"
+        },
+        {
+          "cell": "I18",
+          "type": null,
+          "style": "27",
+          "value": "18700",
+          "formula": "E18*G18*(1-H18)"
+        },
+        {
+          "cell": "I19",
+          "type": null,
+          "style": "26",
+          "value": "37400",
+          "formula": "E19*G19*(1-H19)"
+        },
+        {
+          "cell": "I20",
+          "type": null,
+          "style": "27",
+          "value": "9350",
+          "formula": "E20*G20*(1-H20)"
+        },
+        {
+          "cell": "I21",
+          "type": null,
+          "style": "26",
+          "value": "0",
+          "formula": "E21*G21*(1-H21)"
+        },
+        {
+          "cell": "I22",
+          "type": null,
+          "style": "19",
+          "value": "74800",
+          "formula": "SUM(I17:I21)"
+        },
+        {
+          "cell": "B27",
+          "type": "s",
+          "style": "20",
+          "value": "1",
+          "formula": null
+        },
+        {
+          "cell": "C27",
+          "type": "s",
+          "style": "10",
+          "value": "Старт и диагностика",
+          "formula": null
+        },
+        {
+          "cell": "D27",
+          "type": "s",
+          "style": "48",
+          "value": "Зафиксированные требования и переданные доступы / ключи ",
+          "formula": null
+        },
+        {
+          "cell": "G27",
+          "type": "s",
+          "style": "34",
+          "value": "2 дня",
+          "formula": null
+        },
+        {
+          "cell": "B32",
+          "type": "s",
+          "style": "47",
+          "value": "Оплата: 100% после передачи результатов. Сроки фиксируются после согласования доступа к данным и участникам.",
+          "formula": null
+        },
+        {
+          "cell": "E32",
+          "type": "s",
+          "style": "47",
+          "value": "В предложение не входят лицензии стороннего ПО, командировочные расходы и разработка вне согласованного объёма работ.\nЦена может быть пересмотрена после уточнения списка интеграций.",
+          "formula": null
+        },
+        {
+          "cell": "B35",
+          "type": "s",
+          "style": "64",
+          "value": "Для запуска работ достаточно согласовать состав работ, финальную стоимость и дату старта. После подтверждения подготавливается договор / счёт и календарный план.",
+          "formula": null
+        },
+        {
+          "cell": "B37",
+          "type": "s",
+          "style": "55",
+          "value": "MIKOTON · consulting@mikoton.ru · КП действительно в течение 14 календарных дней",
+          "formula": null
+        }
+      ],
+      "specialTags": [
+        {
+          "tag": "printOptions",
+          "attrs": {
+            "horizontalCentered": "1"
+          }
+        },
+        {
+          "tag": "pageMargins",
+          "attrs": {
+            "left": "0.35",
+            "right": "0.35",
+            "top": "0.4",
+            "bottom": "0.35",
+            "header": "0.15",
+            "footer": "0.15"
+          }
+        },
+        {
+          "tag": "pageSetup",
+          "attrs": {
+            "paperSize": "9",
+            "scale": "76",
+            "orientation": "portrait",
+            "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id": "rId2"
+          }
+        },
+        {
+          "tag": "drawing",
+          "attrs": {
+            "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id": "rId3"
+          }
+        },
+        {
+          "tag": "legacyDrawing",
+          "attrs": {
+            "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id": "rId4"
+          }
+        }
+      ]
+    }
+  ],
+  "macroEnabledContentType": true,
+  "relationshipFiles": [
+    "_rels/.rels",
+    "xl/_rels/workbook.xml.rels",
+    "xl/worksheets/_rels/sheet1.xml.rels"
+  ]
+}
