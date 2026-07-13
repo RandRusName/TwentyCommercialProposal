@@ -134,11 +134,14 @@ Follow-up fix prepared in the adjacent Twenty deployment repository:
 
 - Repository: `C:\IT_Projects\twenty`
 - Branch: `custom/russian-crm`
-- Commit: `e64fb081fa` (`Enable logic function runtime in production deploy`)
+- Commits:
+  - `e64fb081fa` (`Enable logic function runtime in production deploy`)
+  - `f290f9de2d` (`Enforce logic function runtime during deploy`)
 - Change: production Docker Compose now passes
   `LOGIC_FUNCTION_TYPE=${LOGIC_FUNCTION_TYPE:-LOCAL}` to Twenty `server` and
-  `worker`, and deployment docs describe the required `.env` setting and
-  verification command.
+  `worker`; Jenkins now upserts `LOGIC_FUNCTION_TYPE=LOCAL`; deployment
+  healthcheck fails if the running server container still has logic-function
+  execution disabled.
 
 ## Target API Smoke
 
