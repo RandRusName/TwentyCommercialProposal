@@ -62,11 +62,22 @@ const resolveHttpOrigin = (value: string | undefined) => {
 };
 
 const getFrontComponentApiOrigin = () =>
+  resolveHttpOrigin(process.env.TWENTY_API_URL) ??
   resolveHttpOrigin(getApplicationVariable(APPLICATION_API_URL_VARIABLE)) ??
   resolveHttpOrigin(globalThis.location?.origin) ??
   resolveHttpOrigin(globalThis.location?.href) ??
   resolveHttpOrigin(String(globalThis.location ?? '')) ??
   resolveHttpOrigin(TARGET_TWENTY_API_URL);
+
+const getInitialApplicationAccessToken = () => {
+  const token = process.env.TWENTY_APP_ACCESS_TOKEN;
+
+  if (token === undefined || token.trim() === '') {
+    return null;
+  }
+
+  return token;
+};
 
 export const buildAppRouteUrl = (path: string) => {
   const appPath = `/s${path}`;
@@ -142,6 +153,18 @@ const getStructuredErrorMessage = (payload: object | null) => {
 };
 
 const buildAppRouteHeaders = async (diagnostic: AppRouteDiagnostic) => {
+  const initialToken = getInitialApplicationAccessToken();
+
+  if (initialToken !== null) {
+    diagnostic.tokenReceived = true;
+    diagnostic.tokenLength = initialToken.length;
+
+    return {
+      authorization: `Bearer ${initialToken}`,
+      'content-type': 'application/json',
+    };
+  }
+
   const requestToken =
     globalThis.frontComponentHostCommunicationApi?.requestAccessTokenRefresh;
 

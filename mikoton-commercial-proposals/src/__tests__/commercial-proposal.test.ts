@@ -42,6 +42,8 @@ const restoreApplicationVariables = (value: string | undefined) => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  delete process.env.TWENTY_APP_ACCESS_TOKEN;
+  delete process.env.TWENTY_API_URL;
 });
 
 const makeDraft = (
@@ -500,6 +502,28 @@ describe('commercial proposal front component helpers', () => {
         'Не удалось авторизовать запрос приложения.\nОбновите страницу и повторите попытку.',
     });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses the initial application access token from worker env', async () => {
+    process.env.TWENTY_APP_ACCESS_TOKEN = 'initial-application-token';
+    process.env.TWENTY_API_URL = 'http://twenty.example.test';
+    const fetchSpy = vi.fn(async () => new Response('{"status":"success"}'));
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.stubGlobal('frontComponentHostCommunicationApi', {});
+
+    await expect(callAppRoute('/commercial-proposals/drafts', {})).resolves.toEqual({
+      status: 'success',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://twenty.example.test/s/commercial-proposals/drafts',
+      expect.objectContaining({
+        headers: {
+          authorization: 'Bearer initial-application-token',
+          'content-type': 'application/json',
+        },
+      }),
+    );
   });
 
   it('does not fetch when host token refresh throws', async () => {
