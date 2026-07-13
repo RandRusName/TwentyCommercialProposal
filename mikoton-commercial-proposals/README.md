@@ -50,6 +50,37 @@ yarn.cmd twenty dev:build .
 yarn.cmd twenty dev:build --tarball .
 ```
 
+For a production-ready private tarball, use the one-button WSL build instead of
+running `yarn.cmd twenty dev:build --tarball .` directly on Windows. Windows
+builds can write Windows path separators into `manifest.json`, which breaks
+installation on Linux Twenty servers.
+
+```cmd
+build.bat
+```
+
+Full dependency reset before build:
+
+```cmd
+build.bat --clean
+```
+
+Requirements for `build.bat`:
+
+- Windows 10/11
+- WSL2 with a Linux distribution
+- Node.js `>= 24.5.0` inside WSL
+- Corepack enabled inside WSL
+- `tar` and `sha256sum` inside WSL
+
+If Node.js is missing or too old inside WSL, install Node.js 24 with nvm and
+run `build.bat` again.
+
+If dependencies were previously installed from Windows with `yarn.cmd install`,
+run `build.bat --clean` once before the first WSL production build.
+
+See `docs/tarball-build.md` for tarball validation details and output location.
+
 `test:integration` requires an ephemeral Twenty instance:
 
 ```powershell
