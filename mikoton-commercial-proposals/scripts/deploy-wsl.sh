@@ -272,6 +272,14 @@ ensure_remote_ready() {
   fail "Remote '${REMOTE_NAME}' is not configured. Configure it before deploy without passing secrets to deploy.bat: corepack yarn twenty remote:add --as ${REMOTE_NAME} --url ${TWENTY_URL} --api-key <key>"
 }
 
+assert_logic_function_runtime_ready() {
+  echo
+  echo "Checking Twenty logic function runtime..."
+
+  TWENTY_API_URL="$TWENTY_URL" \
+    node "$SCRIPT_DIR/check-logic-function-runtime.mjs" --allow-missing-route
+}
+
 find_latest_tarball() {
   find .twenty/output -type f -name '*.tgz' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -n1 | cut -d' ' -f2-
 }
@@ -425,6 +433,7 @@ load_dotenv
 assert_wsl_can_reach_twenty
 check_twenty_health
 ensure_remote_ready
+assert_logic_function_runtime_ready
 
 if [[ "$NO_BUMP" == true ]]; then
   NEW_VERSION="$ORIGINAL_VERSION"

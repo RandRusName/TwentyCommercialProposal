@@ -109,6 +109,27 @@ Interpretation:
 - The upstream disabled driver throws: `Logic function execution is disabled. Set LOGIC_FUNCTION_TYPE to LOCAL or LAMBDA to enable.`
 - Current blocker stage: `route execution` / `logic function execution`.
 
+## Deployment Guard Added
+
+Added `scripts/check-logic-function-runtime.mjs` and wired it into
+`scripts/deploy-wsl.sh` before the patch version bump. The guard probes the
+installed context route with a nonexistent Opportunity id:
+
+- expected healthy response: structured app error `OPPORTUNITY_NOT_FOUND`;
+- current target response: platform `403 FORBIDDEN_EXCEPTION`;
+- result: deployment now stops before version bump/private publish when target
+  Twenty has logic-function execution disabled.
+
+Manual guard execution on the target returned:
+
+```text
+ERROR: Twenty logic function execution is disabled on the target server.
+Fix the Twenty server environment and restart Twenty before deploying this app:
+  LOGIC_FUNCTION_TYPE=LOCAL
+or configure the Lambda runtime:
+  LOGIC_FUNCTION_TYPE=LAMBDA
+```
+
 ## Target API Smoke
 
 Attempted with API-key based direct app-route probing:

@@ -4,10 +4,15 @@
   pushed and no workflow URL was available.
 - Ephemeral integration test code was added, but it was not executed locally
   because no ephemeral Twenty credentials were available outside CI.
-- Private publish/install was not executed on the target Workspace during this
-  session.
-- Remote UI smoke was not executed; navigation, command menu, front component
-  and real draft creation still require target Workspace verification.
+- Private publish/install has been executed on the target Workspace for version
+  `0.1.20`.
+- Remote UI smoke confirmed navigation, command menu and front component
+  opening. Opportunity context and DRAFT creation are blocked until target
+  Twenty enables logic-function execution.
+- Target Twenty currently returns platform `403 FORBIDDEN_EXCEPTION` for
+  authenticated app routes because logic-function execution is disabled on the
+  server. Enable `LOGIC_FUNCTION_TYPE=LOCAL` or configure
+  `LOGIC_FUNCTION_TYPE=LAMBDA` on the Twenty server and restart it.
 - Parallel idempotency is designed around a unique `idempotencyKey` index in
   `twenty-sdk@2.20.0` plus read-after-conflict recovery. It still requires a
   real metadata plan/apply to confirm the target Workspace accepts the unique

@@ -21,12 +21,13 @@ deploy.bat
 This is the preferred private release flow. It performs:
 
 1. clean Git working tree check;
-2. automatic patch version bump;
-3. WSL build via `scripts/build-wsl.sh`;
-4. tarball validation;
-5. private publish to `mikoton-target`;
-6. install or upgrade on Twenty;
-7. local release manifest under `release-artifacts/`.
+2. Twenty health, version, remote auth and logic-function runtime preflight;
+3. automatic patch version bump;
+4. WSL build via `scripts/build-wsl.sh`;
+5. tarball validation;
+6. private publish to `mikoton-target`;
+7. install or upgrade on Twenty;
+8. local release manifest under `release-artifacts/`.
 
 Additional modes:
 
@@ -70,6 +71,42 @@ Auth:    api-key (valid)
 The deploy script uses the configured remote. If `mikoton-target` is missing or
 auth is invalid, deployment stops with a clear error. It does not start OAuth
 fallback automatically.
+
+## Required Twenty Server Runtime
+
+This app uses authenticated Twenty App logic-function routes:
+
+```text
+/s/commercial-proposals/opportunity-context
+/s/commercial-proposals/drafts
+```
+
+On Twenty `v2.20.0`, logic-function execution is disabled by default outside
+development unless the server environment enables a driver. Upstream
+`ConfigVariables` defaults `LOGIC_FUNCTION_TYPE` to `DISABLED`, and the disabled
+driver throws:
+
+```text
+Logic function execution is disabled. Set LOGIC_FUNCTION_TYPE to LOCAL or LAMBDA to enable.
+```
+
+For the internal self-hosted target, enable local execution in the Twenty server
+environment and restart the server:
+
+```env
+LOGIC_FUNCTION_TYPE=LOCAL
+```
+
+Use `LOGIC_FUNCTION_TYPE=LAMBDA` only if the full AWS Lambda function runtime is
+configured for Twenty. Do not set `isAuthRequired: false`, do not put API keys
+in the front component, and do not bypass the route through direct privileged UI
+calls.
+
+`deploy.bat` runs a safe runtime preflight before bumping the package version.
+It calls the installed context route with a nonexistent Opportunity id. A
+healthy runtime returns the app's structured `OPPORTUNITY_NOT_FOUND` response.
+If Twenty returns platform `403 FORBIDDEN_EXCEPTION` with `Logic function
+execution failed`, deployment stops before version bump or private publish.
 
 ## WSL Networking
 
