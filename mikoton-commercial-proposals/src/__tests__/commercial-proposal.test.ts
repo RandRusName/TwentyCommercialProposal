@@ -16,6 +16,7 @@ import {
   getSafeErrorMessage,
   isCreateDraftDisabled,
 } from 'src/front-components/create-commercial-proposal.helpers';
+import { buildAppRouteUrl } from 'src/front-components/utils/call-app-route';
 import {
   normalizeOpportunityAmount,
   normalizeOpportunityCurrency,
@@ -428,6 +429,16 @@ describe('commercial proposal front component helpers', () => {
     ).toBe('Безопасная ошибка');
     expect(getSafeErrorMessage(new Error('Сделка не найдена'), 'fallback')).toBe(
       'Сделка не найдена',
+    );
+  });
+
+  it('builds absolute app route URLs for worker execution', () => {
+    vi.stubGlobal('location', {
+      origin: 'http://twenty.example.test',
+    });
+
+    expect(buildAppRouteUrl('/commercial-proposals/drafts')).toBe(
+      'http://twenty.example.test/s/commercial-proposals/drafts',
     );
   });
 });

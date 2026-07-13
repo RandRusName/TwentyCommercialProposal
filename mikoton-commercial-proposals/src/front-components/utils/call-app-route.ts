@@ -1,8 +1,19 @@
+export const buildAppRouteUrl = (path: string) => {
+  const appPath = `/s${path}`;
+  const origin = globalThis.location?.origin;
+
+  if (origin === undefined || origin === null || origin === '') {
+    return appPath;
+  }
+
+  return new URL(appPath, origin).toString();
+};
+
 export const callAppRoute = async <TResponse extends object>(
   path: string,
   body: Record<string, unknown>,
 ) => {
-  const response = await fetch(`/s${path}`, {
+  const response = await fetch(buildAppRouteUrl(path), {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
