@@ -2,6 +2,8 @@ export const APP_DISPLAY_NAME = 'Mikoton Commercial Proposals';
 export const APP_DESCRIPTION = 'Commercial proposal draft creation for Twenty CRM';
 export const APPLICATION_UNIVERSAL_IDENTIFIER =
   '21ee6641-cda4-4f97-a9f6-b0aa4b5de411';
+export const TWENTY_API_URL_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER =
+  '3e173cb2-8808-471d-b68d-7354220becc3';
 export const DEFAULT_ROLE_UNIVERSAL_IDENTIFIER =
   '3c5ec85d-5ed2-461f-a18e-28d63426f77b';
 

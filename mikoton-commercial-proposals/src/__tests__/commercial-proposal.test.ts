@@ -26,6 +26,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const fixedDate = new Date('2026-07-12T10:11:12.000Z');
 const idempotencyKey = '123e4567-e89b-12d3-a456-426614174000';
 
+const restoreApplicationVariables = (value: string | undefined) => {
+  if (value === undefined) {
+    delete process.env.applicationVariables;
+    return;
+  }
+
+  process.env.applicationVariables = value;
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -440,5 +449,39 @@ describe('commercial proposal front component helpers', () => {
     expect(buildAppRouteUrl('/commercial-proposals/drafts')).toBe(
       'http://twenty.example.test/s/commercial-proposals/drafts',
     );
+  });
+
+  it('builds app route URLs from application variables in front component workers', () => {
+    const previousApplicationVariables = process.env.applicationVariables;
+
+    process.env.applicationVariables = JSON.stringify({
+      TWENTY_API_URL: 'http://192.168.100.11:3000',
+    });
+    vi.stubGlobal('location', {
+      origin: 'null',
+      href: 'blob:null/worker',
+    });
+
+    expect(buildAppRouteUrl('/commercial-proposals/opportunity-context')).toBe(
+      'http://192.168.100.11:3000/s/commercial-proposals/opportunity-context',
+    );
+
+    restoreApplicationVariables(previousApplicationVariables);
+  });
+
+  it('throws a safe error when no usable app route origin is available', () => {
+    const previousApplicationVariables = process.env.applicationVariables;
+
+    delete process.env.applicationVariables;
+    vi.stubGlobal('location', {
+      origin: 'null',
+      href: 'blob:null/worker',
+    });
+
+    expect(() => buildAppRouteUrl('/commercial-proposals/drafts')).toThrow(
+      'Не удалось определить адрес Twenty для вызова app route',
+    );
+
+    restoreApplicationVariables(previousApplicationVariables);
   });
 });

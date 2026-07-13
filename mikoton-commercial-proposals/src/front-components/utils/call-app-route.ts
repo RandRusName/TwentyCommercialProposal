@@ -1,9 +1,39 @@
+import { getApplicationVariable } from 'twenty-sdk/front-component';
+
+const APPLICATION_API_URL_VARIABLE = 'TWENTY_API_URL';
+
+const resolveHttpOrigin = (value: string | undefined) => {
+  if (value === undefined || value.trim() === '') {
+    return null;
+  }
+
+  const candidate = value.startsWith('blob:') ? value.slice(5) : value;
+
+  try {
+    const url = new URL(candidate);
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+
+    return url.origin;
+  } catch {
+    return null;
+  }
+};
+
+const getFrontComponentApiOrigin = () =>
+  resolveHttpOrigin(getApplicationVariable(APPLICATION_API_URL_VARIABLE)) ??
+  resolveHttpOrigin(globalThis.location?.origin) ??
+  resolveHttpOrigin(globalThis.location?.href) ??
+  resolveHttpOrigin(String(globalThis.location ?? ''));
+
 export const buildAppRouteUrl = (path: string) => {
   const appPath = `/s${path}`;
-  const origin = globalThis.location?.origin;
+  const origin = getFrontComponentApiOrigin();
 
-  if (origin === undefined || origin === null || origin === '') {
-    return appPath;
+  if (origin === null) {
+    throw new Error('Не удалось определить адрес Twenty для вызова app route');
   }
 
   return new URL(appPath, origin).toString();
