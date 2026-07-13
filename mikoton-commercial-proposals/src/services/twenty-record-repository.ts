@@ -32,7 +32,7 @@ type CommercialProposalRecord = {
   payloadSnapshot?: CommercialProposalDraft['payloadSnapshot'] | null;
   resultMetadata?: Record<string, unknown> | null;
   amount?: number | null;
-  currency?: string | null;
+  currencyCode?: string | null;
   generatedAt?: string | null;
   idempotencyKey?: string | null;
   opportunity?: { id?: string | null } | null;
@@ -83,7 +83,7 @@ const mapDraft = (record: CommercialProposalRecord): CommercialProposalDraft => 
   opportunityId: record.opportunity?.id ?? '',
   companyId: record.company?.id ?? null,
   amount: record.amount ?? null,
-  currency: record.currency ?? null,
+  currency: record.currencyCode ?? null,
   generatedAt: record.generatedAt ?? null,
   idempotencyKey: record.idempotencyKey ?? '',
 });
@@ -166,7 +166,7 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
             payloadSnapshot: true,
             resultMetadata: true,
             amount: true,
-            currency: true,
+            currencyCode: true,
             generatedAt: true,
             idempotencyKey: true,
             opportunity: { id: true },
@@ -200,7 +200,7 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
             payloadSnapshot: draft.payloadSnapshot,
             resultMetadata: draft.resultMetadata,
             amount: draft.amount,
-            currency: draft.currency,
+            currencyCode: draft.currency,
             generatedAt: draft.generatedAt,
             idempotencyKey: draft.idempotencyKey,
             opportunity: {
@@ -230,7 +230,7 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
         payloadSnapshot: true,
         resultMetadata: true,
         amount: true,
-        currency: true,
+        currencyCode: true,
         generatedAt: true,
         idempotencyKey: true,
         opportunity: { id: true },

@@ -169,8 +169,8 @@ export default defineObject({
       universalIdentifier:
         COMMERCIAL_PROPOSAL_FIELD_CURRENCY_UNIVERSAL_IDENTIFIER,
       type: FieldType.TEXT,
-      name: 'currency',
-      label: 'Currency',
+      name: 'currencyCode',
+      label: 'Currency code',
       description: 'Currency code snapshot from the opportunity',
       defaultValue: "'RUB'",
       isNullable: true,

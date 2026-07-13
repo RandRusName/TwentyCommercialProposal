@@ -18,7 +18,7 @@ type CommercialProposalNode = {
   templateCode: string | null;
   language: string | null;
   amount: number | null;
-  currency: string | null;
+  currencyCode: string | null;
   generatedAt: string | null;
   idempotencyKey: string | null;
   opportunity: { id: string | null } | null;
@@ -156,7 +156,7 @@ const findCommercialProposalsByKey = async () => {
               templateCode
               language
               amount
-              currency
+              currencyCode
               generatedAt
               idempotencyKey
               opportunity {
@@ -243,7 +243,7 @@ describe('commercial proposal backend vertical slice', () => {
       templateCode: SUPPORTED_TEMPLATE_CODE,
       language: SUPPORTED_LANGUAGE,
       amount: 123.45,
-      currency: 'RUB',
+      currencyCode: 'RUB',
       generatedAt: null,
       idempotencyKey,
     });
