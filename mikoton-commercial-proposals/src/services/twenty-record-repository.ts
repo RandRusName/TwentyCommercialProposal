@@ -39,6 +39,8 @@ type CommercialProposalRecord = {
   generatedAt?: string | null;
   idempotencyKey?: string | null;
   lastError?: string | null;
+  opportunityId?: string | null;
+  companyId?: string | null;
   opportunity?: { id?: string | null } | null;
   company?: { id?: string | null } | null;
 };
@@ -91,8 +93,8 @@ const mapDraft = (record: CommercialProposalRecord): CommercialProposalDraft => 
   language: record.language ?? '',
   payloadSnapshot: record.payloadSnapshot ?? null,
   resultMetadata: record.resultMetadata ?? null,
-  opportunityId: record.opportunity?.id ?? '',
-  companyId: record.company?.id ?? null,
+  opportunityId: record.opportunity?.id ?? record.opportunityId ?? '',
+  companyId: record.company?.id ?? record.companyId ?? null,
   amount: record.amount ?? null,
   currencyCode: record.currencyCode ?? null,
   generatedAt: record.generatedAt ?? null,
@@ -193,6 +195,8 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
             generatedAt: true,
             idempotencyKey: true,
             lastError: true,
+            opportunityId: true,
+            companyId: true,
             opportunity: { id: true },
             company: { id: true },
           },
@@ -228,20 +232,8 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
             generatedAt: draft.generatedAt,
             idempotencyKey: draft.idempotencyKey,
             lastError: draft.lastError,
-            opportunity: {
-              connect: {
-                id: draft.opportunityId,
-              },
-            },
-            ...(draft.companyId === null
-              ? {}
-              : {
-                  company: {
-                    connect: {
-                      id: draft.companyId,
-                    },
-                  },
-                }),
+            opportunityId: draft.opportunityId,
+            ...(draft.companyId === null ? {} : { companyId: draft.companyId }),
           },
         },
         id: true,
@@ -259,6 +251,8 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
         generatedAt: true,
         idempotencyKey: true,
         lastError: true,
+        opportunityId: true,
+        companyId: true,
         opportunity: { id: true },
         company: { id: true },
       },
