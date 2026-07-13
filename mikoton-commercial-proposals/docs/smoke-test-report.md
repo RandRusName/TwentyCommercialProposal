@@ -130,6 +130,16 @@ or configure the Lambda runtime:
   LOGIC_FUNCTION_TYPE=LAMBDA
 ```
 
+Follow-up fix prepared in the adjacent Twenty deployment repository:
+
+- Repository: `C:\IT_Projects\twenty`
+- Branch: `custom/russian-crm`
+- Commit: `e64fb081fa` (`Enable logic function runtime in production deploy`)
+- Change: production Docker Compose now passes
+  `LOGIC_FUNCTION_TYPE=${LOGIC_FUNCTION_TYPE:-LOCAL}` to Twenty `server` and
+  `worker`, and deployment docs describe the required `.env` setting and
+  verification command.
+
 ## Target API Smoke
 
 Attempted with API-key based direct app-route probing:
