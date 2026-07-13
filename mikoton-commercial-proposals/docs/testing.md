@@ -13,15 +13,22 @@ yarn.cmd twenty dev:build .
 yarn.cmd twenty dev:build --tarball .
 ```
 
-Verified on 2026-07-13:
+Verified on 2026-07-13 for the Phase 3 vertical slice:
 
-- `yarn.cmd install --immutable`: passed with existing `twenty-ui` peer warning
-  for `monaco-editor`.
-- `yarn.cmd typecheck`: passed.
-- `yarn.cmd lint`: passed, 0 warnings and 0 errors.
-- `yarn.cmd test:unit`: passed, 2 files and 11 tests.
-- `yarn.cmd twenty dev:build .`: passed.
-- `yarn.cmd twenty dev:build --tarball .`: passed; tarball created.
+- WSL `corepack yarn typecheck`: passed.
+- WSL `corepack yarn lint`: passed, 0 warnings and 0 errors.
+- WSL `corepack yarn test:unit`: passed, 2 files and 16 tests.
+- WSL `bash scripts/build-wsl.sh`: passed; lint, typecheck, unit tests,
+  Twenty tarball build and tarball validation succeeded.
+- Tarball: `release-artifacts/mikoton-commercial-proposals-0.1.2.tgz`.
+- Tarball size: `417850` bytes.
+- Tarball SHA-256:
+  `efb8bef725d6d77b94a7c45ab7c6b11d9910f81810d173b06f1aeacc101c4ff0`.
+
+Windows `yarn.cmd typecheck` and `yarn.cmd lint` were not used as authoritative
+checks in this session because Windows optional binaries for
+`@typescript/native-preview` and `oxlint` were absent in `node_modules`.
+Production validation remains WSL-only for this app.
 
 Unit coverage includes:
 
@@ -29,11 +36,14 @@ Unit coverage includes:
 - `CP-YYYYMMDD-HHmmss-XXXX` number format;
 - new `source/templateCode/language/idempotencyKey` request contract;
 - unsupported source structured error;
+- invalid idempotency key structured error;
 - sequential idempotency;
 - duplicate-conflict recovery;
 - simulated parallel duplicate request;
 - number-conflict retry;
-- Opportunity amount decimal and micros normalization.
+- safe wrapping of draft create failures;
+- Opportunity amount decimal, zero, string micros and micros normalization;
+- no fallback currency when Opportunity has no `currencyCode`.
 
 ## Ephemeral Integration Tests
 
@@ -47,7 +57,10 @@ yarn.cmd test:integration
 ```
 
 In `ephemeral` mode, setup may sync the app and uninstall it during cleanup.
-The test fails if credentials are missing.
+The test fails if credentials are missing. The integration test now exercises
+the backend vertical slice: create Company, create Opportunity, call context
+route, call draft route, verify relations, verify `generatedAt = null`, repeat
+the same idempotency key, and assert structured invalid-source errors.
 
 ## Target Smoke Tests
 

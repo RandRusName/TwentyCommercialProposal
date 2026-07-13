@@ -13,7 +13,10 @@ type CoreClient = InstanceType<typeof CoreApiClient>;
 type OpportunityRecord = {
   id: string;
   name?: string | null;
-  amount?: string | number | { amountMicros?: number; currencyCode?: string };
+  amount?:
+    | string
+    | number
+    | { amountMicros?: number | string; currencyCode?: string | null };
   company?: {
     id?: string | null;
     name?: string | null;
@@ -35,26 +38,34 @@ type CommercialProposalRecord = {
   currencyCode?: string | null;
   generatedAt?: string | null;
   idempotencyKey?: string | null;
+  lastError?: string | null;
   opportunity?: { id?: string | null } | null;
   company?: { id?: string | null } | null;
 };
 
-export const normalizeOpportunityAmount = (amount: OpportunityRecord['amount']) => {
+export const normalizeOpportunityAmount = (
+  amount: OpportunityRecord['amount'],
+) => {
   if (amount === null || amount === undefined) {
     return null;
   }
 
   if (typeof amount === 'object') {
-    return amount.amountMicros === undefined
-      ? null
-      : amount.amountMicros / 1_000_000;
+    if (amount.amountMicros === undefined || amount.amountMicros === null) {
+      return null;
+    }
+
+    const amountMicros = Number(amount.amountMicros);
+
+    return Number.isNaN(amountMicros) ? null : amountMicros / 1_000_000;
   }
 
   return Number(amount);
 };
 
-export const normalizeOpportunityCurrency = (amount: OpportunityRecord['amount']) =>
-  typeof amount === 'object' ? amount.currencyCode ?? null : null;
+export const normalizeOpportunityCurrency = (
+  amount: OpportunityRecord['amount'],
+) => (typeof amount === 'object' ? amount.currencyCode ?? null : null);
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -83,9 +94,10 @@ const mapDraft = (record: CommercialProposalRecord): CommercialProposalDraft => 
   opportunityId: record.opportunity?.id ?? '',
   companyId: record.company?.id ?? null,
   amount: record.amount ?? null,
-  currency: record.currencyCode ?? null,
+  currencyCode: record.currencyCode ?? null,
   generatedAt: record.generatedAt ?? null,
   idempotencyKey: record.idempotencyKey ?? '',
+  lastError: record.lastError ?? null,
 });
 
 export class TwentyRecordRepository implements CommercialProposalRepository {
@@ -133,10 +145,15 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
     return {
       id: opportunity.id,
       name: opportunity.name ?? opportunity.id,
-      companyId: opportunity.company?.id ?? null,
-      companyName: opportunity.company?.name ?? null,
+      company:
+        opportunity.company?.id === undefined || opportunity.company.id === null
+          ? null
+          : {
+              id: opportunity.company.id,
+              name: opportunity.company.name ?? opportunity.company.id,
+            },
       amount: normalizeOpportunityAmount(opportunity.amount),
-      currency: normalizeOpportunityCurrency(opportunity.amount),
+      currencyCode: normalizeOpportunityCurrency(opportunity.amount),
     };
   }
 
@@ -169,6 +186,7 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
             currencyCode: true,
             generatedAt: true,
             idempotencyKey: true,
+            lastError: true,
             opportunity: { id: true },
             company: { id: true },
           },
@@ -200,9 +218,10 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
             payloadSnapshot: draft.payloadSnapshot,
             resultMetadata: draft.resultMetadata,
             amount: draft.amount,
-            currencyCode: draft.currency,
+            currencyCode: draft.currencyCode,
             generatedAt: draft.generatedAt,
             idempotencyKey: draft.idempotencyKey,
+            lastError: draft.lastError,
             opportunity: {
               connect: {
                 id: draft.opportunityId,
@@ -233,6 +252,7 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
         currencyCode: true,
         generatedAt: true,
         idempotencyKey: true,
+        lastError: true,
         opportunity: { id: true },
         company: { id: true },
       },

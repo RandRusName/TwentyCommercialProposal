@@ -1,37 +1,47 @@
 # Next Phase
 
-Do not start document generation until Phase 2 is verified on the target
-Workspace.
+Do not start document generation until the Phase 3 vertical slice is verified on
+the target Workspace.
 
-## Required Before Phase 3
+## Required Before Phase 4
 
-1. Obtain a real API key for `http://192.168.100.11:3000`.
-2. Create PostgreSQL and file/object storage backups.
-3. Bump and commit the app patch version if publishing a new private version.
-4. Run local private deployment:
+1. Commit the Phase 3 changes so `deploy.bat` can run against a clean working
+   tree.
+2. Run local private deployment:
 
-   ```powershell
-   $env:TWENTY_API_KEY = "<TWENTY_API_KEY>"
-   .\scripts\deploy-private.ps1 -TwentyUrl "http://192.168.100.11:3000" -RemoteName "mikoton-target"
+   ```cmd
+   deploy.bat
    ```
 
-5. Run target backend smoke:
+3. Confirm private publish and install/upgrade on
+   `http://192.168.100.11:3000`.
+4. Create or choose `[SMOKE]` Company and Opportunity records with amount and
+   currency.
+5. Open the Opportunity and run `Создать коммерческое предложение` from the
+   command menu.
+6. Verify the front component loads Opportunity, Company, amount and
+   `currencyCode`.
+7. Create a DRAFT and open the created CommercialProposal record.
+8. Verify:
 
-   ```powershell
-   $env:TWENTY_TEST_INSTANCE_MODE = "target"
-   $env:TWENTY_API_URL = "http://192.168.100.11:3000"
-   $env:TWENTY_API_KEY = "<TWENTY_API_KEY>"
-   yarn.cmd test:target-smoke
-   ```
+   - relation to Opportunity;
+   - relation to Company when Company exists;
+   - `generatedAt = null`;
+   - `resultMetadata = null`;
+   - `lastError = null`;
+   - `sourceType = OPPORTUNITY`;
+   - `templateCode = standard-commercial-proposal`;
+   - `language = ru-RU`;
+   - amount micros conversion;
+   - source `currencyCode`.
 
-6. Run backend and UI smoke tests on the target Workspace.
-7. Run restricted-user permission checks.
-8. Publish/install a patch version and verify no metadata duplicates and data
-   preservation.
-9. Update `dry-run-report.md` and `smoke-test-report.md` with actual command
-   output and created draft number.
+9. Repeat the same request with the same idempotency key through the backend
+   smoke test and verify no duplicate draft is created.
+10. Run allowed-user and restricted-user permission checks.
+11. Update `docs/smoke-test-report.md` with the created draft number,
+    screenshots if available, target smoke results and permission results.
 
-## Phase 3 Candidate Work
+## Phase 4 Candidate Work
 
 Only after the above is complete:
 

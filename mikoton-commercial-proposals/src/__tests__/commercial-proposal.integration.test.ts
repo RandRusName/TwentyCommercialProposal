@@ -95,6 +95,21 @@ const callDraftRoute = async (body: Record<string, unknown>) => {
   return { response, payload };
 };
 
+const callContextRoute = async (opportunityId: string) => {
+  const response = await fetch(
+    `${apiUrl}/s/commercial-proposals/opportunity-context`,
+    {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ opportunityId }),
+    },
+  );
+
+  const payload = (await response.json()) as Record<string, unknown>;
+
+  return { response, payload };
+};
+
 const createCompany = async () => {
   const response = await graphql<{ createCompany: CreatedRecord }>(
     `
@@ -215,6 +230,22 @@ describe('commercial proposal backend vertical slice', () => {
   it('creates a draft, preserves relations and stays idempotent', async () => {
     const company = await createCompany();
     const opportunity = await createOpportunity(company.id);
+
+    const context = await callContextRoute(opportunity.id);
+    expect(context.response.status).toBe(200);
+    expect(context.payload).toMatchObject({
+      status: 'success',
+      opportunity: {
+        id: opportunity.id,
+        name: smokeName,
+        company: {
+          id: company.id,
+          name: smokeName,
+        },
+        amount: 123.45,
+        currencyCode: 'RUB',
+      },
+    });
 
     const first = await callDraftRoute({
       source: {

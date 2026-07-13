@@ -36,10 +36,12 @@ export class ApplicationError extends Error {
 export type OpportunityContext = {
   id: string;
   name: string;
-  companyId: string | null;
-  companyName: string | null;
+  company: {
+    id: string;
+    name: string;
+  } | null;
   amount: number | null;
-  currency: string | null;
+  currencyCode: string | null;
 };
 
 export type DraftPayloadSnapshot = {
@@ -66,9 +68,10 @@ export type CommercialProposalDraft = {
   opportunityId: string;
   companyId: string | null;
   amount: number | null;
-  currency: string | null;
+  currencyCode: string | null;
   generatedAt: string | null;
   idempotencyKey: string;
+  lastError: string | null;
 };
 
 export type CreateDraftRequest = {
@@ -279,11 +282,12 @@ export const createCommercialProposalDraft = async ({
         payloadSnapshot,
         resultMetadata: null,
         opportunityId: opportunity.id,
-        companyId: opportunity.companyId,
+        companyId: opportunity.company?.id ?? null,
         amount: opportunity.amount,
-        currency: opportunity.currency ?? 'RUB',
+        currencyCode: opportunity.currencyCode,
         generatedAt: null,
         idempotencyKey: input.idempotencyKey,
+        lastError: null,
       });
 
       return {

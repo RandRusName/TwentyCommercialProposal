@@ -33,9 +33,10 @@ const makeDraft = (
   opportunityId: 'opportunity-id',
   companyId: 'company-id',
   amount: 123.45,
-  currency: 'RUB',
+  currencyCode: 'RUB',
   generatedAt: null,
   idempotencyKey,
+  lastError: null,
   ...overrides,
 });
 
@@ -45,10 +46,12 @@ const makeRepository = (
   getOpportunityContext: vi.fn(async () => ({
     id: 'opportunity-id',
     name: 'Test opportunity',
-    companyId: 'company-id',
-    companyName: 'Test company',
+    company: {
+      id: 'company-id',
+      name: 'Test company',
+    },
     amount: 123.45,
-    currency: 'RUB',
+    currencyCode: 'RUB',
   })),
   findDraftByIdempotencyKey: vi.fn(async () => existingDraft),
   createDraft: vi.fn(async (draft) => ({
@@ -102,6 +105,20 @@ describe('commercial proposal domain', () => {
     ).toThrow(ApplicationError);
   });
 
+  it('rejects invalid idempotency keys with structured errors', () => {
+    expect(() =>
+      normalizeCreateDraftRequest({
+        source: {
+          object: 'opportunity',
+          recordId: 'opportunity-id',
+        },
+        templateCode: SUPPORTED_TEMPLATE_CODE,
+        language: SUPPORTED_LANGUAGE,
+        idempotencyKey: 'not-a-uuid',
+      }),
+    ).toThrow(ApplicationError);
+  });
+
   it('creates a draft from opportunity context with generatedAt set to null', async () => {
     const repository = makeRepository();
 
@@ -122,14 +139,56 @@ describe('commercial proposal domain', () => {
       opportunityId: 'opportunity-id',
       companyId: 'company-id',
       amount: 123.45,
-      currency: 'RUB',
+      currencyCode: 'RUB',
       generatedAt: null,
       idempotencyKey,
+      lastError: null,
     });
     expect(result.draft.number).toMatch(
       /^CP-20260712-101112-[0-9A-HJ-NP-Z]{4}$/,
     );
     expect(result.draft.payloadSnapshot).toEqual(makeInput());
+  });
+
+  it('does not invent a currency when the opportunity has none', async () => {
+    const repository = makeRepository();
+    vi.mocked(repository.getOpportunityContext).mockResolvedValueOnce({
+      id: 'opportunity-id',
+      name: 'Test opportunity',
+      company: null,
+      amount: 0,
+      currencyCode: null,
+    });
+
+    const result = await createCommercialProposalDraft({
+      input: makeInput(),
+      repository,
+      now: fixedDate,
+    });
+
+    expect(result.draft).toMatchObject({
+      companyId: null,
+      amount: 0,
+      currencyCode: null,
+    });
+  });
+
+  it('wraps create failures without leaking raw internal errors', async () => {
+    const repository = makeRepository();
+    vi.mocked(repository.createDraft).mockRejectedValueOnce(
+      new Error('GraphQL secret token failure'),
+    );
+
+    await expect(
+      createCommercialProposalDraft({
+        input: makeInput(),
+        repository,
+        now: fixedDate,
+      }),
+    ).rejects.toMatchObject({
+      code: 'COMMERCIAL_PROPOSAL_CREATE_FAILED',
+      message: 'Не удалось создать черновик коммерческого предложения',
+    });
   });
 
   it('returns an existing draft for the same idempotency key', async () => {
@@ -256,5 +315,25 @@ describe('opportunity amount normalization', () => {
 
     expect(normalizeOpportunityAmount(amount)).toBe(123.45);
     expect(normalizeOpportunityCurrency(amount)).toBe('RUB');
+  });
+
+  it('normalizes string micros and preserves missing currency as null', () => {
+    expect(
+      normalizeOpportunityAmount({
+        amountMicros: '125000000000',
+        currencyCode: null,
+      }),
+    ).toBe(125000);
+    expect(
+      normalizeOpportunityCurrency({
+        amountMicros: '125000000000',
+        currencyCode: null,
+      }),
+    ).toBeNull();
+  });
+
+  it('keeps zero amounts and invalid micros explicit', () => {
+    expect(normalizeOpportunityAmount({ amountMicros: 0 })).toBe(0);
+    expect(normalizeOpportunityAmount({ amountMicros: 'not-a-number' })).toBeNull();
   });
 });

@@ -9,6 +9,16 @@ type OpportunityContextRequest = {
   opportunityId?: string;
 };
 
+const HTTP_STATUS_BY_ERROR_CODE = {
+  INVALID_INPUT: 400,
+  UNSUPPORTED_SOURCE: 400,
+  OPPORTUNITY_NOT_FOUND: 404,
+  OPPORTUNITY_FORBIDDEN: 403,
+  DUPLICATE_REQUEST: 409,
+  COMMERCIAL_PROPOSAL_CREATE_FAILED: 500,
+  INTERNAL_ERROR: 500,
+} as const;
+
 const json = (body: unknown, status = 200) =>
   new Response(body, {
     status,
@@ -22,16 +32,7 @@ const handler = async (event: RoutePayload<OpportunityContextRequest>) => {
     const opportunityId = event.body?.opportunityId;
 
     if (!opportunityId) {
-      return json(
-        {
-          status: 'failed',
-          error: {
-            code: 'INVALID_INPUT',
-            message: 'opportunityId is required',
-          },
-        },
-        400,
-      );
+      throw new ApplicationError('INVALID_INPUT', 'opportunityId is required');
     }
 
     const repository = new TwentyRecordRepository();
@@ -64,7 +65,7 @@ const handler = async (event: RoutePayload<OpportunityContextRequest>) => {
           message: applicationError.message,
         },
       },
-      applicationError.code === 'OPPORTUNITY_FORBIDDEN' ? 403 : 404,
+      HTTP_STATUS_BY_ERROR_CODE[applicationError.code],
     );
   }
 };

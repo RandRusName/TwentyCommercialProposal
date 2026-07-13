@@ -25,6 +25,8 @@ Implemented in this phase:
 - required `idempotencyKey` with unique metadata index and conflict recovery;
 - structured application errors;
 - draft metadata fields for source, template, language and payload snapshot.
+- functional vertical slice from Opportunity command menu to a
+  `CommercialProposal` DRAFT success state.
 
 Not implemented in this phase:
 
@@ -152,10 +154,54 @@ $env:TWENTY_API_KEY = "<ephemeral-api-key>"
 yarn.cmd test:integration
 ```
 
-Remote metadata `plan/apply` and UI smoke require an API key for the target
-Twenty instance. The app must not be considered ready for Phase 3 until those
-checks are run and documented in `docs/dry-run-report.md` and
-`docs/smoke-test-report.md`.
+Target UI smoke and restricted-user checks require access to the target Twenty
+Workspace. The app must not be considered ready for Phase 4 until those checks
+are run and documented in `docs/smoke-test-report.md`.
+
+## Opportunity to Draft Flow
+
+The command menu item is available in a single Opportunity context and opens the
+front component `Создать коммерческое предложение`.
+
+The component loads Opportunity context through the authenticated app route:
+
+```http
+POST /s/commercial-proposals/opportunity-context
+```
+
+The route returns only the safe DTO needed by the UI: Opportunity id/name,
+optional Company id/name, normalized amount, and source `currencyCode`.
+
+Draft creation uses:
+
+```json
+{
+  "source": {
+    "object": "opportunity",
+    "recordId": "opportunity-uuid"
+  },
+  "templateCode": "standard-commercial-proposal",
+  "language": "ru-RU",
+  "idempotencyKey": "uuid"
+}
+```
+
+The idempotency key is generated once per UI operation and reused on retry. A
+successful response shows the created draft number, title, status, and an
+`Открыть коммерческое предложение` action. Direct navigation uses Twenty side
+panel record navigation and does not hardcode a workspace slug.
+
+Created DRAFT records keep:
+
+- `generatedAt = null`;
+- `resultMetadata = null`;
+- `lastError = null`;
+- `sourceType = OPPORTUNITY`;
+- `templateCode = standard-commercial-proposal`;
+- `language = ru-RU`;
+- `amount = Opportunity.amountMicros / 1_000_000` when Opportunity uses Twenty
+  currency micros;
+- `currencyCode` from the Opportunity source value, without defaulting to RUB.
 
 ## Private Deployment
 

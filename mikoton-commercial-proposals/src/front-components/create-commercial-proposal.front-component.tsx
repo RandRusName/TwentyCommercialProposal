@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { defineFrontComponent } from 'twenty-sdk/define';
 import {
   enqueueSnackbar,
   openSidePanelPage,
   SidePanelPages,
+  useColorScheme,
   useSelectedRecordIds,
 } from 'twenty-sdk/front-component';
 
@@ -19,6 +20,7 @@ import {
 import { callAppRoute } from 'src/front-components/utils/call-app-route';
 
 type OpportunityContextResponse = {
+  status: 'success';
   opportunity: OpportunityContext;
 };
 
@@ -36,29 +38,114 @@ const createIdempotencyKey = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 
-const boxStyle = {
-  border: '1px solid #e5e7eb',
-  borderRadius: '8px',
-  padding: '12px',
-  background: '#ffffff',
-} satisfies React.CSSProperties;
+const formatAmount = (amount: number | null, currencyCode: string | null) => {
+  if (amount === null) {
+    return 'Сумма не указана';
+  }
 
-const labelStyle = {
-  color: '#6b7280',
-  fontSize: '12px',
-  lineHeight: 1.4,
-} satisfies React.CSSProperties;
+  return `${amount.toLocaleString('ru-RU')} ${currencyCode ?? ''}`.trim();
+};
 
-const valueStyle = {
-  color: '#111827',
-  fontSize: '14px',
-  fontWeight: 500,
-  lineHeight: 1.5,
-  marginTop: '4px',
-} satisfies React.CSSProperties;
+const Field = ({
+  label,
+  value,
+  styles,
+}: {
+  label: string;
+  value: string;
+  styles: ReturnType<typeof getStyles>;
+}) => (
+  <div style={styles.box}>
+    <div style={styles.label}>{label}</div>
+    <div style={styles.value}>{value}</div>
+  </div>
+);
+
+const getStyles = (colorScheme: 'light' | 'dark') => {
+  const isDark = colorScheme === 'dark';
+
+  return {
+    root: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '12px',
+      padding: '16px',
+      color: isDark ? '#f9fafb' : '#111827',
+      fontFamily:
+        'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    } satisfies CSSProperties,
+    title: {
+      fontSize: '18px',
+      lineHeight: 1.3,
+      margin: '0 0 4px',
+      color: isDark ? '#f9fafb' : '#111827',
+    } satisfies CSSProperties,
+    subtitle: {
+      margin: 0,
+      color: isDark ? '#9ca3af' : '#6b7280',
+      fontSize: '13px',
+      lineHeight: 1.5,
+    } satisfies CSSProperties,
+    box: {
+      border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+      borderRadius: '8px',
+      padding: '12px',
+      background: isDark ? '#111827' : '#ffffff',
+    } satisfies CSSProperties,
+    label: {
+      color: isDark ? '#9ca3af' : '#6b7280',
+      fontSize: '12px',
+      lineHeight: 1.4,
+    } satisfies CSSProperties,
+    value: {
+      color: isDark ? '#f9fafb' : '#111827',
+      fontSize: '14px',
+      fontWeight: 500,
+      lineHeight: 1.5,
+      marginTop: '4px',
+    } satisfies CSSProperties,
+    button: {
+      border: `1px solid ${isDark ? '#f9fafb' : '#111827'}`,
+      borderRadius: '8px',
+      padding: '10px 14px',
+      fontSize: '14px',
+      fontWeight: 600,
+    } satisfies CSSProperties,
+    secondaryButton: {
+      border: `1px solid ${isDark ? '#4b5563' : '#d1d5db'}`,
+      borderRadius: '8px',
+      padding: '10px 14px',
+      background: 'transparent',
+      color: isDark ? '#f9fafb' : '#111827',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: 600,
+    } satisfies CSSProperties,
+    error: {
+      border: '1px solid #fecaca',
+      borderRadius: '8px',
+      padding: '10px 12px',
+      color: '#991b1b',
+      background: '#fef2f2',
+      fontSize: '13px',
+      lineHeight: 1.5,
+    } satisfies CSSProperties,
+    success: {
+      border: '1px solid #bbf7d0',
+      borderRadius: '8px',
+      padding: '10px 12px',
+      color: '#166534',
+      background: '#f0fdf4',
+      fontSize: '13px',
+      lineHeight: 1.5,
+    } satisfies CSSProperties,
+  };
+};
 
 const CreateCommercialProposal = () => {
   const selectedRecordIds = useSelectedRecordIds();
+  const colorScheme = useColorScheme();
+  const styles = getStyles(colorScheme);
   const opportunityId =
     selectedRecordIds.length === 1 ? selectedRecordIds[0] : null;
   const [opportunity, setOpportunity] = useState<OpportunityContext | null>(
@@ -68,7 +155,7 @@ const CreateCommercialProposal = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoadingContext, setIsLoadingContext] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const idempotencyKey = useMemo(() => createIdempotencyKey(), []);
+  const [idempotencyKey] = useState(() => createIdempotencyKey());
 
   useEffect(() => {
     if (opportunityId === null) {
@@ -78,6 +165,7 @@ const CreateCommercialProposal = () => {
     const loadContext = async () => {
       setIsLoadingContext(true);
       setError(null);
+      setDraft(null);
 
       try {
         const result = await callAppRoute<OpportunityContextResponse>(
@@ -89,7 +177,7 @@ const CreateCommercialProposal = () => {
         setError(
           caughtError instanceof Error
             ? caughtError.message
-            : 'Failed to load opportunity context',
+            : 'Не удалось загрузить данные сделки',
         );
       } finally {
         setIsLoadingContext(false);
@@ -99,8 +187,17 @@ const CreateCommercialProposal = () => {
     void loadContext();
   }, [opportunityId]);
 
+  const openDraft = async (draftToOpen: CommercialProposalDraft) => {
+    await openSidePanelPage({
+      page: SidePanelPages.ViewRecord,
+      objectNameSingular: 'commercialProposal',
+      recordId: draftToOpen.id,
+      resetNavigationStack: true,
+    });
+  };
+
   const createDraft = async () => {
-    if (opportunityId === null) {
+    if (opportunityId === null || isCreating || draft !== null) {
       return;
     }
 
@@ -123,21 +220,15 @@ const CreateCommercialProposal = () => {
       setDraft(result.draft);
       await enqueueSnackbar({
         message: result.created
-          ? 'Commercial proposal draft created'
-          : 'Existing draft opened',
+          ? 'Черновик коммерческого предложения создан'
+          : 'Открыт существующий черновик',
         variant: 'success',
-      });
-      await openSidePanelPage({
-        page: SidePanelPages.ViewRecord,
-        objectNameSingular: 'commercialProposal',
-        recordId: result.draft.id,
-        resetNavigationStack: true,
       });
     } catch (caughtError) {
       const message =
         caughtError instanceof Error
           ? caughtError.message
-          : 'Failed to create commercial proposal draft';
+          : 'Не удалось создать черновик коммерческого предложения';
       setError(message);
       await enqueueSnackbar({
         message,
@@ -150,115 +241,92 @@ const CreateCommercialProposal = () => {
 
   if (opportunityId === null) {
     return (
-      <div style={{ padding: '16px', fontFamily: 'Inter, sans-serif' }}>
-        Select exactly one opportunity to create a commercial proposal.
+      <div style={styles.root}>
+        Выберите ровно одну сделку, чтобы создать коммерческое предложение.
       </div>
     );
   }
 
+  const createDisabled =
+    isCreating || isLoadingContext || opportunity === null || draft !== null;
+  const createButtonStyle = {
+    ...styles.button,
+    background:
+      createDisabled ? '#e5e7eb' : colorScheme === 'dark' ? '#f9fafb' : '#111827',
+    color:
+      createDisabled ? '#6b7280' : colorScheme === 'dark' ? '#111827' : '#ffffff',
+    cursor: createDisabled ? 'not-allowed' : 'pointer',
+  } satisfies CSSProperties;
+
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '12px',
-        padding: '16px',
-        fontFamily:
-          'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      }}
-    >
+    <div style={styles.root}>
       <div>
-        <h2
-          style={{
-            fontSize: '18px',
-            lineHeight: 1.3,
-            margin: '0 0 4px',
-            color: '#111827',
-          }}
-        >
-          Create commercial proposal
-        </h2>
-        <p style={{ margin: 0, color: '#6b7280', fontSize: '13px' }}>
-          A draft record will be linked to the current opportunity and company.
+        <h2 style={styles.title}>Создать коммерческое предложение</h2>
+        <p style={styles.subtitle}>
+          Черновик будет связан с текущей сделкой и компанией.
         </p>
       </div>
 
       {isLoadingContext ? (
-        <div style={boxStyle}>Loading opportunity context...</div>
+        <div style={styles.box}>Загрузка данных сделки...</div>
       ) : (
         <div style={{ display: 'grid', gap: '8px' }}>
-          <div style={boxStyle}>
-            <div style={labelStyle}>Opportunity</div>
-            <div style={valueStyle}>{opportunity?.name ?? opportunityId}</div>
-          </div>
-          <div style={boxStyle}>
-            <div style={labelStyle}>Company</div>
-            <div style={valueStyle}>{opportunity?.companyName ?? 'Not set'}</div>
-          </div>
-          <div style={boxStyle}>
-            <div style={labelStyle}>Amount</div>
-            <div style={valueStyle}>
-              {opportunity?.amount ?? 'Not set'} {opportunity?.currency ?? ''}
-            </div>
-          </div>
+          <Field
+            label="Сделка"
+            value={opportunity?.name ?? opportunityId}
+            styles={styles}
+          />
+          <Field
+            label="Компания"
+            value={opportunity?.company?.name ?? 'Компания не указана'}
+            styles={styles}
+          />
+          <Field
+            label="Сумма"
+            value={formatAmount(
+              opportunity?.amount ?? null,
+              opportunity?.currencyCode ?? null,
+            )}
+            styles={styles}
+          />
+          <Field
+            label="Шаблон"
+            value="Стандартное коммерческое предложение"
+            styles={styles}
+          />
+          <Field label="Язык" value="Русский" styles={styles} />
         </div>
       )}
 
-      {error !== null && (
-        <div
-          style={{
-            border: '1px solid #fecaca',
-            borderRadius: '8px',
-            padding: '10px 12px',
-            color: '#991b1b',
-            background: '#fef2f2',
-            fontSize: '13px',
-          }}
-        >
-          {error}
-        </div>
-      )}
+      {error !== null && <div style={styles.error}>{error}</div>}
 
       {draft !== null && (
-        <div
-          style={{
-            border: '1px solid #bbf7d0',
-            borderRadius: '8px',
-            padding: '10px 12px',
-            color: '#166534',
-            background: '#f0fdf4',
-            fontSize: '13px',
-          }}
-        >
-          Draft {draft.number} is ready.
+        <div style={styles.success}>
+          <strong>Черновик коммерческого предложения создан</strong>
+          <div style={{ marginTop: '8px' }}>
+            Номер: {draft.number}
+            <br />
+            Название: {draft.title}
+            <br />
+            Статус: {draft.status}
+          </div>
+          <button
+            type="button"
+            onClick={() => void openDraft(draft)}
+            style={{ ...styles.secondaryButton, marginTop: '10px' }}
+          >
+            Открыть коммерческое предложение
+          </button>
         </div>
       )}
 
       <button
         type="button"
         onClick={() => void createDraft()}
-        disabled={isCreating || isLoadingContext || opportunity === null}
-        style={{
-          border: '1px solid #111827',
-          borderRadius: '8px',
-          padding: '10px 14px',
-          background:
-            isCreating || isLoadingContext || opportunity === null
-              ? '#e5e7eb'
-              : '#111827',
-          color:
-            isCreating || isLoadingContext || opportunity === null
-              ? '#6b7280'
-              : '#ffffff',
-          cursor:
-            isCreating || isLoadingContext || opportunity === null
-              ? 'not-allowed'
-              : 'pointer',
-          fontSize: '14px',
-          fontWeight: 600,
-        }}
+        disabled={createDisabled}
+        style={createButtonStyle}
       >
-        {isCreating ? 'Creating...' : 'Create draft'}
+        {isCreating ? 'Создание черновика...' : 'Создать черновик'}
       </button>
     </div>
   );
@@ -267,7 +335,7 @@ const CreateCommercialProposal = () => {
 export default defineFrontComponent({
   universalIdentifier:
     CREATE_COMMERCIAL_PROPOSAL_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER,
-  name: 'Create commercial proposal',
-  description: 'Creates a CommercialProposal draft from one selected opportunity',
+  name: 'Создать коммерческое предложение',
+  description: 'Создаёт черновик CommercialProposal из выбранной сделки',
   component: CreateCommercialProposal,
 });
