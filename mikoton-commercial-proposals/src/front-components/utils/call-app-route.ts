@@ -160,8 +160,8 @@ const buildAppRouteHeaders = async (diagnostic: AppRouteDiagnostic) => {
     diagnostic.tokenLength = initialToken.length;
 
     return {
-      authorization: `Bearer ${initialToken}`,
-      'content-type': 'application/json',
+      Authorization: `Bearer ${initialToken}`,
+      'Content-Type': 'application/json',
     };
   }
 
@@ -194,8 +194,8 @@ const buildAppRouteHeaders = async (diagnostic: AppRouteDiagnostic) => {
   }
 
   return {
-    authorization: `Bearer ${token}`,
-    'content-type': 'application/json',
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
   };
 };
 

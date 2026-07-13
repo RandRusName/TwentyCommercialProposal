@@ -516,13 +516,13 @@ describe('commercial proposal front component helpers', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://twenty.example.test/s/commercial-proposals/drafts',
-      expect.objectContaining({
-        headers: {
-          authorization: 'Bearer initial-application-token',
-          'content-type': 'application/json',
-        },
-      }),
+        'http://twenty.example.test/s/commercial-proposals/drafts',
+        expect.objectContaining({
+          headers: {
+            Authorization: 'Bearer initial-application-token',
+            'Content-Type': 'application/json',
+          },
+        }),
     );
   });
 
@@ -566,13 +566,13 @@ describe('commercial proposal front component helpers', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://192.168.100.11:3000/s/commercial-proposals/drafts',
-      expect.objectContaining({
-        headers: {
-          authorization: 'Bearer application-access-token',
-          'content-type': 'application/json',
-        },
-      }),
+        'http://192.168.100.11:3000/s/commercial-proposals/drafts',
+        expect.objectContaining({
+          headers: {
+            Authorization: 'Bearer application-access-token',
+            'Content-Type': 'application/json',
+          },
+        }),
     );
   });
 
