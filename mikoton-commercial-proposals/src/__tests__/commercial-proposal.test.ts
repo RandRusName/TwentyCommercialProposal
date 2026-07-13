@@ -44,6 +44,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.TWENTY_APP_ACCESS_TOKEN;
   delete process.env.TWENTY_API_URL;
+  delete process.env.TWENTY_FUNCTIONS_URL;
 });
 
 const makeDraft = (
@@ -454,6 +455,15 @@ describe('commercial proposal front component helpers', () => {
 
     expect(buildAppRouteUrl('/commercial-proposals/drafts')).toBe(
       'http://twenty.example.test/s/commercial-proposals/drafts',
+    );
+  });
+
+  it('prefers the SDK-provided functions base URL for app routes', () => {
+    process.env.TWENTY_FUNCTIONS_URL = 'https://workspace.functions.test';
+    process.env.TWENTY_API_URL = 'http://twenty.example.test';
+
+    expect(buildAppRouteUrl('/commercial-proposals/drafts')).toBe(
+      'https://workspace.functions.test/commercial-proposals/drafts',
     );
   });
 

@@ -1,6 +1,7 @@
 import { getApplicationVariable } from 'twenty-sdk/front-component';
 
 const APPLICATION_API_URL_VARIABLE = 'TWENTY_API_URL';
+const APPLICATION_FUNCTIONS_URL_VARIABLE = 'TWENTY_FUNCTIONS_URL';
 const TARGET_TWENTY_API_URL = 'http://192.168.100.11:3000';
 
 export type AppRouteErrorCode =
@@ -79,8 +80,19 @@ const getInitialApplicationAccessToken = () => {
   return token;
 };
 
+const getFrontComponentFunctionsBaseUrl = () =>
+  process.env.TWENTY_FUNCTIONS_URL ??
+  getApplicationVariable(APPLICATION_FUNCTIONS_URL_VARIABLE);
+
 export const buildAppRouteUrl = (path: string) => {
-  const appPath = `/s${path}`;
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const functionsBaseUrl = getFrontComponentFunctionsBaseUrl();
+
+  if (functionsBaseUrl !== undefined && functionsBaseUrl.trim() !== '') {
+    return `${functionsBaseUrl.replace(/\/$/, '')}${normalizedPath}`;
+  }
+
+  const appPath = `/s${normalizedPath}`;
   const origin = getFrontComponentApiOrigin();
 
   if (origin === null) {
