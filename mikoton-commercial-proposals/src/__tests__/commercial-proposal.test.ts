@@ -9,13 +9,26 @@ import {
   type CommercialProposalRepository,
 } from 'src/domain/commercial-proposal';
 import {
+  buildCreateDraftRequest,
+  CREATE_IDEMPOTENCY_KEY_ERROR,
+  createIdempotencyKey,
+  formatAmount,
+  getSafeErrorMessage,
+  isCreateDraftDisabled,
+} from 'src/front-components/create-commercial-proposal.helpers';
+import {
   normalizeOpportunityAmount,
   normalizeOpportunityCurrency,
 } from 'src/services/twenty-record-repository';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const fixedDate = new Date('2026-07-12T10:11:12.000Z');
 const idempotencyKey = '123e4567-e89b-12d3-a456-426614174000';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 const makeDraft = (
   overrides: Partial<CommercialProposalDraft> = {},
@@ -335,5 +348,86 @@ describe('opportunity amount normalization', () => {
   it('keeps zero amounts and invalid micros explicit', () => {
     expect(normalizeOpportunityAmount({ amountMicros: 0 })).toBe(0);
     expect(normalizeOpportunityAmount({ amountMicros: 'not-a-number' })).toBeNull();
+  });
+});
+
+describe('commercial proposal front component helpers', () => {
+  it('creates a backend-compatible UUID idempotency key', () => {
+    const key = createIdempotencyKey();
+
+    expect(key).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(() =>
+      normalizeCreateDraftRequest({
+        source: {
+          object: 'opportunity',
+          recordId: 'opportunity-id',
+        },
+        templateCode: SUPPORTED_TEMPLATE_CODE,
+        language: SUPPORTED_LANGUAGE,
+        idempotencyKey: key,
+      }),
+    ).not.toThrow();
+  });
+
+  it('returns a readable error when secure UUID generation is unavailable', () => {
+    vi.stubGlobal('crypto', {});
+
+    expect(() => createIdempotencyKey()).toThrow(CREATE_IDEMPOTENCY_KEY_ERROR);
+  });
+
+  it('reuses one stable idempotency key for one operation and retry', () => {
+    const stableKey = '123e4567-e89b-12d3-a456-426614174000';
+    const firstRequest = buildCreateDraftRequest({
+      opportunityId: 'opportunity-id',
+      idempotencyKey: stableKey,
+    });
+    const retryRequest = buildCreateDraftRequest({
+      opportunityId: 'opportunity-id',
+      idempotencyKey: stableKey,
+    });
+
+    expect(firstRequest.idempotencyKey).toBe(stableKey);
+    expect(retryRequest.idempotencyKey).toBe(stableKey);
+    expect(retryRequest).toEqual(firstRequest);
+  });
+
+  it('formats amounts for null, zero, decimals and currencies', () => {
+    expect(formatAmount(null, 'RUB')).toBe('Сумма не указана');
+    expect(formatAmount(0, 'RUB')).toBe('0 RUB');
+    expect(formatAmount(123.45, 'RUB')).toBe('123,45 RUB');
+    expect(formatAmount(123.45, 'USD')).toBe('123,45 USD');
+    expect(formatAmount(123.45, null)).toBe('123,45');
+  });
+
+  it('disables create while loading, submitting, after success or without key', () => {
+    const base = {
+      isCreating: false,
+      isLoadingContext: false,
+      hasOpportunity: true,
+      hasDraft: false,
+      hasIdempotencyKey: true,
+    };
+
+    expect(isCreateDraftDisabled(base)).toBe(false);
+    expect(isCreateDraftDisabled({ ...base, isLoadingContext: true })).toBe(true);
+    expect(isCreateDraftDisabled({ ...base, isCreating: true })).toBe(true);
+    expect(isCreateDraftDisabled({ ...base, hasDraft: true })).toBe(true);
+    expect(isCreateDraftDisabled({ ...base, hasIdempotencyKey: false })).toBe(
+      true,
+    );
+  });
+
+  it('does not surface unsafe internal error details', () => {
+    expect(
+      getSafeErrorMessage(
+        new Error('GraphQL token failure\n    at sdk.call'),
+        'Безопасная ошибка',
+      ),
+    ).toBe('Безопасная ошибка');
+    expect(getSafeErrorMessage(new Error('Сделка не найдена'), 'fallback')).toBe(
+      'Сделка не найдена',
+    );
   });
 });

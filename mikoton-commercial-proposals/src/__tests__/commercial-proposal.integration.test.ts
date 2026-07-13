@@ -37,6 +37,7 @@ const headers = () => ({
 const createdIds = {
   commercialProposal: null as string | null,
   opportunity: null as string | null,
+  opportunityWithoutCompany: null as string | null,
   company: null as string | null,
 };
 
@@ -95,13 +96,13 @@ const callDraftRoute = async (body: Record<string, unknown>) => {
   return { response, payload };
 };
 
-const callContextRoute = async (opportunityId: string) => {
+const callContextRoute = async (body: Record<string, unknown>) => {
   const response = await fetch(
     `${apiUrl}/s/commercial-proposals/opportunity-context`,
     {
       method: 'POST',
       headers: headers(),
-      body: JSON.stringify({ opportunityId }),
+      body: JSON.stringify(body),
     },
   );
 
@@ -146,6 +147,28 @@ const createOpportunity = async (companyId: string) => {
   );
 
   createdIds.opportunity = response.createOpportunity.id;
+
+  return response.createOpportunity;
+};
+
+const createOpportunityWithoutCompany = async () => {
+  const response = await graphql<{ createOpportunity: CreatedRecord }>(
+    `
+      mutation CreateOpportunity($name: String!) {
+        createOpportunity(
+          data: {
+            name: $name
+            amount: { amountMicros: 0, currencyCode: "USD" }
+          }
+        ) {
+          id
+        }
+      }
+    `,
+    { name: `${smokeName} no company` },
+  );
+
+  createdIds.opportunityWithoutCompany = response.createOpportunity.id;
 
   return response.createOpportunity;
 };
@@ -223,6 +246,10 @@ describe('commercial proposal backend vertical slice', () => {
       'deleteCommercialProposal',
       createdIds.commercialProposal,
     );
+    await deleteRecord(
+      'deleteOpportunity',
+      createdIds.opportunityWithoutCompany,
+    );
     await deleteRecord('deleteOpportunity', createdIds.opportunity);
     await deleteRecord('deleteCompany', createdIds.company);
   });
@@ -231,7 +258,7 @@ describe('commercial proposal backend vertical slice', () => {
     const company = await createCompany();
     const opportunity = await createOpportunity(company.id);
 
-    const context = await callContextRoute(opportunity.id);
+    const context = await callContextRoute({ opportunityId: opportunity.id });
     expect(context.response.status).toBe(200);
     expect(context.payload).toMatchObject({
       status: 'success',
@@ -296,6 +323,50 @@ describe('commercial proposal backend vertical slice', () => {
     expect(second.payload.created).toBe(false);
     expect((second.payload.draft as { id: string }).id).toBe(draft.id);
     expect(await findCommercialProposalsByKey()).toHaveLength(1);
+  });
+
+  it('returns context for an opportunity without company', async () => {
+    const opportunity = await createOpportunityWithoutCompany();
+
+    const context = await callContextRoute({ opportunityId: opportunity.id });
+
+    expect(context.response.status).toBe(200);
+    expect(context.payload).toMatchObject({
+      status: 'success',
+      opportunity: {
+        id: opportunity.id,
+        name: `${smokeName} no company`,
+        company: null,
+        amount: 0,
+        currencyCode: 'USD',
+      },
+    });
+  });
+
+  it('returns structured INVALID_INPUT for missing context opportunityId', async () => {
+    const result = await callContextRoute({});
+
+    expect(result.response.status).toBe(400);
+    expect(result.payload).toMatchObject({
+      status: 'failed',
+      error: {
+        code: 'INVALID_INPUT',
+      },
+    });
+  });
+
+  it('returns structured OPPORTUNITY_NOT_FOUND for nonexistent context opportunity', async () => {
+    const result = await callContextRoute({
+      opportunityId: globalThis.crypto.randomUUID(),
+    });
+
+    expect(result.response.status).toBe(404);
+    expect(result.payload).toMatchObject({
+      status: 'failed',
+      error: {
+        code: 'OPPORTUNITY_NOT_FOUND',
+      },
+    });
   });
 
   it('returns structured INVALID_INPUT for malformed requests', async () => {

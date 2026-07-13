@@ -14,9 +14,13 @@ import type {
   OpportunityContext,
 } from 'src/domain/commercial-proposal';
 import {
-  SUPPORTED_LANGUAGE,
-  SUPPORTED_TEMPLATE_CODE,
-} from 'src/domain/commercial-proposal';
+  buildCreateDraftRequest,
+  createIdempotencyKey,
+  formatAmount,
+  getSafeErrorMessage,
+  IDEMPOTENCY_SETUP_ERROR,
+  isCreateDraftDisabled,
+} from 'src/front-components/create-commercial-proposal.helpers';
 import { callAppRoute } from 'src/front-components/utils/call-app-route';
 
 type OpportunityContextResponse = {
@@ -30,21 +34,7 @@ type CreateDraftResponse = {
   created: boolean;
 };
 
-const createIdempotencyKey = () => {
-  if ('crypto' in globalThis && 'randomUUID' in globalThis.crypto) {
-    return globalThis.crypto.randomUUID();
-  }
-
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-};
-
-const formatAmount = (amount: number | null, currencyCode: string | null) => {
-  if (amount === null) {
-    return 'Сумма не указана';
-  }
-
-  return `${amount.toLocaleString('ru-RU')} ${currencyCode ?? ''}`.trim();
-};
+type Styles = ReturnType<typeof getStyles>;
 
 const Field = ({
   label,
@@ -53,7 +43,7 @@ const Field = ({
 }: {
   label: string;
   value: string;
-  styles: ReturnType<typeof getStyles>;
+  styles: Styles;
 }) => (
   <div style={styles.box}>
     <div style={styles.label}>{label}</div>
@@ -122,20 +112,21 @@ const getStyles = (colorScheme: 'light' | 'dark') => {
       fontWeight: 600,
     } satisfies CSSProperties,
     error: {
-      border: '1px solid #fecaca',
+      border: `1px solid ${isDark ? '#7f1d1d' : '#fecaca'}`,
       borderRadius: '8px',
       padding: '10px 12px',
-      color: '#991b1b',
-      background: '#fef2f2',
+      color: isDark ? '#fecaca' : '#991b1b',
+      background: isDark ? '#450a0a' : '#fef2f2',
       fontSize: '13px',
       lineHeight: 1.5,
+      whiteSpace: 'pre-line',
     } satisfies CSSProperties,
     success: {
-      border: '1px solid #bbf7d0',
+      border: `1px solid ${isDark ? '#166534' : '#bbf7d0'}`,
       borderRadius: '8px',
       padding: '10px 12px',
-      color: '#166534',
-      background: '#f0fdf4',
+      color: isDark ? '#bbf7d0' : '#166534',
+      background: isDark ? '#052e16' : '#f0fdf4',
       fontSize: '13px',
       lineHeight: 1.5,
     } satisfies CSSProperties,
@@ -155,7 +146,19 @@ const CreateCommercialProposal = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoadingContext, setIsLoadingContext] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [idempotencyKey] = useState(() => createIdempotencyKey());
+  const [idempotencyKey] = useState<string | null>(() => {
+    try {
+      return createIdempotencyKey();
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (idempotencyKey === null) {
+      setError(IDEMPOTENCY_SETUP_ERROR);
+    }
+  }, [idempotencyKey]);
 
   useEffect(() => {
     if (opportunityId === null) {
@@ -164,7 +167,7 @@ const CreateCommercialProposal = () => {
 
     const loadContext = async () => {
       setIsLoadingContext(true);
-      setError(null);
+      setError(idempotencyKey === null ? IDEMPOTENCY_SETUP_ERROR : null);
       setDraft(null);
 
       try {
@@ -175,9 +178,7 @@ const CreateCommercialProposal = () => {
         setOpportunity(result.opportunity);
       } catch (caughtError) {
         setError(
-          caughtError instanceof Error
-            ? caughtError.message
-            : 'Не удалось загрузить данные сделки',
+          getSafeErrorMessage(caughtError, 'Не удалось загрузить данные сделки'),
         );
       } finally {
         setIsLoadingContext(false);
@@ -185,7 +186,7 @@ const CreateCommercialProposal = () => {
     };
 
     void loadContext();
-  }, [opportunityId]);
+  }, [idempotencyKey, opportunityId]);
 
   const openDraft = async (draftToOpen: CommercialProposalDraft) => {
     await openSidePanelPage({
@@ -197,7 +198,12 @@ const CreateCommercialProposal = () => {
   };
 
   const createDraft = async () => {
-    if (opportunityId === null || isCreating || draft !== null) {
+    if (
+      opportunityId === null ||
+      idempotencyKey === null ||
+      isCreating ||
+      draft !== null
+    ) {
       return;
     }
 
@@ -207,15 +213,7 @@ const CreateCommercialProposal = () => {
     try {
       const result = await callAppRoute<CreateDraftResponse>(
         '/commercial-proposals/drafts',
-        {
-          source: {
-            object: 'opportunity',
-            recordId: opportunityId,
-          },
-          templateCode: SUPPORTED_TEMPLATE_CODE,
-          language: SUPPORTED_LANGUAGE,
-          idempotencyKey,
-        },
+        buildCreateDraftRequest({ opportunityId, idempotencyKey }),
       );
       setDraft(result.draft);
       await enqueueSnackbar({
@@ -225,10 +223,10 @@ const CreateCommercialProposal = () => {
         variant: 'success',
       });
     } catch (caughtError) {
-      const message =
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Не удалось создать черновик коммерческого предложения';
+      const message = getSafeErrorMessage(
+        caughtError,
+        'Не удалось создать черновик коммерческого предложения',
+      );
       setError(message);
       await enqueueSnackbar({
         message,
@@ -247,14 +245,29 @@ const CreateCommercialProposal = () => {
     );
   }
 
-  const createDisabled =
-    isCreating || isLoadingContext || opportunity === null || draft !== null;
+  const createDisabled = isCreateDraftDisabled({
+    isCreating,
+    isLoadingContext,
+    hasOpportunity: opportunity !== null,
+    hasDraft: draft !== null,
+    hasIdempotencyKey: idempotencyKey !== null,
+  });
   const createButtonStyle = {
     ...styles.button,
-    background:
-      createDisabled ? '#e5e7eb' : colorScheme === 'dark' ? '#f9fafb' : '#111827',
-    color:
-      createDisabled ? '#6b7280' : colorScheme === 'dark' ? '#111827' : '#ffffff',
+    background: createDisabled
+      ? colorScheme === 'dark'
+        ? '#374151'
+        : '#e5e7eb'
+      : colorScheme === 'dark'
+        ? '#f9fafb'
+        : '#111827',
+    color: createDisabled
+      ? colorScheme === 'dark'
+        ? '#d1d5db'
+        : '#6b7280'
+      : colorScheme === 'dark'
+        ? '#111827'
+        : '#ffffff',
     cursor: createDisabled ? 'not-allowed' : 'pointer',
   } satisfies CSSProperties;
 
