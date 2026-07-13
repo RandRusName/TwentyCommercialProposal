@@ -21,7 +21,10 @@ import {
   IDEMPOTENCY_SETUP_ERROR,
   isCreateDraftDisabled,
 } from 'src/front-components/create-commercial-proposal.helpers';
-import { callAppRoute } from 'src/front-components/utils/call-app-route';
+import {
+  AppRouteError,
+  callAppRoute,
+} from 'src/front-components/utils/call-app-route';
 
 type OpportunityContextResponse = {
   status: 'success';
@@ -35,6 +38,32 @@ type CreateDraftResponse = {
 };
 
 type Styles = ReturnType<typeof getStyles>;
+
+type SafeAppRouteDiagnostic = {
+  code: string;
+  refreshApiAvailable: boolean;
+  tokenReceived: boolean;
+  tokenLength: number;
+  responseStatus?: number;
+  responseStatusText?: string;
+};
+
+const getSafeAppRouteDiagnostic = (
+  caughtError: unknown,
+): SafeAppRouteDiagnostic | null => {
+  if (!(caughtError instanceof AppRouteError)) {
+    return null;
+  }
+
+  return {
+    code: caughtError.code,
+    refreshApiAvailable: caughtError.diagnostic.refreshApiAvailable,
+    tokenReceived: caughtError.diagnostic.tokenReceived,
+    tokenLength: caughtError.diagnostic.tokenLength,
+    responseStatus: caughtError.diagnostic.responseStatus,
+    responseStatusText: caughtError.diagnostic.responseStatusText,
+  };
+};
 
 const Field = ({
   label,
@@ -144,6 +173,8 @@ const CreateCommercialProposal = () => {
   );
   const [draft, setDraft] = useState<CommercialProposalDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [routeDiagnostic, setRouteDiagnostic] =
+    useState<SafeAppRouteDiagnostic | null>(null);
   const [isLoadingContext, setIsLoadingContext] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [idempotencyKey] = useState<string | null>(() => {
@@ -168,6 +199,7 @@ const CreateCommercialProposal = () => {
     const loadContext = async () => {
       setIsLoadingContext(true);
       setError(idempotencyKey === null ? IDEMPOTENCY_SETUP_ERROR : null);
+      setRouteDiagnostic(null);
       setDraft(null);
 
       try {
@@ -177,6 +209,7 @@ const CreateCommercialProposal = () => {
         );
         setOpportunity(result.opportunity);
       } catch (caughtError) {
+        setRouteDiagnostic(getSafeAppRouteDiagnostic(caughtError));
         setError(
           getSafeErrorMessage(caughtError, 'Не удалось загрузить данные сделки'),
         );
@@ -209,6 +242,7 @@ const CreateCommercialProposal = () => {
 
     setIsCreating(true);
     setError(null);
+    setRouteDiagnostic(null);
 
     try {
       const result = await callAppRoute<CreateDraftResponse>(
@@ -223,6 +257,7 @@ const CreateCommercialProposal = () => {
         variant: 'success',
       });
     } catch (caughtError) {
+      setRouteDiagnostic(getSafeAppRouteDiagnostic(caughtError));
       const message = getSafeErrorMessage(
         caughtError,
         'Не удалось создать черновик коммерческого предложения',
@@ -311,7 +346,23 @@ const CreateCommercialProposal = () => {
         </div>
       )}
 
-      {error !== null && <div style={styles.error}>{error}</div>}
+      {error !== null && (
+        <div
+          style={styles.error}
+          data-app-route-error-code={routeDiagnostic?.code}
+          data-app-route-refresh-api-available={
+            routeDiagnostic?.refreshApiAvailable
+          }
+          data-app-route-token-received={routeDiagnostic?.tokenReceived}
+          data-app-route-token-length={routeDiagnostic?.tokenLength}
+          data-app-route-response-status={routeDiagnostic?.responseStatus}
+          data-app-route-response-status-text={
+            routeDiagnostic?.responseStatusText
+          }
+        >
+          {error}
+        </div>
+      )}
 
       {draft !== null && (
         <div style={styles.success}>
