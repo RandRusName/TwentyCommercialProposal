@@ -13,18 +13,41 @@
 ## Fields
 
 - `title` (`TEXT`, required): record label.
-- `number` (`TEXT`, required): generated draft number, format `CP-YYYYMMDD-HHMMSS`.
-- `status` (`SELECT`, required): `DRAFT`, `GENERATED`, `FAILED`.
-- `amount` (`NUMBER`, nullable): snapshot from Opportunity amount.
-- `currency` (`TEXT`, nullable): snapshot from Opportunity currency, defaults to `RUB`.
+- `number` (`TEXT`, required): server-generated number in
+  `CP-YYYYMMDD-HHmmss-XXXX` format.
+- `status` (`SELECT`, required): `DRAFT`, `GENERATING`, `GENERATED`, `SENT`,
+  `ACCEPTED`, `REJECTED`, `FAILED`, `CANCELLED`.
+- `sourceType` (`SELECT`, required): currently only `OPPORTUNITY`.
+- `templateCode` (`TEXT`, required): accepted request template code.
+- `templateVersion` (`TEXT`, nullable): reserved for generation phase.
+- `language` (`TEXT`, required): accepted request language, currently `ru-RU`.
+- `payloadSnapshot` (`RAW_JSON`, nullable): minimal accepted source/template
+  request snapshot.
+- `resultMetadata` (`RAW_JSON`, nullable): reserved for generation result data.
+- `amount` (`NUMBER`, nullable): decimal snapshot from Opportunity amount.
+- `currency` (`TEXT`, nullable): currency code snapshot, defaults to `RUB`.
 - `opportunity` (`RELATION`, required): many-to-one to standard Opportunity.
 - `company` (`RELATION`, nullable): many-to-one to standard Company.
-- `generatedAt` (`DATE_TIME`, nullable): draft creation time.
+- `generatedAt` (`DATE_TIME`, nullable): document generation completion time.
+  Draft records set it to `null`; Twenty `createdAt` is the draft creation time.
 - `docxUrl` (`TEXT`, nullable): reserved for document-service phase.
 - `pdfUrl` (`TEXT`, nullable): reserved for document-service phase.
 - `files` (`FILES`, nullable): reserved for generated files.
-- `idempotencyKey` (`TEXT`, nullable): client-generated dedupe key.
+- `idempotencyKey` (`TEXT`, required): client-generated request key.
 - `lastError` (`TEXT`, nullable): reserved for future failure state.
+
+## Amount Handling
+
+Twenty `v2.20.0` exposes Opportunity amount as a currency object with
+`amountMicros` and `currencyCode` through the Core API. The app maps
+`amountMicros / 1_000_000` to decimal `amount` and stores `currencyCode`
+separately.
+
+`FieldType.CURRENCY` exists in `twenty-sdk@2.20.0`, but this app keeps
+`NUMBER + currency` for the current field because changing an already-declared
+`amount` field from `NUMBER` to `CURRENCY` may be a destructive metadata change
+on an installed Workspace. This must be revisited only after a real metadata
+plan proves the change is safe.
 
 ## Relations Added To Standard Objects
 
@@ -35,16 +58,23 @@ These are app-owned metadata fields; Twenty core is not modified.
 
 ## Indexes
 
-Non-unique BTREE indexes are declared for:
+BTREE indexes are declared for:
 
-- `number`
-- `status`
-- `opportunity`
-- `company`
-- `idempotencyKey`
+- `number`, unique;
+- `status`;
+- `opportunity`;
+- `company`;
+- `idempotencyKey`, unique.
 
-Uniqueness is intentionally not enforced at metadata level in this POC. Duplicate
-prevention is handled by the logic function using `idempotencyKey`.
+The unique `idempotencyKey` index is the concurrency guard. The logic function
+still performs best-effort pre-read and read-after-conflict recovery so repeated
+sequential and parallel requests return the existing draft where possible.
+
+The unique `number` index protects the generated `CP-YYYYMMDD-HHmmss-XXXX`
+number. The four-character suffix is generated server-side from browser/server
+crypto when available, with a non-cryptographic fallback only for runtimes that
+lack `crypto.getRandomValues`. The create path retries a small number of times
+if a unique number conflict occurs.
 
 ## View And Navigation
 

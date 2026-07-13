@@ -1,0 +1,66 @@
+name: CD
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: mikoton-commercial-proposals
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-and-install:
+    runs-on: ubuntu-latest
+    env:
+      TWENTY_DEPLOY_REMOTE: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: mikoton-commercial-proposals/.nvmrc
+          cache: yarn
+          cache-dependency-path: mikoton-commercial-proposals/yarn.lock
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build app
+        run: yarn twenty dev:build .
+
+      - name: Configure remote
+        run: >
+          yarn twenty remote:add
+          --as "$TWENTY_DEPLOY_REMOTE"
+          --url "$TWENTY_DEPLOY_URL"
+          --api-key "$TWENTY_DEPLOY_API_KEY"
+        env:
+          TWENTY_DEPLOY_URL: ${{ secrets.TWENTY_DEPLOY_URL }}
+          TWENTY_DEPLOY_API_KEY: ${{ secrets.TWENTY_DEPLOY_API_KEY }}
+
+      - name: Plan metadata changes
+        run: yarn twenty plan -r "$TWENTY_DEPLOY_REMOTE" . | tee twenty-plan.log
+
+      - name: Stop on destructive plan
+        run: |
+          if grep -Eiq '(destructive|delete|drop|remove)' twenty-plan.log; then
+            echo "Metadata plan may contain destructive changes. Aborting."
+            exit 1
+          fi
+
+      - name: Apply metadata changes
+        run: yarn twenty apply -r "$TWENTY_DEPLOY_REMOTE" .
+
+      - name: Install app
+        run: yarn twenty app:install -r "$TWENTY_DEPLOY_REMOTE" .

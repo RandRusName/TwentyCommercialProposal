@@ -10,7 +10,11 @@ permissions:
   contents: read
 
 env:
-  TWENTY_VERSION: latest
+  TWENTY_VERSION: v2.20.0
+
+defaults:
+  run:
+    working-directory: mikoton-commercial-proposals
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -25,18 +29,19 @@ jobs:
 
       - name: Spawn Twenty test instance
         id: twenty
-        uses: twentyhq/twenty/.github/actions/spawn-twenty-app-dev-test@main
+        uses: twentyhq/twenty/.github/actions/spawn-twenty-app-dev-test@twenty/v2.20.0
         with:
           twenty-version: ${{ env.TWENTY_VERSION }}
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version-file: '.nvmrc'
+          node-version-file: mikoton-commercial-proposals/.nvmrc
           cache: yarn
+          cache-dependency-path: mikoton-commercial-proposals/yarn.lock
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install dependencies
         run: yarn install --immutable
@@ -50,8 +55,12 @@ jobs:
       - name: Unit tests
         run: yarn test:unit
 
-      - name: Run integration tests
+      - name: Integration tests
         run: yarn test
         env:
+          TWENTY_RUN_REMOTE_SMOKE: 'true'
           TWENTY_API_URL: ${{ steps.twenty.outputs.server-url }}
           TWENTY_API_KEY: ${{ steps.twenty.outputs.api-key }}
+
+      - name: Build app
+        run: yarn twenty dev:build .

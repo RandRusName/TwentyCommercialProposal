@@ -1,6 +1,13 @@
 # Dry Run Report
 
-Date: 2026-07-12.
+Date: 2026-07-13.
+
+## Versions
+
+- Target Twenty URL: `http://192.168.100.11:3000`
+- Target Twenty Server: `v2.20.0`
+- App SDK: `twenty-sdk@2.20.0`
+- Client SDK: `twenty-client-sdk@2.20.0`
 
 ## Local Build Dry Run
 
@@ -10,43 +17,61 @@ Command:
 yarn.cmd twenty dev:build .
 ```
 
-Result:
+Result on 2026-07-13:
 
 - manifest built;
 - front component and logic functions built;
 - SDK typecheck passed;
-- no manifest warnings after default value fixes.
+- output written to `.twenty/output`.
 
-## Remote Plan
+## Required Remote Plan Command
 
-Attempted non-destructive remote authentication:
+Credentials were not available in this session. `TWENTY_API_KEY` and
+`TWENTY_DEPLOY_API_KEY` were both missing from the environment, so no remote
+metadata was changed.
+
+Command to run after receiving a real API key:
 
 ```powershell
-yarn.cmd twenty remote:add --as mikoton-remote --url http://192.168.100.11:3000
+$env:TWENTY_API_KEY = "<TWENTY_API_KEY>"
+yarn.cmd twenty remote:add --as mikoton-remote --url http://192.168.100.11:3000 --api-key $env:TWENTY_API_KEY
+yarn.cmd twenty plan -r mikoton-remote .
+```
+
+Expected review points before apply:
+
+- no deletion of existing metadata;
+- no changes to unrelated objects;
+- no replacement of page layouts;
+- no destructive field type changes;
+- no duplicate metadata creation on repeated plan.
+
+## Actual Remote Plan Result
+
+Attempted command without credentials:
+
+```powershell
+yarn.cmd twenty plan -r mikoton-remote .
 ```
 
 Observed result:
 
-- CLI attempted browser auth;
-- server responded: `Server does not expose a CLI client ID`;
-- CLI requested API key;
-- no credentials were invented or supplied.
-
-Attempted plan against existing `local` remote:
-
-```powershell
-yarn.cmd twenty plan -r local .
-```
-
-Observed result:
-
-- existing `local` remote points to `http://localhost:2020`;
-- server unreachable;
+- CLI attempted to use `mikoton-remote`;
+- server check failed with `Cannot reach Twenty server`;
+- `yarn.cmd twenty remote:list` showed only `local -> http://localhost:2020`;
+- no target API key was available to add `http://192.168.100.11:3000`;
 - no remote metadata was changed.
+
+## Apply/Sync
+
+Not executed. The app was not installed or activated on the target Workspace in
+this session.
+
+## Repeated Plan
+
+Not executed. A repeated plan must be run only after a successful apply/sync.
 
 ## Conclusion
 
 Remote dry-run against `http://192.168.100.11:3000` is blocked until a real API
-key is provided.
-
-No `apply` command was executed.
+key is provided. No destructive remote operation was performed.

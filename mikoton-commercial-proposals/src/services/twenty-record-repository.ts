@@ -1,10 +1,12 @@
 import { CoreApiClient } from 'twenty-client-sdk/core';
 
 import type {
+  ApplicationErrorCode,
   CommercialProposalDraft,
   CommercialProposalRepository,
   OpportunityContext,
 } from 'src/domain/commercial-proposal';
+import { ApplicationError } from 'src/domain/commercial-proposal';
 
 type CoreClient = InstanceType<typeof CoreApiClient>;
 
@@ -23,6 +25,12 @@ type CommercialProposalRecord = {
   title?: string | null;
   number?: string | null;
   status?: CommercialProposalDraft['status'] | null;
+  sourceType?: CommercialProposalDraft['sourceType'] | null;
+  templateCode?: string | null;
+  templateVersion?: string | null;
+  language?: string | null;
+  payloadSnapshot?: CommercialProposalDraft['payloadSnapshot'] | null;
+  resultMetadata?: Record<string, unknown> | null;
   amount?: number | null;
   currency?: string | null;
   generatedAt?: string | null;
@@ -31,7 +39,7 @@ type CommercialProposalRecord = {
   company?: { id?: string | null } | null;
 };
 
-const normalizeAmount = (amount: OpportunityRecord['amount']) => {
+export const normalizeOpportunityAmount = (amount: OpportunityRecord['amount']) => {
   if (amount === null || amount === undefined) {
     return null;
   }
@@ -45,19 +53,38 @@ const normalizeAmount = (amount: OpportunityRecord['amount']) => {
   return Number(amount);
 };
 
-const normalizeCurrency = (amount: OpportunityRecord['amount']) =>
+export const normalizeOpportunityCurrency = (amount: OpportunityRecord['amount']) =>
   typeof amount === 'object' ? amount.currencyCode ?? null : null;
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
+const classifyReadError = (error: unknown): ApplicationErrorCode => {
+  const message = getErrorMessage(error);
+
+  if (/forbidden|permission|not authorized|unauthorized/i.test(message)) {
+    return 'OPPORTUNITY_FORBIDDEN';
+  }
+
+  return 'OPPORTUNITY_NOT_FOUND';
+};
 
 const mapDraft = (record: CommercialProposalRecord): CommercialProposalDraft => ({
   id: record.id,
   title: record.title ?? '',
   number: record.number ?? '',
   status: record.status ?? 'DRAFT',
+  sourceType: record.sourceType ?? 'OPPORTUNITY',
+  templateCode: record.templateCode ?? '',
+  templateVersion: record.templateVersion ?? null,
+  language: record.language ?? '',
+  payloadSnapshot: record.payloadSnapshot ?? null,
+  resultMetadata: record.resultMetadata ?? null,
   opportunityId: record.opportunity?.id ?? '',
   companyId: record.company?.id ?? null,
   amount: record.amount ?? null,
   currency: record.currency ?? null,
-  generatedAt: record.generatedAt ?? '',
+  generatedAt: record.generatedAt ?? null,
   idempotencyKey: record.idempotencyKey ?? '',
 });
 
@@ -65,21 +92,31 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
   constructor(private readonly client: CoreClient = new CoreApiClient()) {}
 
   async getOpportunityContext(opportunityId: string): Promise<OpportunityContext> {
-    const response = await this.client.query({
-      findUniqueOpportunity: {
-        __args: { id: opportunityId },
-        id: true,
-        name: true,
-        amount: {
-          amountMicros: true,
-          currencyCode: true,
-        },
-        company: {
+    let response: Awaited<ReturnType<CoreClient['query']>>;
+
+    try {
+      response = await this.client.query({
+        findUniqueOpportunity: {
+          __args: { id: opportunityId },
           id: true,
           name: true,
+          amount: {
+            amountMicros: true,
+            currencyCode: true,
+          },
+          company: {
+            id: true,
+            name: true,
+          },
         },
-      },
-    });
+      });
+    } catch (error) {
+      throw new ApplicationError(
+        classifyReadError(error),
+        'Сделка не найдена или недоступна',
+        error,
+      );
+    }
 
     const opportunity = response.findUniqueOpportunity as
       | OpportunityRecord
@@ -87,7 +124,10 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
       | undefined;
 
     if (opportunity === null || opportunity === undefined) {
-      throw new Error('Opportunity was not found');
+      throw new ApplicationError(
+        'OPPORTUNITY_NOT_FOUND',
+        'Сделка не найдена или недоступна',
+      );
     }
 
     return {
@@ -95,8 +135,8 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
       name: opportunity.name ?? opportunity.id,
       companyId: opportunity.company?.id ?? null,
       companyName: opportunity.company?.name ?? null,
-      amount: normalizeAmount(opportunity.amount),
-      currency: normalizeCurrency(opportunity.amount),
+      amount: normalizeOpportunityAmount(opportunity.amount),
+      currency: normalizeOpportunityCurrency(opportunity.amount),
     };
   }
 
@@ -119,6 +159,12 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
             title: true,
             number: true,
             status: true,
+            sourceType: true,
+            templateCode: true,
+            templateVersion: true,
+            language: true,
+            payloadSnapshot: true,
+            resultMetadata: true,
             amount: true,
             currency: true,
             generatedAt: true,
@@ -147,6 +193,12 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
             title: draft.title,
             number: draft.number,
             status: draft.status,
+            sourceType: draft.sourceType,
+            templateCode: draft.templateCode,
+            templateVersion: draft.templateVersion,
+            language: draft.language,
+            payloadSnapshot: draft.payloadSnapshot,
+            resultMetadata: draft.resultMetadata,
             amount: draft.amount,
             currency: draft.currency,
             generatedAt: draft.generatedAt,
@@ -171,6 +223,12 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
         title: true,
         number: true,
         status: true,
+        sourceType: true,
+        templateCode: true,
+        templateVersion: true,
+        language: true,
+        payloadSnapshot: true,
+        resultMetadata: true,
         amount: true,
         currency: true,
         generatedAt: true,
@@ -181,5 +239,10 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
     });
 
     return mapDraft(response.createCommercialProposal as CommercialProposalRecord);
+  }
+
+  isDuplicateConflict(error: unknown) {
+    const message = getErrorMessage(error);
+    return /duplicate|unique|already exists|constraint/i.test(message);
   }
 }

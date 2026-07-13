@@ -18,6 +18,7 @@ export const commercialProposalNumberIndex = defineIndex({
   universalIdentifier: COMMERCIAL_PROPOSAL_INDEX_NUMBER_UNIVERSAL_IDENTIFIER,
   objectUniversalIdentifier: COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
   indexType: 'BTREE',
+  isUnique: true,
   fields: [
     {
       universalIdentifier: 'cae84ee1-3408-4215-9cf8-d910adafd631',
@@ -72,6 +73,7 @@ export const commercialProposalIdempotencyIndex = defineIndex({
     COMMERCIAL_PROPOSAL_INDEX_IDEMPOTENCY_UNIVERSAL_IDENTIFIER,
   objectUniversalIdentifier: COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
   indexType: 'BTREE',
+  isUnique: true,
   fields: [
     {
       universalIdentifier: 'b315c80a-8631-4213-9168-792f05f94ba3',

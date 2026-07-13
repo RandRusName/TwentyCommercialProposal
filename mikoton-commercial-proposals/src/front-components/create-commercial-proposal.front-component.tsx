@@ -12,6 +12,10 @@ import type {
   CommercialProposalDraft,
   OpportunityContext,
 } from 'src/domain/commercial-proposal';
+import {
+  SUPPORTED_LANGUAGE,
+  SUPPORTED_TEMPLATE_CODE,
+} from 'src/domain/commercial-proposal';
 import { callAppRoute } from 'src/front-components/utils/call-app-route';
 
 type OpportunityContextResponse = {
@@ -19,6 +23,7 @@ type OpportunityContextResponse = {
 };
 
 type CreateDraftResponse = {
+  status: 'success';
   draft: CommercialProposalDraft;
   created: boolean;
 };
@@ -105,7 +110,15 @@ const CreateCommercialProposal = () => {
     try {
       const result = await callAppRoute<CreateDraftResponse>(
         '/commercial-proposals/drafts',
-        { opportunityId, idempotencyKey },
+        {
+          source: {
+            object: 'opportunity',
+            recordId: opportunityId,
+          },
+          templateCode: SUPPORTED_TEMPLATE_CODE,
+          language: SUPPORTED_LANGUAGE,
+          idempotencyKey,
+        },
       );
       setDraft(result.draft);
       await enqueueSnackbar({

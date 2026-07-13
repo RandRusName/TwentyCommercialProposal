@@ -10,14 +10,22 @@ export const callAppRoute = async <TResponse extends object>(
     body: JSON.stringify(body),
   });
 
-  const payload = (await response.json()) as TResponse | { error?: string };
+  const payload = (await response.json()) as
+    | TResponse
+    | {
+        error?: string | { code: string; message: string };
+      };
 
   if (!response.ok) {
-    throw new Error(
-      'error' in payload && payload.error
-        ? payload.error
-        : `App route failed with status ${response.status}`,
-    );
+    if ('error' in payload && payload.error) {
+      throw new Error(
+        typeof payload.error === 'string'
+          ? payload.error
+          : payload.error.message,
+      );
+    }
+
+    throw new Error(`App route failed with status ${response.status}`);
   }
 
   return payload as TResponse;
