@@ -645,7 +645,7 @@ describe('twenty record repository generated file attachments', () => {
     ]);
 
     expect(fetch).toHaveBeenCalledWith(
-      'https://twenty.test/graphql',
+      'https://twenty.test/metadata',
       expect.objectContaining({
         method: 'POST',
         headers: {

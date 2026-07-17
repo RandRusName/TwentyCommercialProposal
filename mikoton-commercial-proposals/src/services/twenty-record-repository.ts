@@ -131,7 +131,7 @@ const getAttachmentFileCategory = (
   file: CommercialProposalGenerationFile,
 ) => (file.format === 'xlsm' ? 'SPREADSHEET' : 'TEXT_DOCUMENT');
 
-const getTwentyGraphqlUrl = () => {
+const getTwentyMetadataUrl = () => {
   const apiUrl = process.env.TWENTY_API_URL;
 
   if (apiUrl === undefined || apiUrl.trim() === '') {
@@ -141,7 +141,7 @@ const getTwentyGraphqlUrl = () => {
     );
   }
 
-  return `${apiUrl.replace(/\/$/, '')}/graphql`;
+  return `${apiUrl.replace(/\/$/, '')}/metadata`;
 };
 
 const getTwentyAccessToken = () => {
@@ -198,7 +198,7 @@ const uploadGeneratedFileToTwenty = async (
     fileName,
   );
 
-  const response = await fetch(getTwentyGraphqlUrl(), {
+  const response = await fetch(getTwentyMetadataUrl(), {
     method: 'POST',
     headers: {
       authorization: `Bearer ${getTwentyAccessToken()}`,
