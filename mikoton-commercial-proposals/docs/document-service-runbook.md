@@ -98,6 +98,11 @@ MinIO/S3:
 - `MINIO_SECURE`
 - `MINIO_PUBLIC_BASE_URL`
 
+`MINIO_ENDPOINT` is used for upload/storage access from the document-service
+container. `MINIO_PUBLIC_BASE_URL`, when set, is used to create the presigned
+download URL, so it must be the browser-reachable endpoint. Do not rewrite the
+host after signing; S3 signatures include the host.
+
 ## Security
 
 - Do not expose the service publicly without network controls.

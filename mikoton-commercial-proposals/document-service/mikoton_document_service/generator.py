@@ -133,13 +133,21 @@ class S3DocumentStorage:
 
         self.bucket = bucket
         self.public_base_url = public_base_url.rstrip("/") if public_base_url else None
+        client_options = {
+            "aws_access_key_id": access_key,
+            "aws_secret_access_key": secret_key,
+            "use_ssl": secure,
+            "config": Config(signature_version="s3v4"),
+        }
         self.client = boto3.client(
             "s3",
             endpoint_url=endpoint,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            use_ssl=secure,
-            config=Config(signature_version="s3v4"),
+            **client_options,
+        )
+        self.presign_client = boto3.client(
+            "s3",
+            endpoint_url=self.public_base_url or endpoint,
+            **client_options,
         )
 
     def put(self, *, source_path: Path, storage_key: str, content_type: str) -> str:
@@ -156,11 +164,9 @@ class S3DocumentStorage:
 
     def get_download_url(self, *, storage_key: str, expires_in_seconds: int) -> tuple[str, datetime]:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)
-        if self.public_base_url:
-            return f"{self.public_base_url}/{storage_key}", expires_at
         try:
             return (
-                self.client.generate_presigned_url(
+                self.presign_client.generate_presigned_url(
                     "get_object",
                     Params={"Bucket": self.bucket, "Key": storage_key},
                     ExpiresIn=expires_in_seconds,

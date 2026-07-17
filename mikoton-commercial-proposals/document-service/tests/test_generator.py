@@ -17,6 +17,7 @@ from mikoton_document_service.generator import (
     DocumentGenerationError,
     LocalDocumentStorage,
     REQUIRED_XLSM_PARTS,
+    S3DocumentStorage,
     generate_xlsm,
     generate_pdf_from_xlsm,
     generate_documents,
@@ -190,6 +191,27 @@ class GeneratorTest(unittest.TestCase):
                     )
 
             self.assertEqual(raised.exception.code, "PDF_EXPORT_FAILED")
+
+    def test_s3_public_base_url_is_used_for_presigned_query(self) -> None:
+        storage = object.__new__(S3DocumentStorage)
+        storage.bucket = "commercial-proposals"
+        storage.public_base_url = "http://192.168.100.11:9000"
+
+        class FakeClient:
+            def generate_presigned_url(self, *args, **kwargs):
+                return "http://192.168.100.11:9000/commercial-proposals/path/file.pdf?X-Amz-Signature=abc"
+
+        storage.presign_client = FakeClient()
+
+        url, _expires_at = storage.get_download_url(
+            storage_key="path/file.pdf",
+            expires_in_seconds=900,
+        )
+
+        self.assertEqual(
+            url,
+            "http://192.168.100.11:9000/commercial-proposals/path/file.pdf?X-Amz-Signature=abc",
+        )
 
 
 if __name__ == "__main__":

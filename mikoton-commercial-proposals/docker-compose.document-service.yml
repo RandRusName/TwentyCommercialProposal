@@ -20,6 +20,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
       MINIO_BUCKET: commercial-proposals
       MINIO_SECURE: "false"
+      MINIO_PUBLIC_BASE_URL: ${MINIO_PUBLIC_BASE_URL:-}
     depends_on:
       minio:
         condition: service_healthy

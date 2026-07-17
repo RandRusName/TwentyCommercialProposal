@@ -8,12 +8,12 @@
   `CommercialProposal` DRAFT.
 - Restricted-user permission scenario is still not verified on the target
   Workspace.
-- Document-service container build and local readiness were verified locally,
-  but target deployment is still required.
-- `DOCUMENT_SERVICE_URL` and `DOCUMENT_SERVICE_SECRET` must be configured on the
-  target Twenty app installation before generation can work from the UI.
-- Target storage should use MinIO/S3-compatible storage. Local storage is only a
-  development mode.
+- Document-service container build, target deployment and target readiness were
+  verified on 2026-07-17.
+- `DOCUMENT_SERVICE_URL` and `DOCUMENT_SERVICE_SECRET` were configured on the
+  target Twenty app installation through the metadata API.
+- Target storage uses MinIO/S3-compatible storage with private bucket and
+  expiring signed URLs.
 - Compose currently uses `minio/minio:latest` and `minio/mc:latest` to avoid a
   non-existent pinned tag. Pin image digests after the first successful target
   deployment.
@@ -21,6 +21,9 @@
   items fail validation instead of being silently truncated.
 - Download URL refresh without regeneration is represented in metadata but does
   not yet have a dedicated front-component refresh action.
+- Manual UI generation smoke and manual Microsoft Excel repair-warning check
+  are not yet executed for the current build.
+- Forced target `FAILED -> retry -> GENERATED` recovery test is not yet
+  executed.
 - No DOCX generation is implemented.
 - No email/send workflow is implemented.
-
