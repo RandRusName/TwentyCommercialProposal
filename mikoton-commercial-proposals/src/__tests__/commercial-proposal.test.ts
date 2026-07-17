@@ -663,10 +663,12 @@ describe('twenty record repository generated file attachments', () => {
             targetCommercialProposalId: 'proposal-id',
             fullPath: 'files-field/twenty-file-id.pdf',
             fileCategory: 'TEXT_DOCUMENT',
-            file: {
-              fileId: 'twenty-file-id',
-              label: 'proposal.pdf',
-            },
+            file: [
+              {
+                fileId: 'twenty-file-id',
+                label: 'proposal.pdf',
+              },
+            ],
           }),
         },
         id: true,

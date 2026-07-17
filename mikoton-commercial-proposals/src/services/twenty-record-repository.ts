@@ -551,10 +551,12 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
               data: {
                 name: file.fileName,
                 targetCommercialProposalId: commercialProposalId,
-                file: {
-                  fileId: uploadedFile.id,
-                  label: file.fileName,
-                },
+                file: [
+                  {
+                    fileId: uploadedFile.id,
+                    label: file.fileName,
+                  },
+                ],
                 fullPath: uploadedFile.path,
                 fileCategory: getAttachmentFileCategory(file),
               },
