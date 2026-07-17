@@ -21,15 +21,18 @@
   items fail validation instead of being silently truncated.
 - Download URL refresh without regeneration is represented in metadata but does
   not yet have a dedicated front-component refresh action.
-- CommercialProposal default UI metadata has been changed to remove obsolete
-  DOCX/PDF URL fields. Target metadata apply must be accepted only if the plan
-  is limited to app-owned fields.
+- Obsolete DOCX/PDF URL fields were removed from app metadata. Target metadata
+  plan on 2026-07-17 returned no changes after deployment of app `0.1.31`.
 - JSON/debug fields remain stored for audit but should not be part of the
   default business view. If Twenty `v2.20.0` still exposes them in the record
   field settings picker, that is a platform UI behavior rather than a runtime
   generation dependency.
+- Target API smoke for app `0.1.31` confirmed `GENERATED`, final number
+  `КП-010 от 17.07.2026`, two Twenty Attachment records in the
+  CommercialProposal Files tab, XLSM/PDF formats, and idempotent repeated
+  generation.
 - Manual UI generation smoke and manual Microsoft Excel repair-warning check
-  are not yet executed for the current build.
+  are not yet executed for app `0.1.31`.
 - Forced target `FAILED -> retry -> GENERATED` recovery test is not yet
   executed.
 - No DOCX generation is implemented.
