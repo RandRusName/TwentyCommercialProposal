@@ -290,7 +290,7 @@ describe('commercial proposal backend vertical slice', () => {
 
     const draft = first.payload.draft as { id: string; number: string };
     createdIds.commercialProposal = draft.id;
-    expect(draft.number).toMatch(/^CP-\d{8}-\d{6}-[0-9A-HJ-NP-Z]{4}$/);
+    expect(draft.number).toBe(`DRAFT-${idempotencyKey}`);
 
     const records = await findCommercialProposalsByKey();
     expect(records).toHaveLength(1);

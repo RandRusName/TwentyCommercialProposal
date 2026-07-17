@@ -1,14 +1,18 @@
 import {
   ApplicationError,
+  buildDraftTechnicalNumber,
   buildDocumentGenerationPayload,
   buildCommercialProposalNumber,
   createCommercialProposalDraft,
   generateCommercialProposalDocuments,
+  getNextCommercialProposalSequence,
   normalizeCreateDraftRequest,
   normalizeGenerateCommercialProposalRequest,
+  parseCommercialProposalNumber,
   SUPPORTED_LANGUAGE,
   SUPPORTED_TEMPLATE_CODE,
   type CommercialProposalDraft,
+  type CommercialProposalGenerationFile,
   type CommercialProposalRepository,
 } from 'src/domain/commercial-proposal';
 import {
@@ -27,8 +31,10 @@ import {
 import {
   normalizeOpportunityAmount,
   normalizeOpportunityCurrency,
+  TwentyRecordRepository,
 } from 'src/services/twenty-record-repository';
 import { HttpDocumentServiceClient } from 'src/services/document-service-client';
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const fixedDate = new Date('2026-07-12T10:11:12.000Z');
@@ -75,8 +81,8 @@ const makeDraft = (
   overrides: Partial<CommercialProposalDraft> = {},
 ): CommercialProposalDraft => ({
   id: 'draft-id',
-  title: 'CP-20260712-101112-A7K2 - Test opportunity',
-  number: 'CP-20260712-101112-A7K2',
+  title: 'Черновик КП - Test opportunity',
+  number: buildDraftTechnicalNumber(idempotencyKey),
   status: 'DRAFT',
   sourceType: 'OPPORTUNITY',
   templateCode: SUPPORTED_TEMPLATE_CODE,
@@ -117,6 +123,15 @@ const makeRepository = (
     ...makeDraft(),
     ...patch,
   })),
+  listCommercialProposalNumbers: vi.fn(async () => []),
+  attachGeneratedFiles: vi.fn(async (_id, files: CommercialProposalGenerationFile[]) =>
+    files.map((file) => ({
+      ...file,
+      twentyFileId: `twenty-${file.format}`,
+      twentyFileUrl: `https://twenty.test/${file.fileName}`,
+      downloadUrl: `https://twenty.test/${file.fileName}`,
+    })),
+  ),
   isDuplicateConflict: vi.fn(() => false),
 });
 
@@ -132,12 +147,35 @@ const makeInput = () =>
   });
 
 const generationIdempotencyKey = '123e4567-e89b-42d3-a456-426614174001';
+const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 describe('commercial proposal domain', () => {
-  it('builds a proposal number with UTC time and a four-character suffix', () => {
-    expect(buildCommercialProposalNumber(fixedDate, 'A7K2')).toBe(
-      'CP-20260712-101112-A7K2',
+  it('builds a localized yearly proposal number', () => {
+    expect(buildCommercialProposalNumber(fixedDate, 5)).toBe(
+      'КП-005 от 12.07.2026',
     );
+  });
+
+  it('parses final proposal numbers and ignores legacy draft numbers', () => {
+    expect(parseCommercialProposalNumber('КП-005 от 12.07.2026')).toEqual({
+      sequence: 5,
+      year: 2026,
+    });
+    expect(parseCommercialProposalNumber('CP-20260712-101112-A7K2')).toBeNull();
+    expect(parseCommercialProposalNumber(buildDraftTechnicalNumber(idempotencyKey))).toBeNull();
+  });
+
+  it('allocates the next yearly proposal sequence and stops at 999', () => {
+    expect(
+      getNextCommercialProposalSequence(
+        ['КП-001 от 01.01.2026', 'КП-099 от 12.07.2026', 'КП-999 от 31.12.2025'],
+        fixedDate,
+      ),
+    ).toBe(100);
+
+    expect(() =>
+      getNextCommercialProposalSequence(['КП-999 от 12.07.2026'], fixedDate),
+    ).toThrow(ApplicationError);
   });
 
   it('normalizes the new HTTP contract', () => {
@@ -237,10 +275,27 @@ describe('commercial proposal domain', () => {
 
     expect(result.generated).toBe(true);
     expect(documentClient.generate).toHaveBeenCalledOnce();
+    expect(repository.attachGeneratedFiles).toHaveBeenCalledWith('draft-id', [
+      expect.objectContaining({ format: 'xlsm' }),
+      expect.objectContaining({ format: 'pdf' }),
+    ]);
+    expect(documentClient.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          proposal: expect.objectContaining({
+            number: 'КП-001 от 12.07.2026',
+          }),
+        }),
+      }),
+    );
     expect(repository.updateCommercialProposal).toHaveBeenNthCalledWith(
       1,
       'draft-id',
-      expect.objectContaining({ status: 'GENERATING' }),
+      expect.objectContaining({
+        status: 'GENERATING',
+        number: 'КП-001 от 12.07.2026',
+        title: 'КП-001 от 12.07.2026 - Test opportunity',
+      }),
     );
     expect(repository.updateCommercialProposal).toHaveBeenNthCalledWith(
       2,
@@ -250,6 +305,16 @@ describe('commercial proposal domain', () => {
         generatedAt: '2026-07-12T10:11:12Z',
         resultMetadata: expect.objectContaining({
           generationIdempotencyKey,
+          files: [
+            expect.objectContaining({
+              format: 'xlsm',
+              twentyFileId: 'twenty-xlsm',
+            }),
+            expect.objectContaining({
+              format: 'pdf',
+              twentyFileId: 'twenty-pdf',
+            }),
+          ],
         }),
       }),
     );
@@ -337,9 +402,8 @@ describe('commercial proposal domain', () => {
       idempotencyKey,
       lastError: null,
     });
-    expect(result.draft.number).toMatch(
-      /^CP-20260712-101112-[0-9A-HJ-NP-Z]{4}$/,
-    );
+    expect(result.draft.number).toBe(buildDraftTechnicalNumber(idempotencyKey));
+    expect(result.draft.title).toBe('Черновик КП - Test opportunity');
     expect(result.draft.payloadSnapshot).toEqual(makeInput());
   });
 
@@ -469,28 +533,27 @@ describe('commercial proposal domain', () => {
     });
   });
 
-  it('retries number generation when a unique conflict has no existing key', async () => {
+  it('fails safely when a duplicate technical draft number never becomes readable', async () => {
     const duplicateError = new Error('unique constraint on number');
     const repository = makeRepository(null);
 
     vi.mocked(repository.createDraft)
       .mockRejectedValueOnce(duplicateError)
-      .mockImplementationOnce(async (draft) => ({
-        id: 'draft-after-retry',
-        ...draft,
-      }));
+      .mockRejectedValueOnce(duplicateError)
+      .mockRejectedValueOnce(duplicateError);
     vi.mocked(repository.findDraftByIdempotencyKey).mockResolvedValue(null);
     vi.mocked(repository.isDuplicateConflict ?? vi.fn()).mockReturnValue(true);
 
-    const result = await createCommercialProposalDraft({
-      input: makeInput(),
-      repository,
-      now: fixedDate,
+    await expect(
+      createCommercialProposalDraft({
+        input: makeInput(),
+        repository,
+        now: fixedDate,
+      }),
+    ).rejects.toMatchObject({
+      code: 'COMMERCIAL_PROPOSAL_CREATE_FAILED',
     });
-
-    expect(result.created).toBe(true);
-    expect(result.draft.id).toBe('draft-after-retry');
-    expect(repository.createDraft).toHaveBeenCalledTimes(2);
+    expect(repository.createDraft).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -528,6 +591,100 @@ describe('opportunity amount normalization', () => {
   it('keeps zero amounts and invalid micros explicit', () => {
     expect(normalizeOpportunityAmount({ amountMicros: 0 })).toBe(0);
     expect(normalizeOpportunityAmount({ amountMicros: 'not-a-number' })).toBeNull();
+  });
+});
+
+describe('twenty record repository generated file attachments', () => {
+  it('uploads generated files and creates CommercialProposal attachments', async () => {
+    const uploadFile = vi.fn(async () => ({
+      id: 'twenty-file-id',
+      path: 'files-field/twenty-file-id.pdf',
+      size: 5,
+      createdAt: '2026-07-12T10:11:12Z',
+      url: 'https://twenty.test/files/twenty-file-id.pdf',
+    }));
+    const mutation = vi.fn(async () => ({ createAttachment: { id: 'attachment-id' } }));
+    const repository = new TwentyRecordRepository({
+      query: vi.fn(),
+      mutation,
+      uploadFile,
+    } as never);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response('hello', {
+            status: 200,
+            headers: { 'content-type': 'application/pdf' },
+          }),
+      ),
+    );
+
+    const [file] = await repository.attachGeneratedFiles('proposal-id', [
+      {
+        format: 'pdf',
+        fileName: 'proposal.pdf',
+        contentType: 'application/pdf',
+        size: 5,
+        sha256: hash('hello'),
+        downloadUrl: 'https://documents.test/proposal.pdf',
+      },
+    ]);
+
+    expect(uploadFile).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      'proposal.pdf',
+      'application/pdf',
+      expect.any(String),
+    );
+    expect(mutation).toHaveBeenCalledWith({
+      createAttachment: {
+        __args: {
+          data: expect.objectContaining({
+            name: 'proposal.pdf',
+            targetCommercialProposalId: 'proposal-id',
+            fullPath: 'files-field/twenty-file-id.pdf',
+            fileCategory: 'TEXT_DOCUMENT',
+            file: {
+              fileId: 'twenty-file-id',
+              label: 'proposal.pdf',
+            },
+          }),
+        },
+        id: true,
+      },
+    });
+    expect(file).toMatchObject({
+      twentyFileId: 'twenty-file-id',
+      twentyFileUrl: 'https://twenty.test/files/twenty-file-id.pdf',
+      downloadUrl: 'https://twenty.test/files/twenty-file-id.pdf',
+    });
+  });
+
+  it('rejects generated files with a checksum mismatch', async () => {
+    const repository = new TwentyRecordRepository({
+      query: vi.fn(),
+      mutation: vi.fn(),
+      uploadFile: vi.fn(),
+    } as never);
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('tampered')));
+
+    await expect(
+      repository.attachGeneratedFiles('proposal-id', [
+        {
+          format: 'pdf',
+          fileName: 'proposal.pdf',
+          contentType: 'application/pdf',
+          size: 8,
+          sha256: hash('expected'),
+          downloadUrl: 'https://documents.test/proposal.pdf',
+        },
+      ]),
+    ).rejects.toMatchObject({
+      code: 'DOCUMENT_STORAGE_FAILED',
+    });
   });
 });
 

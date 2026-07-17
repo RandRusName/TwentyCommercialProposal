@@ -1,12 +1,15 @@
 import { CoreApiClient } from 'twenty-client-sdk/core';
+import { createHash } from 'node:crypto';
 
 import type {
   ApplicationErrorCode,
+  CommercialProposalGenerationFile,
   CommercialProposalDraft,
   CommercialProposalRepository,
   OpportunityContext,
 } from 'src/domain/commercial-proposal';
 import { ApplicationError } from 'src/domain/commercial-proposal';
+import { COMMERCIAL_PROPOSAL_FIELD_FILES_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 
 type CoreClient = InstanceType<typeof CoreApiClient>;
 
@@ -43,6 +46,23 @@ type CommercialProposalRecord = {
   companyId?: string | null;
   opportunity?: { id?: string | null } | null;
   company?: { id?: string | null } | null;
+};
+
+type UploadedTwentyFile = {
+  id: string;
+  path: string;
+  size: number;
+  createdAt: string;
+  url: string;
+};
+
+type CoreClientWithUpload = CoreClient & {
+  uploadFile: (
+    fileBuffer: Buffer,
+    filename: string,
+    contentType: string | undefined,
+    fieldMetadataUniversalIdentifier: string,
+  ) => Promise<UploadedTwentyFile>;
 };
 
 const COMMERCIAL_PROPOSAL_SELECTION = {
@@ -93,6 +113,32 @@ export const normalizeOpportunityCurrency = (
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+
+const sha256 = (buffer: Buffer) =>
+  createHash('sha256').update(buffer).digest('hex');
+
+const assertGeneratedFileBuffer = (
+  file: CommercialProposalGenerationFile,
+  buffer: Buffer,
+) => {
+  if (buffer.length !== file.size) {
+    throw new ApplicationError(
+      'DOCUMENT_STORAGE_FAILED',
+      `Generated ${file.format.toUpperCase()} size does not match metadata`,
+    );
+  }
+
+  if (sha256(buffer) !== file.sha256) {
+    throw new ApplicationError(
+      'DOCUMENT_STORAGE_FAILED',
+      `Generated ${file.format.toUpperCase()} checksum does not match metadata`,
+    );
+  }
+};
+
+const getAttachmentFileCategory = (
+  file: CommercialProposalGenerationFile,
+) => (file.format === 'xlsm' ? 'SPREADSHEET' : 'TEXT_DOCUMENT');
 
 const classifyReadError = (error: unknown): ApplicationErrorCode => {
   const message = getErrorMessage(error);
@@ -213,6 +259,31 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
     return firstNode === undefined ? null : mapDraft(firstNode);
   }
 
+  async listCommercialProposalNumbers(): Promise<string[]> {
+    const response = await this.client.query({
+      commercialProposals: {
+        __args: {
+          first: 1000,
+        },
+        edges: {
+          node: {
+            number: true,
+          },
+        },
+      },
+    });
+
+    const edges = response.commercialProposals?.edges as
+      | Array<{ node?: { number?: string | null } | null }>
+      | undefined;
+
+    return (
+      edges
+        ?.map((edge) => edge.node?.number)
+        .filter((number): number is string => typeof number === 'string') ?? []
+    );
+  }
+
   async createDraft(
     draft: Omit<CommercialProposalDraft, 'id'>,
   ): Promise<CommercialProposalDraft> {
@@ -305,6 +376,74 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
     });
 
     return mapDraft(response.updateCommercialProposal as CommercialProposalRecord);
+  }
+
+  async attachGeneratedFiles(
+    commercialProposalId: string,
+    files: CommercialProposalGenerationFile[],
+  ): Promise<CommercialProposalGenerationFile[]> {
+    const client = this.client as CoreClientWithUpload;
+
+    return Promise.all(
+      files.map(async (file) => {
+        const response = await fetch(file.downloadUrl);
+
+        if (!response.ok) {
+          throw new ApplicationError(
+            'DOCUMENT_STORAGE_FAILED',
+            `Generated ${file.format.toUpperCase()} file could not be downloaded`,
+          );
+        }
+
+        const contentType = response.headers.get('content-type') ?? '';
+
+        if (
+          contentType !== '' &&
+          contentType !== 'application/octet-stream' &&
+          !contentType.toLowerCase().includes(file.contentType.toLowerCase())
+        ) {
+          throw new ApplicationError(
+            'DOCUMENT_STORAGE_FAILED',
+            `Generated ${file.format.toUpperCase()} content type does not match metadata`,
+          );
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+        assertGeneratedFileBuffer(file, buffer);
+
+        const uploadedFile = await client.uploadFile(
+          buffer,
+          file.fileName,
+          file.contentType,
+          COMMERCIAL_PROPOSAL_FIELD_FILES_UNIVERSAL_IDENTIFIER,
+        );
+
+        await this.client.mutation({
+          createAttachment: {
+            __args: {
+              data: {
+                name: file.fileName,
+                targetCommercialProposalId: commercialProposalId,
+                file: {
+                  fileId: uploadedFile.id,
+                  label: file.fileName,
+                },
+                fullPath: uploadedFile.path,
+                fileCategory: getAttachmentFileCategory(file),
+              },
+            },
+            id: true,
+          },
+        });
+
+        return {
+          ...file,
+          twentyFileId: uploadedFile.id,
+          twentyFileUrl: uploadedFile.url,
+          downloadUrl: uploadedFile.url,
+        };
+      }),
+    );
   }
 
   isDuplicateConflict(error: unknown) {

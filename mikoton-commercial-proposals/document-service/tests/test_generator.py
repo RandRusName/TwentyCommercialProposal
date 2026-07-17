@@ -36,7 +36,7 @@ def fixture_payload() -> dict:
         "templateVersion": "1",
         "proposal": {
             "id": "e82f2712-cf74-416e-9cdc-89356f3d6d60",
-            "number": "CP-20260713-200410-1NXH",
+            "number": "КП-005 от 13.07.2026",
             "title": "Реализация коннектора",
             "date": "2026-07-13",
             "language": "ru-RU",
@@ -144,7 +144,7 @@ class GeneratorTest(unittest.TestCase):
                 self.assertIn("$A$1:$I$37", workbook_xml)
 
                 sheet = ET.fromstring(package.read("xl/worksheets/sheet1.xml"))
-                self.assertEqual(text_value(cell(sheet, "G3")), "КП № CP-20260713-200410-1NXH от")
+                self.assertEqual(text_value(cell(sheet, "G3")), "КП-005 от 13.07.2026")
                 self.assertEqual(text_value(cell(sheet, "B5")), "Реализация коннектора")
                 self.assertEqual(text_value(cell(sheet, "C8")), "ООО Промобит")
                 self.assertEqual(text_value(cell(sheet, "C9")), "Иванов Александр")

@@ -372,7 +372,7 @@ def _apply_workbook_mapping(sheet: ET.Element, payload: dict[str, Any], mapping:
     validity_days = int(proposal.get("validityDays") or mapping["defaults"]["validityDays"])
     contact_name = customer.get("contactName") or mapping["defaults"]["customerContactName"]
 
-    _set_text(sheet, cells["proposalNumberPrefix"], f"КП № {proposal['number']} от")
+    _set_text(sheet, cells["proposalNumberPrefix"], proposal["number"])
     _set_number(sheet, cells["proposalDate"], _excel_serial(proposal["date"]))
     _set_text(sheet, cells["proposalTitle"], proposal["title"])
     _set_text(sheet, cells["customerCompanyName"], customer.get("companyName") or "Компания не указана")

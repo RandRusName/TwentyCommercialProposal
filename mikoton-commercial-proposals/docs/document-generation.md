@@ -13,6 +13,7 @@ CommercialProposal DRAFT / FAILED
 -> patched XLSM
 -> LibreOffice PDF export from that XLSM
 -> storage metadata and download URLs
+-> Twenty file upload and CommercialProposal attachments
 -> resultMetadata
 -> status GENERATED / FAILED
 ```
@@ -51,7 +52,7 @@ The document-service supports:
 - `DOCUMENT_STORAGE_TYPE=s3-compatible`
 
 Target deployment should use MinIO/S3-compatible storage. `resultMetadata.files`
-stores browser-usable download metadata:
+stores browser-usable download metadata plus Twenty file attachment metadata:
 
 ```json
 {
@@ -62,11 +63,20 @@ stores browser-usable download metadata:
   "sha256": "...",
   "storageKey": "commercial-proposals/<proposal-id>/<generation-id>/<file>",
   "downloadUrl": "https://...",
-  "downloadUrlExpiresAt": "..."
+  "downloadUrlExpiresAt": "...",
+  "twentyFileId": "uuid",
+  "twentyFileUrl": "https://..."
 }
 ```
 
 No `file://` URL or container path is returned by the target storage flow.
+
+After the document-service returns XLSM/PDF files, the app logic function
+downloads them server-side, validates `size` and `sha256`, uploads them through
+the Twenty file API, and creates standard `Attachment` records with
+`targetCommercialProposalId`. This is what fills the CommercialProposal record
+`Files` tab. DOCX is not generated and there is no DOCX URL field in the app
+metadata.
 
 ## App Configuration
 
@@ -100,3 +110,7 @@ The document-service also derives deterministic storage keys from:
 CommercialProposal.id + generation idempotency key + templateVersion
 ```
 
+Final customer-facing numbers are assigned at generation time using a yearly
+sequence: `КП-001 от DD.MM.YYYY` through `КП-999 от DD.MM.YYYY`. DRAFT records
+keep a technical `DRAFT-<idempotencyKey>` number until generation succeeds or
+fails.

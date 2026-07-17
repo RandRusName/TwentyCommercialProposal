@@ -9,7 +9,6 @@ import {
   COMMERCIAL_PROPOSAL_FIELD_AMOUNT_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_COMPANY_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_CURRENCY_UNIVERSAL_IDENTIFIER,
-  COMMERCIAL_PROPOSAL_FIELD_DOCX_URL_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_FILES_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_GENERATED_AT_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_IDEMPOTENCY_KEY_UNIVERSAL_IDENTIFIER,
@@ -18,7 +17,6 @@ import {
   COMMERCIAL_PROPOSAL_FIELD_NUMBER_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_OPPORTUNITY_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_PAYLOAD_SNAPSHOT_UNIVERSAL_IDENTIFIER,
-  COMMERCIAL_PROPOSAL_FIELD_PDF_URL_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_RESULT_METADATA_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_SOURCE_TYPE_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_STATUS_UNIVERSAL_IDENTIFIER,
@@ -221,31 +219,11 @@ export default defineObject({
     },
     {
       universalIdentifier:
-        COMMERCIAL_PROPOSAL_FIELD_DOCX_URL_UNIVERSAL_IDENTIFIER,
-      type: FieldType.TEXT,
-      name: 'docxUrl',
-      label: 'DOCX URL',
-      description: 'Future document-service DOCX URL',
-      isNullable: true,
-      defaultValue: null,
-    },
-    {
-      universalIdentifier:
-        COMMERCIAL_PROPOSAL_FIELD_PDF_URL_UNIVERSAL_IDENTIFIER,
-      type: FieldType.TEXT,
-      name: 'pdfUrl',
-      label: 'PDF URL',
-      description: 'Future document-service PDF URL',
-      isNullable: true,
-      defaultValue: null,
-    },
-    {
-      universalIdentifier:
         COMMERCIAL_PROPOSAL_FIELD_FILES_UNIVERSAL_IDENTIFIER,
       type: FieldType.FILES,
       name: 'files',
       label: 'Files',
-      description: 'Future generated proposal files',
+      description: 'Generated XLSM/PDF proposal files',
       isNullable: true,
       universalSettings: {
         maxNumberOfValues: 10,

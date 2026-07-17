@@ -21,7 +21,8 @@ Implemented in this phase:
 - Opportunity command menu item;
 - front component for single-opportunity draft creation;
 - authenticated logic functions for context loading and draft creation;
-- server-side draft numbering in `CP-YYYYMMDD-HHmmss-XXXX` format;
+- technical draft numbering and final generation numbering in
+  `КП-### от DD.MM.YYYY` format;
 - required `idempotencyKey` with unique metadata index and conflict recovery;
 - structured application errors;
 - draft metadata fields for source, template, language and payload snapshot.
@@ -31,14 +32,13 @@ Implemented in this phase:
   - versioned XLSM template asset;
   - declarative mapping v1;
   - external document-service MVP;
-  - command/front component/route for generation.
+  - command/front component/route for generation;
+  - XLSM/PDF attachment to the CommercialProposal `Files` tab.
 
 Not implemented in this phase:
 
 - DOCX generation;
-- production document-service deployment;
-- production generated file upload/storage flow;
-- Excel/LibreOffice print-area PDF export;
+- public Marketplace distribution;
 - Company entry point;
 - record-page widget;
 - proposal items;

@@ -13,8 +13,9 @@
 ## Fields
 
 - `title` (`TEXT`, required): record label.
-- `number` (`TEXT`, required): server-generated number in
-  `CP-YYYYMMDD-HHmmss-XXXX` format.
+- `number` (`TEXT`, required): draft records use a technical
+  `DRAFT-<idempotencyKey>` value; generated proposals use
+  `КП-### от DD.MM.YYYY`.
 - `status` (`SELECT`, required): `DRAFT`, `GENERATING`, `GENERATED`, `SENT`,
   `ACCEPTED`, `REJECTED`, `FAILED`, `CANCELLED`.
 - `sourceType` (`SELECT`, required): currently only `OPPORTUNITY`.
@@ -23,16 +24,15 @@
 - `language` (`TEXT`, required): accepted request language, currently `ru-RU`.
 - `payloadSnapshot` (`RAW_JSON`, nullable): minimal accepted source/template
   request snapshot.
-- `resultMetadata` (`RAW_JSON`, nullable): reserved for generation result data.
+- `resultMetadata` (`RAW_JSON`, nullable): document generation result data,
+  including XLSM/PDF storage metadata and Twenty file ids.
 - `amount` (`NUMBER`, nullable): decimal snapshot from Opportunity amount.
 - `currency` (`TEXT`, nullable): currency code snapshot, defaults to `RUB`.
 - `opportunity` (`RELATION`, required): many-to-one to standard Opportunity.
 - `company` (`RELATION`, nullable): many-to-one to standard Company.
 - `generatedAt` (`DATE_TIME`, nullable): document generation completion time.
   Draft records set it to `null`; Twenty `createdAt` is the draft creation time.
-- `docxUrl` (`TEXT`, nullable): reserved for document-service phase.
-- `pdfUrl` (`TEXT`, nullable): reserved for document-service phase.
-- `files` (`FILES`, nullable): reserved for generated files.
+- `files` (`FILES`, nullable): app-owned generated XLSM/PDF files field.
 - `idempotencyKey` (`TEXT`, required): client-generated request key.
 - `lastError` (`TEXT`, nullable): reserved for future failure state.
 
@@ -70,11 +70,17 @@ The unique `idempotencyKey` index is the concurrency guard. The logic function
 still performs best-effort pre-read and read-after-conflict recovery so repeated
 sequential and parallel requests return the existing draft where possible.
 
-The unique `number` index protects the generated `CP-YYYYMMDD-HHmmss-XXXX`
-number. The four-character suffix is generated server-side from browser/server
-crypto when available, with a non-cryptographic fallback only for runtimes that
-lack `crypto.getRandomValues`. The create path retries a small number of times
-if a unique number conflict occurs.
+The unique `number` index protects both technical draft numbers and final
+customer-facing numbers. Final numbers use a yearly `001..999` sequence and
+the Moscow date of document generation, for example `КП-005 от 17.07.2026`.
+Generation retries a small number of times if a concurrent update hits the
+unique number index. Existing legacy `CP-YYYYMMDD-HHmmss-XXXX` records are not
+rewritten automatically.
+
+Generated XLSM/PDF files are uploaded to Twenty and attached to the
+CommercialProposal through standard Attachment records so they appear in the
+record `Files` tab. `resultMetadata.files[]` also keeps the document-service
+storage key, checksum, and Twenty file id/url for audit and download UI.
 
 ## View And Navigation
 

@@ -22,7 +22,7 @@ Analysis artifact: `docs/template-analysis-v1.json`.
 
 | Cell | Value |
 | --- | --- |
-| `G3` | `КП № <CommercialProposal.number> от` |
+| `G3` | `<CommercialProposal.number>`, for example `КП-005 от 17.07.2026` |
 | `I3` | proposal date as fixed Excel date value |
 | `B5` | proposal title |
 | `C8` | company name |
@@ -48,4 +48,3 @@ Analysis artifact: `docs/template-analysis-v1.json`.
 - More than 5 work items are rejected with `PAYLOAD_INVALID`.
 - Dynamic row insertion is not implemented in this first version because it must
   preserve merged cells, print area, formulas and drawings.
-

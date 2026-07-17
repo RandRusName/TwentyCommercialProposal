@@ -33,17 +33,18 @@ Production validation remains WSL-only for this app.
 Unit coverage includes:
 
 - `generatedAt = null` for drafts;
-- `CP-YYYYMMDD-HHmmss-XXXX` number format;
+- technical DRAFT numbers and final `КП-### от DD.MM.YYYY` number format;
 - new `source/templateCode/language/idempotencyKey` request contract;
 - unsupported source structured error;
 - invalid idempotency key structured error;
 - sequential idempotency;
 - duplicate-conflict recovery;
 - simulated parallel duplicate request;
-- number-conflict retry;
+- final number allocation, yearly sequence limit and duplicate-conflict retry;
 - safe wrapping of draft create failures;
 - Opportunity amount decimal, zero, string micros and micros normalization;
 - no fallback currency when Opportunity has no `currencyCode`.
+- generated file checksum validation, Twenty upload and Attachment creation;
 - UUID-only idempotency key generation;
 - readable error when `crypto.randomUUID` is unavailable;
 - stable idempotency key reuse for retries;

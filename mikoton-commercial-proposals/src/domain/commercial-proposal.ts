@@ -23,6 +23,7 @@ export type ApplicationErrorCode =
   | 'COMMERCIAL_PROPOSAL_NOT_FOUND'
   | 'COMMERCIAL_PROPOSAL_FORBIDDEN'
   | 'COMMERCIAL_PROPOSAL_INVALID_STATUS'
+  | 'COMMERCIAL_PROPOSAL_NUMBER_LIMIT_REACHED'
   | 'DOCUMENT_SERVICE_UNAVAILABLE'
   | 'DOCUMENT_SERVICE_TIMEOUT'
   | 'DOCUMENT_SERVICE_FORBIDDEN'
@@ -74,6 +75,8 @@ export type CommercialProposalGenerationFile = {
   storageKey?: string;
   downloadUrl: string;
   downloadUrlExpiresAt?: string;
+  twentyFileId?: string;
+  twentyFileUrl?: string;
 };
 
 export type CommercialProposalResultMetadata = {
@@ -139,6 +142,11 @@ export type CommercialProposalRepository = {
     commercialProposalId: string,
     patch: Partial<Omit<CommercialProposalDraft, 'id'>>,
   ) => Promise<CommercialProposalDraft>;
+  listCommercialProposalNumbers?: () => Promise<string[]>;
+  attachGeneratedFiles?: (
+    commercialProposalId: string,
+    files: CommercialProposalGenerationFile[],
+  ) => Promise<CommercialProposalGenerationFile[]>;
   isDuplicateConflict?: (error: unknown) => boolean;
 };
 
@@ -218,8 +226,10 @@ export type DocumentGenerationClient = {
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const SUFFIX_ALPHABET = '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const NUMBER_RETRY_LIMIT = 3;
+const MAX_YEARLY_PROPOSAL_SEQUENCE = 999;
+const FINAL_PROPOSAL_NUMBER_REGEX =
+  /^КП-(?<sequence>\d{3}) от (?<day>\d{2})\.(?<month>\d{2})\.(?<year>\d{4})$/;
 
 const getRequiredString = (value: unknown, fieldName: string) => {
   if (typeof value !== 'string' || value.trim() === '') {
@@ -311,35 +321,86 @@ export const normalizeGenerateCommercialProposalRequest = (
   return { commercialProposalId, idempotencyKey };
 };
 
-export const buildCommercialProposalNumberSuffix = () => {
-  const randomValues = new Uint8Array(4);
+const getMoscowDateParts = (date: Date) => {
+  const parts = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? '';
 
-  if (globalThis.crypto?.getRandomValues !== undefined) {
-    globalThis.crypto.getRandomValues(randomValues);
-  } else {
-    for (let index = 0; index < randomValues.length; index += 1) {
-      randomValues[index] = Math.floor(Math.random() * 256);
-    }
-  }
-
-  return Array.from(randomValues, (value) => {
-    const alphabetIndex = value % SUFFIX_ALPHABET.length;
-    return SUFFIX_ALPHABET[alphabetIndex];
-  }).join('');
+  return {
+    day: get('day'),
+    month: get('month'),
+    year: get('year'),
+  };
 };
+
+export const buildDraftTechnicalNumber = (idempotencyKey: string) =>
+  `DRAFT-${idempotencyKey}`;
 
 export const buildCommercialProposalNumber = (
   date = new Date(),
-  suffix = buildCommercialProposalNumberSuffix(),
+  sequence = 1,
 ) => {
-  const yyyy = date.getUTCFullYear();
-  const mm = `${date.getUTCMonth() + 1}`.padStart(2, '0');
-  const dd = `${date.getUTCDate()}`.padStart(2, '0');
-  const hh = `${date.getUTCHours()}`.padStart(2, '0');
-  const mi = `${date.getUTCMinutes()}`.padStart(2, '0');
-  const ss = `${date.getUTCSeconds()}`.padStart(2, '0');
+  if (
+    !Number.isInteger(sequence) ||
+    sequence < 1 ||
+    sequence > MAX_YEARLY_PROPOSAL_SEQUENCE
+  ) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_NUMBER_LIMIT_REACHED',
+      'Номер коммерческого предложения должен быть в диапазоне 001..999',
+    );
+  }
 
-  return `CP-${yyyy}${mm}${dd}-${hh}${mi}${ss}-${suffix}`;
+  const { day, month, year } = getMoscowDateParts(date);
+  return `КП-${String(sequence).padStart(3, '0')} от ${day}.${month}.${year}`;
+};
+
+export const parseCommercialProposalNumber = (number: string) => {
+  const match = FINAL_PROPOSAL_NUMBER_REGEX.exec(number);
+
+  if (match?.groups === undefined) {
+    return null;
+  }
+
+  return {
+    sequence: Number(match.groups.sequence),
+    year: Number(match.groups.year),
+  };
+};
+
+export const isFinalCommercialProposalNumber = (number: string) =>
+  parseCommercialProposalNumber(number) !== null;
+
+export const getNextCommercialProposalSequence = (
+  numbers: string[],
+  date = new Date(),
+) => {
+  const targetYear = Number(getMoscowDateParts(date).year);
+  const maxSequence = numbers.reduce((max, number) => {
+    const parsed = parseCommercialProposalNumber(number);
+
+    if (parsed === null || parsed.year !== targetYear) {
+      return max;
+    }
+
+    return Math.max(max, parsed.sequence);
+  }, 0);
+
+  const nextSequence = maxSequence + 1;
+
+  if (nextSequence > MAX_YEARLY_PROPOSAL_SEQUENCE) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_NUMBER_LIMIT_REACHED',
+      'Исчерпан годовой диапазон номеров коммерческих предложений 001..999',
+    );
+  }
+
+  return nextSequence;
 };
 
 const isDuplicateConflict = (
@@ -357,7 +418,6 @@ const isDuplicateConflict = (
 export const createCommercialProposalDraft = async ({
   input,
   repository,
-  now = new Date(),
 }: {
   input: CreateDraftInput;
   repository: CommercialProposalRepository;
@@ -398,8 +458,8 @@ export const createCommercialProposalDraft = async ({
   };
 
   for (let attempt = 0; attempt < NUMBER_RETRY_LIMIT; attempt += 1) {
-    const number = buildCommercialProposalNumber(now);
-    const title = `${number} - ${opportunity.name}`;
+    const number = buildDraftTechnicalNumber(input.idempotencyKey);
+    const title = `Черновик КП - ${opportunity.name}`;
 
     try {
       const draft = await repository.createDraft({
@@ -527,6 +587,25 @@ const hasGenerationResult = (
   'files' in metadata &&
   Array.isArray(metadata.files);
 
+const getFinalProposalNumber = async ({
+  draft,
+  repository,
+  now,
+}: {
+  draft: CommercialProposalDraft;
+  repository: CommercialProposalRepository;
+  now: Date;
+}) => {
+  if (isFinalCommercialProposalNumber(draft.number)) {
+    return draft.number;
+  }
+
+  const numbers = await repository.listCommercialProposalNumbers?.();
+  const nextSequence = getNextCommercialProposalSequence(numbers ?? [], now);
+
+  return buildCommercialProposalNumber(now, nextSequence);
+};
+
 export const generateCommercialProposalDocuments = async ({
   input,
   repository,
@@ -559,16 +638,66 @@ export const generateCommercialProposalDocuments = async ({
   }
 
   const opportunity = await repository.getOpportunityContext(draft.opportunityId);
-  const payload = buildDocumentGenerationPayload({ draft, opportunity, now });
+  let generationDraft = draft;
+  let payload: DocumentGenerationPayload | null = null;
 
-  await repository.updateCommercialProposal(draft.id, {
-    status: 'GENERATING',
-    templateCode: 'mikoton-commercial-proposal',
-    templateVersion: '1',
-    payloadSnapshot: payload as unknown as DraftPayloadSnapshot,
-    lastError: null,
-    generatedAt: null,
-  });
+  for (let attempt = 0; attempt < NUMBER_RETRY_LIMIT; attempt += 1) {
+    const finalNumber = await getFinalProposalNumber({
+      draft: generationDraft,
+      repository,
+      now,
+    });
+    const finalDraft = {
+      ...generationDraft,
+      number: finalNumber,
+      title: `${finalNumber} - ${opportunity.name}`,
+      templateCode: 'mikoton-commercial-proposal',
+      templateVersion: '1',
+    };
+    payload = buildDocumentGenerationPayload({
+      draft: finalDraft,
+      opportunity,
+      now,
+    });
+
+    try {
+      generationDraft = await repository.updateCommercialProposal(draft.id, {
+        title: finalDraft.title,
+        number: finalDraft.number,
+        status: 'GENERATING',
+        templateCode: 'mikoton-commercial-proposal',
+        templateVersion: '1',
+        payloadSnapshot: payload as unknown as DraftPayloadSnapshot,
+        lastError: null,
+        generatedAt: null,
+      });
+      break;
+    } catch (error) {
+      if (!isDuplicateConflict(repository, error)) {
+        throw error;
+      }
+
+      if (attempt === NUMBER_RETRY_LIMIT - 1) {
+        throw new ApplicationError(
+          'COMMERCIAL_PROPOSAL_CREATE_FAILED',
+          'Не удалось выделить уникальный номер коммерческого предложения',
+          error,
+        );
+      }
+
+      generationDraft = {
+        ...generationDraft,
+        number: buildDraftTechnicalNumber(generationDraft.idempotencyKey),
+      };
+    }
+  }
+
+  if (payload === null) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_CREATE_FAILED',
+      'Не удалось подготовить данные коммерческого предложения',
+    );
+  }
 
   try {
     const result = await documentClient.generate({
@@ -578,12 +707,16 @@ export const generateCommercialProposalDocuments = async ({
       requestedFormats: ['xlsm', 'pdf'],
     });
 
+    const attachedFiles =
+      (await repository.attachGeneratedFiles?.(draft.id, result.files)) ??
+      result.files;
+
     const resultMetadata: CommercialProposalResultMetadata = {
       generationId: result.generationId,
       generationIdempotencyKey: input.idempotencyKey,
       templateCode: result.templateCode,
       templateVersion: result.templateVersion,
-      files: result.files,
+      files: attachedFiles,
     };
 
     const updated = await repository.updateCommercialProposal(draft.id, {
