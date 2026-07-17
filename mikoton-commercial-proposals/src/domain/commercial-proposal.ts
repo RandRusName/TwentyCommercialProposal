@@ -67,7 +67,7 @@ export type DraftPayloadSnapshot = {
 
 export type CommercialProposalGenerationFile = {
   id?: string;
-  format: 'xlsm' | 'pdf';
+  format: 'xlsx' | 'pdf';
   fileName: string;
   contentType: string;
   size: number;
@@ -219,7 +219,7 @@ export type DocumentGenerationClient = {
     requestId: string;
     idempotencyKey: string;
     payload: DocumentGenerationPayload;
-    requestedFormats: Array<'xlsm' | 'pdf'>;
+    requestedFormats: Array<'xlsx' | 'pdf'>;
   }) => Promise<DocumentGenerationResult>;
 };
 
@@ -704,7 +704,7 @@ export const generateCommercialProposalDocuments = async ({
       requestId: input.idempotencyKey,
       idempotencyKey: input.idempotencyKey,
       payload,
-      requestedFormats: ['xlsm', 'pdf'],
+      requestedFormats: ['xlsx', 'pdf'],
     });
 
     const attachedFiles =

@@ -31,8 +31,11 @@
   `КП-010 от 17.07.2026`, two Twenty Attachment records in the
   CommercialProposal Files tab, XLSM/PDF formats, and idempotent repeated
   generation.
-- Manual UI generation smoke and manual Microsoft Excel repair-warning check
-  are not yet executed for app `0.1.31`.
+- Starting with the next deployment after app `0.1.31`, generated Excel files
+  are `.xlsx` without VBA/macros. A new target smoke is required to replace the
+  older XLSM/PDF evidence above.
+- Manual UI generation smoke and manual Microsoft Excel opening check are not
+  yet executed for the XLSX build.
 - Forced target `FAILED -> retry -> GENERATED` recovery test is not yet
   executed.
 - No DOCX generation is implemented.

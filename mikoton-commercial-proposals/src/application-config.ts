@@ -43,7 +43,7 @@ export default defineApplication({
       universalIdentifier:
         TWENTY_FILE_UPLOAD_API_KEY_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
       description:
-        'Server-side Twenty API key used only to attach generated XLSM/PDF files to CommercialProposal records.',
+        'Server-side Twenty API key used only to attach generated XLSX/PDF files to CommercialProposal records.',
       isSecret: true,
       type: FieldType.TEXT,
     },

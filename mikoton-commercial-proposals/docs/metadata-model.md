@@ -20,13 +20,13 @@
 - `templateVersion` (`TEXT`, nullable): template version used by generation.
 - `language` (`TEXT`, required): accepted request language, currently `ru-RU`.
 - `payloadSnapshot` (`RAW_JSON`, nullable): immutable source/template/generation snapshot.
-- `resultMetadata` (`RAW_JSON`, nullable): document generation result data, including XLSM/PDF storage metadata and Twenty file ids.
+- `resultMetadata` (`RAW_JSON`, nullable): document generation result data, including XLSX/PDF storage metadata and Twenty file ids.
 - `amount` (`NUMBER`, nullable): decimal snapshot from Opportunity amount.
 - `currencyCode` (`TEXT`, nullable): currency code snapshot from Opportunity.
 - `opportunity` (`RELATION`, required): many-to-one to standard Opportunity.
 - `company` (`RELATION`, nullable): many-to-one to standard Company.
 - `generatedAt` (`DATE_TIME`, nullable): document generation completion time. Draft records set it to `null`; Twenty `createdAt` is the draft creation time.
-- `files` (`FILES`, nullable): app-owned generated XLSM/PDF files field.
+- `files` (`FILES`, nullable): app-owned generated XLSX/PDF files field.
 - `idempotencyKey` (`TEXT`, required): client-generated draft creation request key.
 - `lastError` (`TEXT`, nullable): safe failure message for failed generation.
 
@@ -59,7 +59,7 @@ The unique `idempotencyKey` index is the concurrency guard for draft creation. T
 
 The unique `number` index protects both technical draft numbers and final customer-facing numbers. Final numbers use a yearly `001..999` sequence and the Moscow date of document generation, for example `КП-005 от 17.07.2026`. Generation retries a small number of times if a concurrent update hits the unique number index. Existing legacy `CP-YYYYMMDD-HHmmss-XXXX` records are not rewritten automatically.
 
-Generated XLSM/PDF files are uploaded to Twenty and attached to the CommercialProposal through standard Attachment records so they appear in the record `Files` tab. The upload is performed against the standard `Attachment.file` field and then linked with `targetCommercialProposalId`. `resultMetadata.files[]` also keeps the document-service storage key, checksum, and Twenty file id/url for audit and download UI.
+Generated XLSX/PDF files are uploaded to Twenty and attached to the CommercialProposal through standard Attachment records so they appear in the record `Files` tab. The upload is performed against the standard `Attachment.file` field and then linked with `targetCommercialProposalId`. `resultMetadata.files[]` also keeps the document-service storage key, checksum, and Twenty file id/url for audit and download UI.
 
 ## View And Navigation
 

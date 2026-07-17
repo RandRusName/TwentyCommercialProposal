@@ -243,13 +243,14 @@ describe('commercial proposal domain', () => {
         generatedAt: '2026-07-12T10:11:12Z',
         files: [
           {
-            format: 'xlsm' as const,
-            fileName: 'cp.xlsm',
-            contentType: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+            format: 'xlsx' as const,
+            fileName: 'cp.xlsx',
+            contentType:
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             size: 100,
-            sha256: 'sha-xlsm',
-            storageKey: 'commercial-proposals/draft-id/generation-id/cp.xlsm',
-            downloadUrl: 'https://documents.test/cp.xlsm',
+            sha256: 'sha-xlsx',
+            storageKey: 'commercial-proposals/draft-id/generation-id/cp.xlsx',
+            downloadUrl: 'https://documents.test/cp.xlsx',
             downloadUrlExpiresAt: '2026-07-12T10:26:12Z',
           },
           {
@@ -279,7 +280,7 @@ describe('commercial proposal domain', () => {
     expect(result.generated).toBe(true);
     expect(documentClient.generate).toHaveBeenCalledOnce();
     expect(repository.attachGeneratedFiles).toHaveBeenCalledWith('draft-id', [
-      expect.objectContaining({ format: 'xlsm' }),
+      expect.objectContaining({ format: 'xlsx' }),
       expect.objectContaining({ format: 'pdf' }),
     ]);
     expect(documentClient.generate).toHaveBeenCalledWith(
@@ -310,8 +311,8 @@ describe('commercial proposal domain', () => {
           generationIdempotencyKey,
           files: [
             expect.objectContaining({
-              format: 'xlsm',
-              twentyFileId: 'twenty-xlsm',
+              format: 'xlsx',
+              twentyFileId: 'twenty-xlsx',
             }),
             expect.objectContaining({
               format: 'pdf',
@@ -1061,7 +1062,7 @@ describe('document service client', () => {
       },
       now: fixedDate,
     }),
-    requestedFormats: ['xlsm' as const, 'pdf' as const],
+    requestedFormats: ['xlsx' as const, 'pdf' as const],
   };
 
   const makeClient = () => {
@@ -1085,14 +1086,14 @@ describe('document service client', () => {
               generatedAt: '2026-07-12T10:11:12Z',
               files: [
                 {
-                  format: 'xlsm',
-                  fileName: 'cp.xlsm',
+                  format: 'xlsx',
+                  fileName: 'cp.xlsx',
                   contentType:
-                    'application/vnd.ms-excel.sheet.macroEnabled.12',
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                   size: 100,
-                  sha256: 'sha-xlsm',
-                  storageKey: 'commercial-proposals/draft/generation/cp.xlsm',
-                  downloadUrl: 'https://documents.test/cp.xlsm',
+                  sha256: 'sha-xlsx',
+                  storageKey: 'commercial-proposals/draft/generation/cp.xlsx',
+                  downloadUrl: 'https://documents.test/cp.xlsx',
                   downloadUrlExpiresAt: '2026-07-12T10:26:12Z',
                 },
               ],
@@ -1107,7 +1108,7 @@ describe('document service client', () => {
 
     const result = await makeClient().generate(request);
 
-    expect(result.files[0]?.downloadUrl).toBe('https://documents.test/cp.xlsm');
+    expect(result.files[0]?.downloadUrl).toBe('https://documents.test/cp.xlsx');
   });
 
   it('maps document-service auth failures without leaking the secret', async () => {

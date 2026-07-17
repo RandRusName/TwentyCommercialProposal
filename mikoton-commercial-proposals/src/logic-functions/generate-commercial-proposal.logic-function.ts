@@ -48,7 +48,7 @@ export default defineLogicFunction({
     GENERATE_COMMERCIAL_PROPOSAL_LOGIC_FUNCTION_UNIVERSAL_IDENTIFIER,
   name: 'Generate Commercial Proposal Documents',
   description:
-    'Calls the external document service and stores generated XLSM/PDF metadata',
+    'Calls the external document service and stores generated XLSX/PDF metadata',
   timeoutSeconds: 60,
   httpRouteTriggerSettings: {
     path: '/commercial-proposals/generate',

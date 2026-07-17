@@ -16,10 +16,10 @@ sys.path.insert(0, str(PROJECT_ROOT / "document-service"))
 from mikoton_document_service.generator import (
     DocumentGenerationError,
     LocalDocumentStorage,
-    REQUIRED_XLSM_PARTS,
+    REQUIRED_XLSX_TEMPLATE_PARTS,
     S3DocumentStorage,
-    generate_xlsm,
-    generate_pdf_from_xlsm,
+    generate_xlsx,
+    generate_pdf_from_xlsx,
     generate_documents,
 )
 
@@ -101,7 +101,7 @@ def text_value(cell_node: ET.Element) -> str:
 
 
 class GeneratorTest(unittest.TestCase):
-    def test_generates_xlsm_pdf_and_preserves_template_parts(self) -> None:
+    def test_generates_xlsx_pdf_and_removes_macro_parts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
 
@@ -125,20 +125,28 @@ class GeneratorTest(unittest.TestCase):
 
             self.assertEqual(result["status"], "success")
             files = {file["format"]: file for file in result["files"]}
-            self.assertIn("xlsm", files)
+            self.assertIn("xlsx", files)
             self.assertIn("pdf", files)
-            self.assertGreater(files["xlsm"]["size"], 10_000)
+            self.assertGreater(files["xlsx"]["size"], 10_000)
             self.assertGreater(files["pdf"]["size"], 10)
-            self.assertIn("storageKey", files["xlsm"])
-            self.assertIn("downloadUrl", files["xlsm"])
-            self.assertNotIn("file://", files["xlsm"]["downloadUrl"])
+            self.assertIn("storageKey", files["xlsx"])
+            self.assertIn("downloadUrl", files["xlsx"])
+            self.assertNotIn("file://", files["xlsx"]["downloadUrl"])
             self.assertTrue(files["pdf"]["downloadUrl"].startswith("https://documents.example.test/"))
 
-            xlsm_path = tmp_path / "storage" / files["xlsm"]["storageKey"]
-            with zipfile.ZipFile(xlsm_path) as package:
+            xlsx_path = tmp_path / "storage" / files["xlsx"]["storageKey"]
+            self.assertEqual(xlsx_path.suffix, ".xlsx")
+            with zipfile.ZipFile(xlsx_path) as package:
                 names = set(package.namelist())
-                for required_part in REQUIRED_XLSM_PARTS:
+                for required_part in REQUIRED_XLSX_TEMPLATE_PARTS:
                     self.assertIn(required_part, names)
+                self.assertNotIn("xl/vbaProject.bin", names)
+                self.assertFalse(any(name.startswith("xl/ctrlProps/") for name in names))
+                self.assertFalse(any(name.startswith("xl/activeX/") for name in names))
+                self.assertFalse(any(name.startswith("xl/drawings/vmlDrawing") for name in names))
+                content_types = package.read("[Content_Types].xml").decode("utf-8")
+                self.assertNotIn("macroEnabled", content_types)
+                self.assertNotIn("vbaProject", content_types)
                 workbook_xml = package.read("xl/workbook.xml").decode("utf-8")
                 self.assertIn("_xlnm.Print_Area", workbook_xml)
                 self.assertIn("$A$1:$I$37", workbook_xml)
@@ -176,15 +184,15 @@ class GeneratorTest(unittest.TestCase):
 
     def test_pdf_export_failure_is_structured(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            xlsm = generate_xlsm(fixture_payload(), TEMPLATE_PATH, MAPPING_PATH, Path(tmp))
+            xlsx = generate_xlsx(fixture_payload(), TEMPLATE_PATH, MAPPING_PATH, Path(tmp))
 
             with patch(
                 "mikoton_document_service.generator.subprocess.run",
                 return_value=CompletedProcess(["libreoffice"], 1, stdout="", stderr="failed"),
             ):
                 with self.assertRaises(DocumentGenerationError) as raised:
-                    generate_pdf_from_xlsm(
-                        xlsm,
+                    generate_pdf_from_xlsx(
+                        xlsx,
                         Path(tmp),
                         libreoffice_binary="libreoffice",
                         timeout_seconds=1,

@@ -33,7 +33,7 @@ Implemented in this phase:
   - declarative mapping v1;
   - external document-service MVP;
   - command/front component/route for generation;
-  - XLSM/PDF attachment to the CommercialProposal `Files` tab.
+  - XLSX/PDF attachment to the CommercialProposal `Files` tab.
 
 Not implemented in this phase:
 
@@ -212,8 +212,9 @@ Created DRAFT records keep:
 
 ## Document Generation
 
-Phase 4 uses an external document-service. The Twenty App does not edit XLSM
-files and does not run VBA inside logic functions.
+Phase 4 uses an external document-service. The source template is still the
+versioned user-provided XLSM file, but generated Excel output is a normal
+macro-free XLSX file. The Twenty App does not run VBA inside logic functions.
 
 Local assets:
 

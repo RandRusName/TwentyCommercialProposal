@@ -1,6 +1,6 @@
 # Phase 4 Smoke Test
 
-Status: target API smoke passed; manual Excel/PDF visual check still pending.
+Status: target API smoke passed for app `0.1.31`; XLSX output change still needs target deployment and smoke.
 
 Date: 2026-07-17
 
@@ -77,13 +77,14 @@ Generated attachments:
 
 ## Not Yet Verified
 
+- Deployment and target smoke for the newer XLSX/PDF output build.
 - Manual UI click path from a CommercialProposal record to `Сформировать документ`.
-- Manual XLSM opening in Microsoft Excel without repair warning.
-- Manual visual comparison of the generated PDF against the XLSM layout.
+- Manual XLSX opening in Microsoft Excel.
+- Manual visual comparison of the generated PDF against the XLSX layout.
 - Forced `FAILED -> retry -> GENERATED` target scenario.
 
 Current blocker before `READY FOR PHASE 5`:
 
 ```text
-target UI smoke / manual XLSM-PDF check
+target deployment smoke for XLSX/PDF / manual XLSX-PDF check
 ```

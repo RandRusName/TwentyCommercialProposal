@@ -196,7 +196,7 @@ const GenerateCommercialProposal = () => {
     <div style={styles.root}>
       <h2 style={styles.title}>Сформировать документ</h2>
       <p style={styles.muted}>
-        Будут сформированы XLSM и PDF через внешний document-service.
+        Будут сформированы XLSX и PDF через внешний document-service.
         Template v1 supports up to 5 work items.
       </p>
 
@@ -228,7 +228,7 @@ const GenerateCommercialProposal = () => {
                   rel="noreferrer"
                   style={{ color: 'inherit', textDecoration: 'underline' }}
                 >
-                  {file.format === 'xlsm' ? 'Download XLSM' : 'Download PDF'}
+                  {file.format === 'xlsx' ? 'Download XLSX' : 'Download PDF'}
                 </a>
                 <br />
               </span>
@@ -252,7 +252,7 @@ const GenerateCommercialProposal = () => {
       >
         {isGenerating
           ? 'Формирование документов...'
-          : 'Сформировать XLSM и PDF'}
+          : 'Сформировать XLSX и PDF'}
       </button>
     </div>
   );
@@ -263,6 +263,6 @@ export default defineFrontComponent({
     GENERATE_COMMERCIAL_PROPOSAL_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER,
   name: 'Сформировать коммерческое предложение',
   description:
-    'Формирует XLSM/PDF документы для выбранного CommercialProposal',
+    'Формирует XLSX/PDF документы для выбранного CommercialProposal',
   component: GenerateCommercialProposal,
 });

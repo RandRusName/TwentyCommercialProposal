@@ -50,7 +50,7 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 
 const isGenerationFile = (value: unknown) =>
   isObject(value) &&
-  (value.format === 'xlsm' || value.format === 'pdf') &&
+  (value.format === 'xlsx' || value.format === 'pdf') &&
   typeof value.fileName === 'string' &&
   typeof value.contentType === 'string' &&
   typeof value.size === 'number' &&
@@ -123,7 +123,7 @@ export class HttpDocumentServiceClient implements DocumentGenerationClient {
     requestId: string;
     idempotencyKey: string;
     payload: DocumentGenerationPayload;
-    requestedFormats: Array<'xlsm' | 'pdf'>;
+    requestedFormats: Array<'xlsx' | 'pdf'>;
   }) {
     let lastError: unknown;
 
@@ -152,7 +152,7 @@ export class HttpDocumentServiceClient implements DocumentGenerationClient {
     requestId: string;
     idempotencyKey: string;
     payload: DocumentGenerationPayload;
-    requestedFormats: Array<'xlsm' | 'pdf'>;
+    requestedFormats: Array<'xlsx' | 'pdf'>;
   }) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);

@@ -129,7 +129,7 @@ const assertGeneratedFileBuffer = (
 
 const getAttachmentFileCategory = (
   file: CommercialProposalGenerationFile,
-) => (file.format === 'xlsm' ? 'SPREADSHEET' : 'TEXT_DOCUMENT');
+) => (file.format === 'xlsx' ? 'SPREADSHEET' : 'TEXT_DOCUMENT');
 
 const getTwentyMetadataUrl = () => {
   const apiUrl = process.env.TWENTY_API_URL;

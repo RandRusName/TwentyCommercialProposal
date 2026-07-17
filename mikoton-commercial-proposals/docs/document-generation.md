@@ -9,8 +9,8 @@ CommercialProposal DRAFT / FAILED
 -> authenticated app route
 -> status GENERATING
 -> external document-service
--> patched XLSM
--> LibreOffice PDF export from that XLSM
+-> patched XLSX without VBA/macros
+-> LibreOffice PDF export from that XLSX
 -> storage metadata and download URLs
 -> Twenty file upload and CommercialProposal attachments
 -> resultMetadata
@@ -28,14 +28,14 @@ CommercialProposal DRAFT / FAILED
 - Container: `document-service/Dockerfile`.
 - Compose: `docker-compose.document-service.yml`.
 
-The generator patches only `xl/worksheets/sheet1.xml` and copies all other XLSM ZIP parts unchanged. This preserves VBA, drawings, control properties, printer settings, styles, merged cells, formulas and print area.
+The source template remains the user-provided `.xlsm`, but generated Excel artifacts are normal `.xlsx` files. The generator patches `xl/worksheets/sheet1.xml`, removes VBA/control parts, converts the workbook content type to non-macro XLSX, and preserves the workbook layout, drawings, printer settings, styles, merged cells, formulas and print area where they are compatible with `.xlsx`.
 
 ## PDF
 
 Production PDF generation uses:
 
 ```text
-generated.xlsm -> LibreOffice headless -> generated.pdf
+generated.xlsx -> LibreOffice headless -> generated.pdf
 ```
 
 ReportLab is not used for the production target flow. `/readyz` reports `pdfEngine: false` when the configured LibreOffice binary is unavailable.
@@ -51,9 +51,9 @@ Target deployment uses MinIO/S3-compatible storage. `resultMetadata.files` store
 
 ```json
 {
-  "format": "xlsm",
-  "fileName": "КП-010-от-17.07.2026-company.xlsm",
-  "contentType": "application/vnd.ms-excel.sheet.macroEnabled.12",
+  "format": "xlsx",
+  "fileName": "КП-010-от-17.07.2026-company.xlsx",
+  "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "size": 123456,
   "sha256": "...",
   "storageKey": "commercial-proposals/<proposal-id>/<generation-id>/<file>",
@@ -66,11 +66,11 @@ Target deployment uses MinIO/S3-compatible storage. `resultMetadata.files` store
 
 No `file://` URL or container path is returned by the target storage flow.
 
-After the document-service returns XLSM/PDF files, the app logic function downloads them server-side, validates `size` and `sha256`, uploads them through the Twenty metadata file upload API for the standard `Attachment.file` field, and creates standard `Attachment` records with `targetCommercialProposalId`. This fills the CommercialProposal record `Files` tab. DOCX is not generated and there is no DOCX URL field in the app metadata.
+After the document-service returns XLSX/PDF files, the app logic function downloads them server-side, validates `size` and `sha256`, uploads them through the Twenty metadata file upload API for the standard `Attachment.file` field, and creates standard `Attachment` records with `targetCommercialProposalId`. This fills the CommercialProposal record `Files` tab. DOCX is not generated and there is no DOCX URL field in the app metadata.
 
 The target smoke on 2026-07-17 confirmed two generated attachments for `CommercialProposal 7d623e71-35a2-4b33-ac3a-a950bdba05fe`:
 
-- `КП-010-от-17.07.2026-SMOKE-Files-Linked-2026-07-17T13-19-51-386Z.xlsm`
+- `КП-010-от-17.07.2026-SMOKE-Files-Linked-2026-07-17T13-19-51-386Z.xlsx`
 - `КП-010-от-17.07.2026-SMOKE-Files-Linked-2026-07-17T13-19-51-386Z.pdf`
 
 ## App Configuration

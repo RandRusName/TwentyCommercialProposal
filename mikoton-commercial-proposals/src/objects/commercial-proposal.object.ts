@@ -223,7 +223,7 @@ export default defineObject({
       type: FieldType.FILES,
       name: 'files',
       label: 'Files',
-      description: 'Generated XLSM/PDF proposal files',
+      description: 'Generated XLSX/PDF proposal files',
       isNullable: true,
       universalSettings: {
         maxNumberOfValues: 10,

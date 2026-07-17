@@ -7,7 +7,7 @@
   - versioned XLSM template asset;
   - declarative mapping v1;
   - document-service generator;
-  - XLSM/PDF local generation tests;
+  - XLSX/PDF local generation tests;
   - Twenty generation command/front component/logic function.
 
 ## Required Before Phase 5
@@ -22,9 +22,9 @@
    - create DRAFT from Opportunity;
    - open CommercialProposal;
    - run `Сформировать документ`;
-   - verify `GENERATED`, `generatedAt`, `resultMetadata`, XLSM and PDF.
-7. Open generated XLSM in Microsoft Excel and confirm no repair warning.
-8. Open generated PDF and visually check it against the template.
+   - verify `GENERATED`, `generatedAt`, `resultMetadata`, XLSX and PDF.
+7. Open generated XLSX in Microsoft Excel and confirm it opens normally.
+8. Open generated PDF and visually check it against the XLSX layout.
 9. Run retry/idempotency check.
 10. Update `docs/phase-4-smoke-test.md` with factual results.
 

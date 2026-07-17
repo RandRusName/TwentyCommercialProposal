@@ -18,17 +18,22 @@ from xml.etree import ElementTree as ET
 
 
 NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+NS_CONTENT_TYPES = "http://schemas.openxmlformats.org/package/2006/content-types"
+NS_RELATIONSHIPS = "http://schemas.openxmlformats.org/package/2006/relationships"
 ET.register_namespace("", NS_MAIN)
+ET.register_namespace("", NS_CONTENT_TYPES)
+ET.register_namespace("", NS_RELATIONSHIPS)
 
 TEMPLATE_CODE = "mikoton-commercial-proposal"
 TEMPLATE_VERSION = "1"
-XLSM_CONTENT_TYPE = "application/vnd.ms-excel.sheet.macroEnabled.12"
+XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PDF_CONTENT_TYPE = "application/pdf"
-REQUIRED_XLSM_PARTS = (
-    "xl/vbaProject.bin",
+REQUIRED_XLSX_TEMPLATE_PARTS = (
+    "[Content_Types].xml",
+    "xl/workbook.xml",
+    "xl/_rels/workbook.xml.rels",
+    "xl/worksheets/sheet1.xml",
     "xl/drawings/drawing1.xml",
-    "xl/drawings/vmlDrawing1.vml",
-    "xl/ctrlProps/ctrlProp1.xml",
     "xl/printerSettings/printerSettings1.bin",
 )
 DEFAULT_SIGNED_URL_TTL_SECONDS = 15 * 60
@@ -203,6 +208,10 @@ def _cell_tag(name: str) -> str:
     return f"{{{NS_MAIN}}}{name}"
 
 
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
 def _sanitize_filename_part(value: str) -> str:
     slug = re.sub(r"[^0-9A-Za-zА-Яа-яЁё._-]+", "-", value.strip())
     slug = re.sub(r"-{2,}", "-", slug).strip(".-")
@@ -219,6 +228,52 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _is_macro_or_control_part(name: str) -> bool:
+    normalized = name.replace("\\", "/").lower()
+    return (
+        normalized in {"xl/vbaproject.bin", "xl/vbaprojectsignature.bin"}
+        or "vbaproject" in normalized
+        or "vmldrawing" in normalized
+        or "ctrlprops/" in normalized
+        or "activex/" in normalized
+        or normalized.startswith("xl/ctrlprops/")
+        or normalized.startswith("xl/activex/")
+        or normalized.startswith("xl/embeddings/")
+        or normalized.startswith("xl/drawings/vmldrawing")
+    )
+
+
+def _remove_macro_content_types(content_types_xml: bytes) -> bytes:
+    root = ET.fromstring(content_types_xml)
+    for node in list(root):
+        part_name = node.attrib.get("PartName", "").lstrip("/").lower()
+        content_type = node.attrib.get("ContentType", "")
+        if _is_macro_or_control_part(part_name):
+            root.remove(node)
+            continue
+        if part_name == "xl/workbook.xml" and "macroEnabled" in content_type:
+            node.attrib["ContentType"] = (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
+            )
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def _remove_macro_relationships(relationships_xml: bytes) -> bytes:
+    root = ET.fromstring(relationships_xml)
+    for node in list(root):
+        target = node.attrib.get("Target", "")
+        relationship_type = node.attrib.get("Type", "")
+        if _is_macro_or_control_part(target) or relationship_type.endswith("/vbaProject"):
+            root.remove(node)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def _remove_macro_sheet_markup(sheet: ET.Element) -> None:
+    for node in list(sheet):
+        if _local_name(node.tag) in {"legacyDrawing", "controls"}:
+            sheet.remove(node)
 
 
 def _excel_serial(value: str) -> int:
@@ -428,44 +483,55 @@ def _apply_workbook_mapping(sheet: ET.Element, payload: dict[str, Any], mapping:
         _set_text(sheet, f"G{row}", "" if stage is None else _as_text(stage.get("duration"), "stage.duration"))
 
 
-def generate_xlsm(payload: dict[str, Any], template_path: Path, mapping_path: Path, output_dir: Path) -> GeneratedLocalFile:
+def generate_xlsx(payload: dict[str, Any], template_path: Path, mapping_path: Path, output_dir: Path) -> GeneratedLocalFile:
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
     validate_payload(payload, mapping)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     proposal_number = payload["proposal"]["number"]
     company_slug = _sanitize_filename_part(payload["customer"].get("companyName") or "no-company")
-    file_name = f"{_sanitize_filename_part(proposal_number)}-{company_slug}.xlsm"
+    file_name = f"{_sanitize_filename_part(proposal_number)}-{company_slug}.xlsx"
     output_path = output_dir / file_name
 
     with zipfile.ZipFile(template_path, "r") as source_zip:
         names = set(source_zip.namelist())
-        missing = [name for name in REQUIRED_XLSM_PARTS if name not in names]
+        missing = [name for name in REQUIRED_XLSX_TEMPLATE_PARTS if name not in names]
         if missing:
             raise DocumentGenerationError("TEMPLATE_INVALID", f"Template is missing required parts: {', '.join(missing)}")
 
         sheet_path = mapping["workbook"]["sheetXmlPath"]
         sheet = ET.fromstring(source_zip.read(sheet_path))
         _apply_workbook_mapping(sheet, payload, mapping)
+        _remove_macro_sheet_markup(sheet)
         updated_sheet = ET.tostring(sheet, encoding="utf-8", xml_declaration=True)
 
         with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as target_zip:
             for item in source_zip.infolist():
-                data = updated_sheet if item.filename == sheet_path else source_zip.read(item.filename)
+                if _is_macro_or_control_part(item.filename):
+                    continue
+
+                if item.filename == sheet_path:
+                    data = updated_sheet
+                elif item.filename == "[Content_Types].xml":
+                    data = _remove_macro_content_types(source_zip.read(item.filename))
+                elif item.filename.endswith(".rels"):
+                    data = _remove_macro_relationships(source_zip.read(item.filename))
+                else:
+                    data = source_zip.read(item.filename)
                 target_zip.writestr(copy.copy(item), data)
 
     return GeneratedLocalFile(
-        format="xlsm",
+        format="xlsx",
         file_name=file_name,
-        content_type=XLSM_CONTENT_TYPE,
+        content_type=XLSX_CONTENT_TYPE,
         size=output_path.stat().st_size,
         sha256=_sha256(output_path),
         path=output_path,
     )
 
 
-def generate_pdf_from_xlsm(
-    xlsm: GeneratedLocalFile,
+def generate_pdf_from_xlsx(
+    xlsx: GeneratedLocalFile,
     output_dir: Path,
     *,
     libreoffice_binary: str,
@@ -483,7 +549,7 @@ def generate_pdf_from_xlsm(
             "pdf",
             "--outdir",
             str(output_dir),
-            str(xlsm.path),
+            str(xlsx.path),
         ]
         try:
             completed = subprocess.run(
@@ -501,7 +567,7 @@ def generate_pdf_from_xlsm(
     if completed.returncode != 0:
         raise DocumentGenerationError("PDF_EXPORT_FAILED", "LibreOffice PDF export failed")
 
-    pdf_path = output_dir / f"{xlsm.path.stem}.pdf"
+    pdf_path = output_dir / f"{xlsx.path.stem}.pdf"
     if not pdf_path.exists() or pdf_path.stat().st_size == 0:
         raise DocumentGenerationError("PDF_EXPORT_FAILED", "LibreOffice did not produce a PDF")
     with pdf_path.open("rb") as handle:
@@ -574,9 +640,9 @@ def generate_documents(
     generation_dir = output_dir / generation_id
     generation_dir.mkdir(parents=True, exist_ok=True)
 
-    xlsm = generate_xlsm(payload, template_path, mapping_path, generation_dir)
-    pdf = generate_pdf_from_xlsm(
-        xlsm,
+    xlsx = generate_xlsx(payload, template_path, mapping_path, generation_dir)
+    pdf = generate_pdf_from_xlsx(
+        xlsx,
         generation_dir,
         libreoffice_binary=libreoffice_binary,
         timeout_seconds=timeout_seconds,
@@ -584,7 +650,7 @@ def generate_documents(
     document_storage = storage or LocalDocumentStorage(generation_dir / "storage", "")
     stored_files = [
         _store_file(
-            file=xlsm,
+            file=xlsx,
             storage=document_storage,
             proposal_id=payload["proposal"]["id"],
             generation_id=generation_id,
