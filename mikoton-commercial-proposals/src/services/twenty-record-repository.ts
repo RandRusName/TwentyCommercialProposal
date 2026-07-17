@@ -144,24 +144,53 @@ const getTwentyMetadataUrl = () => {
   return `${apiUrl.replace(/\/$/, '')}/metadata`;
 };
 
-const getTwentyAccessToken = () => {
-  const token = process.env.TWENTY_APP_ACCESS_TOKEN ?? process.env.TWENTY_API_KEY;
+const getTwentyFileUploadAccessTokenCandidates = () => {
+  const candidates = [
+    process.env.TWENTY_FILE_UPLOAD_API_KEY,
+    process.env.TWENTY_API_KEY,
+    process.env.TWENTY_APP_ACCESS_TOKEN,
+  ]
+    .filter((token): token is string => token !== undefined && token.trim() !== '')
+    .map((token) => token.trim());
 
-  if (token === undefined || token.trim() === '') {
+  const uniqueCandidates = Array.from(new Set(candidates));
+
+  if (uniqueCandidates.length === 0) {
     throw new ApplicationError(
       'DOCUMENT_STORAGE_FAILED',
       'Twenty access token is not available for generated file upload',
     );
   }
 
-  return token;
+  return uniqueCandidates;
 };
 
-const uploadGeneratedFileToTwenty = async (
+const parseUploadResponse = (responseText: string) => {
+  if (responseText.trim() === '') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(responseText) as {
+      data?: {
+        uploadFilesFieldFileByUniversalIdentifier?: UploadedTwentyFile;
+      };
+      errors?: Array<{ message?: string }>;
+    };
+  } catch (error) {
+    throw new ApplicationError(
+      'DOCUMENT_STORAGE_FAILED',
+      'Twenty file upload returned a non-JSON response',
+      error,
+    );
+  }
+};
+
+const createUploadForm = (
   fileBuffer: Buffer,
   fileName: string,
   contentType: string,
-): Promise<UploadedTwentyFile> => {
+) => {
   const form = new FormData();
 
   form.append(
@@ -198,30 +227,47 @@ const uploadGeneratedFileToTwenty = async (
     fileName,
   );
 
-  const response = await fetch(getTwentyMetadataUrl(), {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${getTwentyAccessToken()}`,
-    },
-    body: form,
-  });
-  const responseText = await response.text();
-  const payload = responseText.trim() === '' ? null : JSON.parse(responseText);
+  return form;
+};
 
-  if (
-    !response.ok ||
-    payload === null ||
-    payload.errors !== undefined ||
-    payload.data?.uploadFilesFieldFileByUniversalIdentifier === undefined
-  ) {
-    throw new ApplicationError(
-      'DOCUMENT_STORAGE_FAILED',
-      'Generated file upload to Twenty failed',
-    );
+const uploadGeneratedFileToTwenty = async (
+  fileBuffer: Buffer,
+  fileName: string,
+  contentType: string,
+): Promise<UploadedTwentyFile> => {
+  const metadataUrl = getTwentyMetadataUrl();
+  let lastFailure: string | undefined;
+
+  for (const token of getTwentyFileUploadAccessTokenCandidates()) {
+    const response = await fetch(metadataUrl, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: createUploadForm(fileBuffer, fileName, contentType),
+    });
+    const responseText = await response.text();
+    const payload = parseUploadResponse(responseText);
+    const uploadedFile = payload?.data?.uploadFilesFieldFileByUniversalIdentifier;
+
+    if (response.ok && payload?.errors === undefined && uploadedFile !== undefined) {
+      return uploadedFile;
+    }
+
+    lastFailure =
+      payload?.errors?.map((error) => error.message).join('; ') ??
+      `${response.status} ${response.statusText}`;
+
+    if (response.status !== 401 && response.status !== 403) {
+      break;
+    }
   }
 
-  return payload.data
-    .uploadFilesFieldFileByUniversalIdentifier as UploadedTwentyFile;
+  throw new ApplicationError(
+    'DOCUMENT_STORAGE_FAILED',
+    'Generated file upload to Twenty failed',
+    lastFailure,
+  );
 };
 
 const classifyReadError = (error: unknown): ApplicationErrorCode => {

@@ -6,6 +6,7 @@ import {
   APPLICATION_UNIVERSAL_IDENTIFIER,
   DOCUMENT_SERVICE_SECRET_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
   DOCUMENT_SERVICE_URL_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
+  TWENTY_FILE_UPLOAD_API_KEY_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
   TWENTY_API_URL_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
 } from 'src/constants/universal-identifiers';
 
@@ -35,6 +36,14 @@ export default defineApplication({
         DOCUMENT_SERVICE_SECRET_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
       description:
         'Server-side bearer secret used to authenticate document-service calls.',
+      isSecret: true,
+      type: FieldType.TEXT,
+    },
+    TWENTY_FILE_UPLOAD_API_KEY: {
+      universalIdentifier:
+        TWENTY_FILE_UPLOAD_API_KEY_APPLICATION_VARIABLE_UNIVERSAL_IDENTIFIER,
+      description:
+        'Server-side Twenty API key used only to attach generated XLSM/PDF files to CommercialProposal records.',
       isSecret: true,
       type: FieldType.TEXT,
     },
