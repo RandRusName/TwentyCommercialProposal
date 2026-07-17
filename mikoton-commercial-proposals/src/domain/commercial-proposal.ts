@@ -25,7 +25,11 @@ export type ApplicationErrorCode =
   | 'COMMERCIAL_PROPOSAL_INVALID_STATUS'
   | 'DOCUMENT_SERVICE_UNAVAILABLE'
   | 'DOCUMENT_SERVICE_TIMEOUT'
+  | 'DOCUMENT_SERVICE_FORBIDDEN'
+  | 'DOCUMENT_SERVICE_INVALID_RESPONSE'
   | 'DOCUMENT_GENERATION_FAILED'
+  | 'DOCUMENT_STORAGE_FAILED'
+  | 'PDF_EXPORT_FAILED'
   | 'INTERNAL_ERROR';
 
 export class ApplicationError extends Error {
@@ -61,12 +65,15 @@ export type DraftPayloadSnapshot = {
 };
 
 export type CommercialProposalGenerationFile = {
+  id?: string;
   format: 'xlsm' | 'pdf';
   fileName: string;
   contentType: string;
   size: number;
   sha256: string;
-  url: string;
+  storageKey?: string;
+  downloadUrl: string;
+  downloadUrlExpiresAt?: string;
 };
 
 export type CommercialProposalResultMetadata = {

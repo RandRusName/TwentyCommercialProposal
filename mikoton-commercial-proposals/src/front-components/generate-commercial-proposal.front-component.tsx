@@ -197,6 +197,7 @@ const GenerateCommercialProposal = () => {
       <h2 style={styles.title}>Сформировать документ</h2>
       <p style={styles.muted}>
         Будут сформированы XLSM и PDF через внешний document-service.
+        Template v1 supports up to 5 work items.
       </p>
 
       <div style={styles.box}>
@@ -220,6 +221,15 @@ const GenerateCommercialProposal = () => {
                 {file.format.toUpperCase()}: {file.fileName}
                 <br />
                 SHA-256: {file.sha256}
+                <br />
+                <a
+                  href={file.downloadUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: 'inherit', textDecoration: 'underline' }}
+                >
+                  {file.format === 'xlsm' ? 'Download XLSM' : 'Download PDF'}
+                </a>
                 <br />
               </span>
             ))}

@@ -6,21 +6,21 @@
   executed locally in this Phase 4 session.
 - Phase 3 target UI vertical slice is verified for Opportunity to
   `CommercialProposal` DRAFT.
-- Company relation was not exercised in the latest UI smoke because the selected
-  smoke Opportunity had no Company.
 - Restricted-user permission scenario is still not verified on the target
   Workspace.
-- Phase 4 document-service is implemented locally but not deployed on the target
-  server.
-- `DOCUMENT_SERVICE_URL` and `DOCUMENT_SERVICE_SECRET` have not been configured
-  on the target Twenty app installation.
-- Current document-service storage is local filesystem under
-  `generated-documents/`; production S3/MinIO/Twenty Files storage is not
-  configured.
-- Current PDF generation uses ReportLab from the normalized payload. It is not
-  yet an Excel/LibreOffice print-area export.
+- Document-service container build and local readiness were verified locally,
+  but target deployment is still required.
+- `DOCUMENT_SERVICE_URL` and `DOCUMENT_SERVICE_SECRET` must be configured on the
+  target Twenty app installation before generation can work from the UI.
+- Target storage should use MinIO/S3-compatible storage. Local storage is only a
+  development mode.
+- Compose currently uses `minio/minio:latest` and `minio/mc:latest` to avoid a
+  non-existent pinned tag. Pin image digests after the first successful target
+  deployment.
 - Template v1 supports up to 5 work items and 1 to 3 plan stages. More work
   items fail validation instead of being silently truncated.
+- Download URL refresh without regeneration is represented in metadata but does
+  not yet have a dedicated front-component refresh action.
 - No DOCX generation is implemented.
 - No email/send workflow is implemented.
 

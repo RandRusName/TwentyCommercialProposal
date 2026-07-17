@@ -1,0 +1,12 @@
+.git
+.github
+.twenty
+.yarn/cache
+node_modules
+release-artifacts
+generated-documents
+document-service/**/__pycache__
+document-service/**/*.pyc
+.env
+.env.*
+*.tgz

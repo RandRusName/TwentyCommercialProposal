@@ -1,0 +1,75 @@
+services:
+  document-service:
+    build:
+      context: .
+      dockerfile: document-service/Dockerfile
+    image: mikoton-commercial-proposals/document-service:local
+    restart: unless-stopped
+    environment:
+      DOCUMENT_SERVICE_HOST: 0.0.0.0
+      DOCUMENT_SERVICE_PORT: 8010
+      DOCUMENT_SERVICE_SECRET: ${DOCUMENT_SERVICE_SECRET:?DOCUMENT_SERVICE_SECRET is required}
+      DOCUMENT_STORAGE_TYPE: s3-compatible
+      DOCUMENT_TEMP_PATH: /tmp/mikoton-document-service
+      DOCUMENT_SIGNED_URL_TTL_SECONDS: 900
+      LIBREOFFICE_BINARY: libreoffice
+      PDF_ENGINE: libreoffice
+      GENERATION_TIMEOUT_SECONDS: 90
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
+      MINIO_BUCKET: commercial-proposals
+      MINIO_SECURE: "false"
+    depends_on:
+      minio:
+        condition: service_healthy
+      minio-create-bucket:
+        condition: service_completed_successfully
+    ports:
+      - "8010:8010"
+    networks:
+      - twenty_default
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
+    volumes:
+      - mikoton-commercial-proposals-minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - twenty_default
+
+  minio-create-bucket:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 \"$${MINIO_ACCESS_KEY}\" \"$${MINIO_SECRET_KEY}\" &&
+      mc mb --ignore-existing local/commercial-proposals &&
+      mc anonymous set none local/commercial-proposals
+      "
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
+    networks:
+      - twenty_default
+
+volumes:
+  mikoton-commercial-proposals-minio:
+
+networks:
+  twenty_default:
+    external: true

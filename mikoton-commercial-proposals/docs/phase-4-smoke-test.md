@@ -1,17 +1,32 @@
 # Phase 4 Smoke Test
 
-Status: not executed on target Twenty yet.
+Status: not executed on target Twenty for the current Phase 4 build.
 
-## Prerequisites
+## Local Verification
+
+Date: 2026-07-17
+
+- TypeScript unit tests: passed locally.
+- Python document-service tests: passed locally.
+- Docker build: passed locally.
+- Container `/healthz`: passed locally.
+- Container `/readyz`: passed locally with LibreOffice available.
+
+## Target Prerequisites
 
 - Phase 3 vertical slice is verified.
 - Document-service is deployed where Twenty server can reach it.
-- `DOCUMENT_SERVICE_URL` application variable is set.
-- `DOCUMENT_SERVICE_SECRET` application variable is set.
-- Production storage is configured, or local `file://` URLs are explicitly
-  accepted for a development-only smoke.
+- MinIO/S3-compatible storage is reachable.
+- `DOCUMENT_SERVICE_URL=http://document-service:8010` is configured.
+- `DOCUMENT_SERVICE_SECRET` is configured as a server-side secret.
+- Twenty container can run:
 
-## Steps
+```bash
+curl http://document-service:8010/healthz
+curl http://document-service:8010/readyz
+```
+
+## Target Steps
 
 1. Open an Opportunity.
 2. Create a `CommercialProposal` DRAFT.
@@ -21,16 +36,23 @@ Status: not executed on target Twenty yet.
 6. Wait for `GENERATED`.
 7. Verify `generatedAt` is set.
 8. Verify `resultMetadata.files` contains XLSM and PDF.
-9. Download/open XLSM in Microsoft Excel.
-10. Confirm Excel does not show a repair warning.
-11. Check mapped cells and formulas.
-12. Open PDF and visually compare against the template.
-13. Retry the same generation request key and confirm no duplicate files.
+9. Download XLSM.
+10. Open XLSM in Microsoft Excel.
+11. Confirm Excel does not show a repair warning.
+12. Confirm VBA, the `Сохранить PDF` button, drawings and printer settings are preserved.
+13. Check mapped cells, formulas and total.
+14. Download PDF.
+15. Verify PDF comes from the XLSM layout and has no obvious clipping or extra blank pages.
+16. Retry the same generation request key and confirm the same `generationId` and storage keys.
+17. Force a temporary PDF/storage failure, verify `FAILED`, retry, verify `GENERATED`.
 
-## Current Blockers
+## Current Target Result
 
-- Target document-service deployment has not been performed.
-- Target application variables for document-service are not configured.
-- PDF is currently ReportLab payload PDF, not Excel print-area export.
-- Production storage is not configured.
+Not executed yet for this build.
+
+Current blocker before `READY FOR PHASE 5`:
+
+```text
+target smoke
+```
 

@@ -15,7 +15,8 @@ type DocumentServiceFailureResponse = {
   };
 };
 
-const DOCUMENT_SERVICE_TIMEOUT_MS = 30_000;
+const DEFAULT_DOCUMENT_SERVICE_TIMEOUT_MS = 60_000;
+const RETRYABLE_STATUSES = new Set([500, 502, 503, 504]);
 
 const getRequiredEnvironmentValue = (name: string) => {
   const value = process.env[name];
@@ -30,8 +31,31 @@ const getRequiredEnvironmentValue = (name: string) => {
   return value;
 };
 
+const getTimeoutMs = () => {
+  const rawValue = process.env.DOCUMENT_SERVICE_TIMEOUT_MS;
+
+  if (rawValue === undefined || rawValue.trim() === '') {
+    return DEFAULT_DOCUMENT_SERVICE_TIMEOUT_MS;
+  }
+
+  const value = Number(rawValue);
+
+  return Number.isFinite(value) && value > 0
+    ? value
+    : DEFAULT_DOCUMENT_SERVICE_TIMEOUT_MS;
+};
+
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isGenerationFile = (value: unknown) =>
+  isObject(value) &&
+  (value.format === 'xlsm' || value.format === 'pdf') &&
+  typeof value.fileName === 'string' &&
+  typeof value.contentType === 'string' &&
+  typeof value.size === 'number' &&
+  typeof value.sha256 === 'string' &&
+  typeof value.downloadUrl === 'string';
 
 const isSuccessResponse = (
   value: unknown,
@@ -39,7 +63,50 @@ const isSuccessResponse = (
   isObject(value) &&
   value.status === 'success' &&
   typeof value.generationId === 'string' &&
-  Array.isArray(value.files);
+  value.templateCode === 'mikoton-commercial-proposal' &&
+  value.templateVersion === '1' &&
+  typeof value.generatedAt === 'string' &&
+  Array.isArray(value.files) &&
+  value.files.every(isGenerationFile);
+
+const mapServiceErrorCode = (
+  responseStatus: number,
+  serviceCode: string | undefined,
+) => {
+  if (responseStatus === 401 || responseStatus === 403) {
+    return 'DOCUMENT_SERVICE_FORBIDDEN' as const;
+  }
+
+  if (serviceCode === 'DOCUMENT_STORAGE_FAILED') {
+    return 'DOCUMENT_STORAGE_FAILED' as const;
+  }
+
+  if (serviceCode === 'PDF_EXPORT_FAILED') {
+    return 'PDF_EXPORT_FAILED' as const;
+  }
+
+  if (serviceCode === 'PAYLOAD_INVALID' || serviceCode === 'TEMPLATE_INVALID') {
+    return 'DOCUMENT_GENERATION_FAILED' as const;
+  }
+
+  return 'DOCUMENT_GENERATION_FAILED' as const;
+};
+
+const parseJsonResponse = (responseText: string) => {
+  if (responseText.trim() === '') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(responseText) as unknown;
+  } catch (error) {
+    throw new ApplicationError(
+      'DOCUMENT_SERVICE_INVALID_RESPONSE',
+      'Document service returned a non-JSON response',
+      error,
+    );
+  }
+};
 
 export class HttpDocumentServiceClient implements DocumentGenerationClient {
   constructor(
@@ -49,6 +116,7 @@ export class HttpDocumentServiceClient implements DocumentGenerationClient {
     private readonly secret = getRequiredEnvironmentValue(
       'DOCUMENT_SERVICE_SECRET',
     ),
+    private readonly timeoutMs = getTimeoutMs(),
   ) {}
 
   async generate(request: {
@@ -57,11 +125,37 @@ export class HttpDocumentServiceClient implements DocumentGenerationClient {
     payload: DocumentGenerationPayload;
     requestedFormats: Array<'xlsm' | 'pdf'>;
   }) {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await this.tryGenerate(request);
+      } catch (error) {
+        lastError = error;
+
+        if (
+          error instanceof ApplicationError &&
+          (error.code === 'DOCUMENT_SERVICE_UNAVAILABLE' ||
+            error.code === 'DOCUMENT_SERVICE_TIMEOUT')
+        ) {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw lastError;
+  }
+
+  private async tryGenerate(request: {
+    requestId: string;
+    idempotencyKey: string;
+    payload: DocumentGenerationPayload;
+    requestedFormats: Array<'xlsm' | 'pdf'>;
+  }) {
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      DOCUMENT_SERVICE_TIMEOUT_MS,
-    );
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
       const response = await fetch(
@@ -71,21 +165,43 @@ export class HttpDocumentServiceClient implements DocumentGenerationClient {
           headers: {
             authorization: `Bearer ${this.secret}`,
             'content-type': 'application/json',
+            accept: 'application/json',
           },
           body: JSON.stringify(request),
           signal: controller.signal,
         },
       );
       const responseText = await response.text();
-      const responseBody =
-        responseText.trim() === '' ? null : (JSON.parse(responseText) as unknown);
+      const contentType = response.headers.get('content-type') ?? '';
+
+      if (!contentType.includes('application/json')) {
+        throw new ApplicationError(
+          'DOCUMENT_SERVICE_INVALID_RESPONSE',
+          'Document service returned an unexpected content type',
+        );
+      }
+
+      const responseBody = parseJsonResponse(responseText);
 
       if (!response.ok) {
         const failure = isObject(responseBody)
           ? (responseBody as DocumentServiceFailureResponse)
           : null;
+        const errorCode = mapServiceErrorCode(
+          response.status,
+          failure?.error?.code,
+        );
+
+        if (RETRYABLE_STATUSES.has(response.status)) {
+          throw new ApplicationError(
+            'DOCUMENT_SERVICE_UNAVAILABLE',
+            failure?.error?.message ??
+              `Document service failed with HTTP ${response.status}`,
+          );
+        }
+
         throw new ApplicationError(
-          'DOCUMENT_GENERATION_FAILED',
+          errorCode,
           failure?.error?.message ??
             `Document service failed with HTTP ${response.status}`,
         );
@@ -93,7 +209,7 @@ export class HttpDocumentServiceClient implements DocumentGenerationClient {
 
       if (!isSuccessResponse(responseBody)) {
         throw new ApplicationError(
-          'DOCUMENT_GENERATION_FAILED',
+          'DOCUMENT_SERVICE_INVALID_RESPONSE',
           'Document service returned an invalid response',
         );
       }

@@ -28,6 +28,7 @@ import {
   normalizeOpportunityAmount,
   normalizeOpportunityCurrency,
 } from 'src/services/twenty-record-repository';
+import { HttpDocumentServiceClient } from 'src/services/document-service-client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const fixedDate = new Date('2026-07-12T10:11:12.000Z');
@@ -48,6 +49,9 @@ afterEach(() => {
   delete process.env.TWENTY_APP_ACCESS_TOKEN;
   delete process.env.TWENTY_API_URL;
   delete process.env.TWENTY_FUNCTIONS_URL;
+  delete process.env.DOCUMENT_SERVICE_URL;
+  delete process.env.DOCUMENT_SERVICE_SECRET;
+  delete process.env.DOCUMENT_SERVICE_TIMEOUT_MS;
 });
 
 const getFetchCallOptions = (fetchSpy: ReturnType<typeof vi.fn>) =>
@@ -203,7 +207,9 @@ describe('commercial proposal domain', () => {
             contentType: 'application/vnd.ms-excel.sheet.macroEnabled.12',
             size: 100,
             sha256: 'sha-xlsm',
-            url: 'file:///cp.xlsm',
+            storageKey: 'commercial-proposals/draft-id/generation-id/cp.xlsm',
+            downloadUrl: 'https://documents.test/cp.xlsm',
+            downloadUrlExpiresAt: '2026-07-12T10:26:12Z',
           },
           {
             format: 'pdf' as const,
@@ -211,7 +217,9 @@ describe('commercial proposal domain', () => {
             contentType: 'application/pdf',
             size: 100,
             sha256: 'sha-pdf',
-            url: 'file:///cp.pdf',
+            storageKey: 'commercial-proposals/draft-id/generation-id/cp.pdf',
+            downloadUrl: 'https://documents.test/cp.pdf',
+            downloadUrlExpiresAt: '2026-07-12T10:26:12Z',
           },
         ],
       })),
@@ -845,5 +853,172 @@ describe('commercial proposal front component helpers', () => {
       status: 'success',
       value: 42,
     });
+  });
+});
+
+describe('document service client', () => {
+  const request = {
+    requestId: generationIdempotencyKey,
+    idempotencyKey: generationIdempotencyKey,
+    payload: buildDocumentGenerationPayload({
+      draft: makeDraft(),
+      opportunity: {
+        id: 'opportunity-id',
+        name: 'Test opportunity',
+        company: { id: 'company-id', name: 'Test company' },
+        amount: 123.45,
+        currencyCode: 'RUB',
+      },
+      now: fixedDate,
+    }),
+    requestedFormats: ['xlsm' as const, 'pdf' as const],
+  };
+
+  const makeClient = () => {
+    process.env.DOCUMENT_SERVICE_URL = 'https://document-service.test';
+    process.env.DOCUMENT_SERVICE_SECRET = 'server-side-secret';
+
+    return new HttpDocumentServiceClient();
+  };
+
+  it('accepts successful document-service responses with download URLs', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              status: 'success',
+              generationId: 'generation-id',
+              templateCode: 'mikoton-commercial-proposal',
+              templateVersion: '1',
+              generatedAt: '2026-07-12T10:11:12Z',
+              files: [
+                {
+                  format: 'xlsm',
+                  fileName: 'cp.xlsm',
+                  contentType:
+                    'application/vnd.ms-excel.sheet.macroEnabled.12',
+                  size: 100,
+                  sha256: 'sha-xlsm',
+                  storageKey: 'commercial-proposals/draft/generation/cp.xlsm',
+                  downloadUrl: 'https://documents.test/cp.xlsm',
+                  downloadUrlExpiresAt: '2026-07-12T10:26:12Z',
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    const result = await makeClient().generate(request);
+
+    expect(result.files[0]?.downloadUrl).toBe('https://documents.test/cp.xlsm');
+  });
+
+  it('maps document-service auth failures without leaking the secret', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              status: 'failed',
+              error: { code: 'UNAUTHORIZED', message: 'Unauthorized' },
+            }),
+            {
+              status: 401,
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    let caught: unknown;
+    try {
+      await makeClient().generate(request);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({ code: 'DOCUMENT_SERVICE_FORBIDDEN' });
+    expect(JSON.stringify(caught)).not.toContain('server-side-secret');
+  });
+
+  it('rejects non-JSON document-service responses', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response('not json', {
+            status: 200,
+            headers: { 'content-type': 'text/plain' },
+          }),
+      ),
+    );
+
+    await expect(makeClient().generate(request)).rejects.toMatchObject({
+      code: 'DOCUMENT_SERVICE_INVALID_RESPONSE',
+    });
+  });
+
+  it('retries one transient 5xx with the same idempotency key', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'failed',
+            error: { code: 'INTERNAL_ERROR', message: 'temporary' },
+          }),
+          {
+            status: 503,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'success',
+            generationId: 'generation-id',
+            templateCode: 'mikoton-commercial-proposal',
+            templateVersion: '1',
+            generatedAt: '2026-07-12T10:11:12Z',
+            files: [
+              {
+                format: 'pdf',
+                fileName: 'cp.pdf',
+                contentType: 'application/pdf',
+                size: 100,
+                sha256: 'sha-pdf',
+                downloadUrl: 'https://documents.test/cp.pdf',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await makeClient().generate(request);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const firstBody = JSON.parse(
+      String((fetchSpy.mock.calls[0]?.[1] as RequestInit).body),
+    ) as { idempotencyKey: string };
+    const secondBody = JSON.parse(
+      String((fetchSpy.mock.calls[1]?.[1] as RequestInit).body),
+    ) as { idempotencyKey: string };
+
+    expect(firstBody.idempotencyKey).toBe(generationIdempotencyKey);
+    expect(secondBody.idempotencyKey).toBe(generationIdempotencyKey);
   });
 });

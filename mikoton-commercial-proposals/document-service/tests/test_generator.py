@@ -4,18 +4,25 @@ import json
 import tempfile
 import unittest
 import zipfile
+import sys
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from subprocess import CompletedProcess
+from unittest.mock import patch
 from xml.etree import ElementTree as ET
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT / "document-service"))
 
 from mikoton_document_service.generator import (
     DocumentGenerationError,
+    LocalDocumentStorage,
     REQUIRED_XLSM_PARTS,
+    generate_xlsm,
+    generate_pdf_from_xlsm,
     generate_documents,
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_PATH = PROJECT_ROOT / "templates" / "mikoton-commercial-proposal-v1.xlsm"
 MAPPING_PATH = PROJECT_ROOT / "templates" / "mikoton-commercial-proposal-v1.mapping.json"
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -95,17 +102,38 @@ def text_value(cell_node: ET.Element) -> str:
 class GeneratorTest(unittest.TestCase):
     def test_generates_xlsm_pdf_and_preserves_template_parts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            result = generate_documents(fixture_payload(), TEMPLATE_PATH, MAPPING_PATH, Path(tmp))
+            tmp_path = Path(tmp)
+
+            def fake_libreoffice(command: list[str], **kwargs: object) -> CompletedProcess[str]:
+                outdir = Path(command[command.index("--outdir") + 1])
+                source = Path(command[-1])
+                pdf_path = outdir / f"{source.stem}.pdf"
+                pdf_path.write_bytes(b"%PDF-1.4\n% fake libreoffice export\n")
+                return CompletedProcess(command, 0, stdout="converted", stderr="")
+
+            with patch("mikoton_document_service.generator.subprocess.run", side_effect=fake_libreoffice):
+                result = generate_documents(
+                    fixture_payload(),
+                    TEMPLATE_PATH,
+                    MAPPING_PATH,
+                    tmp_path,
+                    storage=LocalDocumentStorage(tmp_path / "storage", "https://documents.example.test"),
+                    idempotency_key="123e4567-e89b-42d3-a456-426614174099",
+                    libreoffice_binary="libreoffice",
+                )
 
             self.assertEqual(result["status"], "success")
             files = {file["format"]: file for file in result["files"]}
             self.assertIn("xlsm", files)
             self.assertIn("pdf", files)
             self.assertGreater(files["xlsm"]["size"], 10_000)
-            self.assertGreater(files["pdf"]["size"], 1_000)
+            self.assertGreater(files["pdf"]["size"], 10)
+            self.assertIn("storageKey", files["xlsm"])
+            self.assertIn("downloadUrl", files["xlsm"])
+            self.assertNotIn("file://", files["xlsm"]["downloadUrl"])
+            self.assertTrue(files["pdf"]["downloadUrl"].startswith("https://documents.example.test/"))
 
-            parsed_url = urlparse(files["xlsm"]["url"])
-            xlsm_path = Path(unquote(parsed_url.path.lstrip("/"))).resolve()
+            xlsm_path = tmp_path / "storage" / files["xlsm"]["storageKey"]
             with zipfile.ZipFile(xlsm_path) as package:
                 names = set(package.namelist())
                 for required_part in REQUIRED_XLSM_PARTS:
@@ -135,8 +163,33 @@ class GeneratorTest(unittest.TestCase):
         payload["content"]["workItems"] = payload["content"]["workItems"] * 3
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(DocumentGenerationError) as raised:
-                generate_documents(payload, TEMPLATE_PATH, MAPPING_PATH, Path(tmp))
+                generate_documents(
+                    payload,
+                    TEMPLATE_PATH,
+                    MAPPING_PATH,
+                    Path(tmp),
+                    storage=LocalDocumentStorage(Path(tmp) / "storage", "https://documents.example.test"),
+                    idempotency_key="123e4567-e89b-42d3-a456-426614174099",
+                )
             self.assertEqual(raised.exception.code, "PAYLOAD_INVALID")
+
+    def test_pdf_export_failure_is_structured(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            xlsm = generate_xlsm(fixture_payload(), TEMPLATE_PATH, MAPPING_PATH, Path(tmp))
+
+            with patch(
+                "mikoton_document_service.generator.subprocess.run",
+                return_value=CompletedProcess(["libreoffice"], 1, stdout="", stderr="failed"),
+            ):
+                with self.assertRaises(DocumentGenerationError) as raised:
+                    generate_pdf_from_xlsm(
+                        xlsm,
+                        Path(tmp),
+                        libreoffice_binary="libreoffice",
+                        timeout_seconds=1,
+                    )
+
+            self.assertEqual(raised.exception.code, "PDF_EXPORT_FAILED")
 
 
 if __name__ == "__main__":

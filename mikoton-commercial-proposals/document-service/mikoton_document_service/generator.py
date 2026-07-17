@@ -3,12 +3,17 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
+import uuid
 import zipfile
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from xml.etree import ElementTree as ET
 
 
@@ -26,6 +31,7 @@ REQUIRED_XLSM_PARTS = (
     "xl/ctrlProps/ctrlProp1.xml",
     "xl/printerSettings/printerSettings1.bin",
 )
+DEFAULT_SIGNED_URL_TTL_SECONDS = 15 * 60
 
 
 class DocumentGenerationError(Exception):
@@ -35,14 +41,156 @@ class DocumentGenerationError(Exception):
 
 
 @dataclass(frozen=True)
-class GeneratedFile:
+class GeneratedLocalFile:
     format: str
     file_name: str
     content_type: str
     size: int
     sha256: str
-    url: str
     path: Path
+
+
+@dataclass(frozen=True)
+class StoredDocument:
+    id: str
+    format: str
+    file_name: str
+    content_type: str
+    size: int
+    sha256: str
+    storage_key: str
+    download_url: str
+    download_url_expires_at: str
+
+
+class DocumentStorage(Protocol):
+    def put(self, *, source_path: Path, storage_key: str, content_type: str) -> str:
+        ...
+
+    def get_download_url(self, *, storage_key: str, expires_in_seconds: int) -> tuple[str, datetime]:
+        ...
+
+    def delete(self, *, storage_key: str) -> None:
+        ...
+
+    def is_ready(self) -> bool:
+        ...
+
+
+class LocalDocumentStorage:
+    def __init__(self, root: Path, public_base_url: str):
+        self.root = root
+        self.public_base_url = public_base_url.rstrip("/")
+
+    def put(self, *, source_path: Path, storage_key: str, content_type: str) -> str:
+        destination = (self.root / storage_key).resolve()
+        root = self.root.resolve()
+        if root not in destination.parents and destination != root:
+            raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", "Invalid storage key")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_path, destination)
+        return storage_key
+
+    def get_download_url(self, *, storage_key: str, expires_in_seconds: int) -> tuple[str, datetime]:
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)
+        if self.public_base_url:
+            return f"{self.public_base_url}/{storage_key}", expires_at
+        return f"/documents/{storage_key}", expires_at
+
+    def delete(self, *, storage_key: str) -> None:
+        target = (self.root / storage_key).resolve()
+        root = self.root.resolve()
+        if root in target.parents or target == root:
+            target.unlink(missing_ok=True)
+
+    def is_ready(self) -> bool:
+        self.root.mkdir(parents=True, exist_ok=True)
+        probe = self.root / ".readyz"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+
+
+class S3DocumentStorage:
+    def __init__(
+        self,
+        *,
+        endpoint: str,
+        access_key: str,
+        secret_key: str,
+        bucket: str,
+        secure: bool,
+        public_base_url: str | None = None,
+    ):
+        try:
+            import boto3
+            from botocore.client import Config
+        except Exception as exc:
+            raise DocumentGenerationError(
+                "DOCUMENT_STORAGE_FAILED",
+                "boto3 is required for S3-compatible storage",
+            ) from exc
+
+        self.bucket = bucket
+        self.public_base_url = public_base_url.rstrip("/") if public_base_url else None
+        self.client = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            use_ssl=secure,
+            config=Config(signature_version="s3v4"),
+        )
+
+    def put(self, *, source_path: Path, storage_key: str, content_type: str) -> str:
+        try:
+            self.client.upload_file(
+                str(source_path),
+                self.bucket,
+                storage_key,
+                ExtraArgs={"ContentType": content_type},
+            )
+            return storage_key
+        except Exception as exc:
+            raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", "Storage upload failed") from exc
+
+    def get_download_url(self, *, storage_key: str, expires_in_seconds: int) -> tuple[str, datetime]:
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)
+        if self.public_base_url:
+            return f"{self.public_base_url}/{storage_key}", expires_at
+        try:
+            return (
+                self.client.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": self.bucket, "Key": storage_key},
+                    ExpiresIn=expires_in_seconds,
+                ),
+                expires_at,
+            )
+        except Exception as exc:
+            raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", "Could not create download URL") from exc
+
+    def delete(self, *, storage_key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket, Key=storage_key)
+
+    def is_ready(self) -> bool:
+        try:
+            self.client.head_bucket(Bucket=self.bucket)
+            return True
+        except Exception as exc:
+            raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", "Storage bucket is not reachable") from exc
+
+
+@dataclass(frozen=True)
+class GeneratorConfig:
+    template_path: Path
+    mapping_path: Path
+    temp_dir: Path
+    pdf_engine: str
+    libreoffice_binary: str
+    timeout_seconds: int
+    storage: DocumentStorage
+    signed_url_ttl_seconds: int = DEFAULT_SIGNED_URL_TTL_SECONDS
 
 
 def _cell_tag(name: str) -> str:
@@ -53,6 +201,10 @@ def _sanitize_filename_part(value: str) -> str:
     slug = re.sub(r"[^0-9A-Za-zА-Яа-яЁё._-]+", "-", value.strip())
     slug = re.sub(r"-{2,}", "-", slug).strip(".-")
     return slug[:80] or "commercial-proposal"
+
+
+def _sanitize_storage_segment(value: str) -> str:
+    return _sanitize_filename_part(value).replace("..", "-")
 
 
 def _sha256(path: Path) -> str:
@@ -121,7 +273,7 @@ def validate_payload(payload: dict[str, Any], mapping: dict[str, Any]) -> None:
     if len(work_items) > int(mapping["limits"]["maxWorkItems"]):
         raise DocumentGenerationError(
             "PAYLOAD_INVALID",
-            f"content.workItems supports at most {mapping['limits']['maxWorkItems']} items in template v1",
+            f"Шаблон версии 1 поддерживает не более {mapping['limits']['maxWorkItems']} позиций работ.",
         )
     if not isinstance(plan, list) or not (int(mapping["limits"]["minPlanStages"]) <= len(plan) <= int(mapping["limits"]["maxPlanStages"])):
         raise DocumentGenerationError("PAYLOAD_INVALID", "content.plan must contain 1 to 3 stages")
@@ -270,7 +422,7 @@ def _apply_workbook_mapping(sheet: ET.Element, payload: dict[str, Any], mapping:
         _set_text(sheet, f"G{row}", "" if stage is None else _as_text(stage.get("duration"), "stage.duration"))
 
 
-def generate_xlsm(payload: dict[str, Any], template_path: Path, mapping_path: Path, output_dir: Path) -> GeneratedFile:
+def generate_xlsm(payload: dict[str, Any], template_path: Path, mapping_path: Path, output_dir: Path) -> GeneratedLocalFile:
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
     validate_payload(payload, mapping)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -296,97 +448,238 @@ def generate_xlsm(payload: dict[str, Any], template_path: Path, mapping_path: Pa
                 data = updated_sheet if item.filename == sheet_path else source_zip.read(item.filename)
                 target_zip.writestr(copy.copy(item), data)
 
-    return GeneratedFile(
+    return GeneratedLocalFile(
         format="xlsm",
         file_name=file_name,
         content_type=XLSM_CONTENT_TYPE,
         size=output_path.stat().st_size,
         sha256=_sha256(output_path),
-        url=output_path.resolve().as_uri(),
         path=output_path,
     )
 
 
-def generate_pdf(payload: dict[str, Any], output_dir: Path) -> GeneratedFile:
-    try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
-        from reportlab.pdfgen import canvas
-    except Exception as exc:
-        raise DocumentGenerationError("PDF_EXPORT_FAILED", "ReportLab PDF engine is unavailable") from exc
-
+def generate_pdf_from_xlsm(
+    xlsm: GeneratedLocalFile,
+    output_dir: Path,
+    *,
+    libreoffice_binary: str,
+    timeout_seconds: int,
+) -> GeneratedLocalFile:
     output_dir.mkdir(parents=True, exist_ok=True)
-    proposal_number = payload["proposal"]["number"]
-    company_slug = _sanitize_filename_part(payload["customer"].get("companyName") or "no-company")
-    file_name = f"{_sanitize_filename_part(proposal_number)}-{company_slug}.pdf"
-    output_path = output_dir / file_name
+    with tempfile.TemporaryDirectory(prefix="mikoton-lo-", dir=str(output_dir)) as profile_dir:
+        command = [
+            libreoffice_binary,
+            "--headless",
+            "--nologo",
+            "--nofirststartwizard",
+            f"-env:UserInstallation=file://{Path(profile_dir).resolve().as_posix()}",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(output_dir),
+            str(xlsm.path),
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise DocumentGenerationError("PDF_EXPORT_FAILED", "LibreOffice PDF export timed out") from exc
+        except FileNotFoundError as exc:
+            raise DocumentGenerationError("PDF_EXPORT_FAILED", "LibreOffice binary is not available") from exc
 
-    font_name = "Helvetica"
-    font_candidates = [
-        Path("C:/Windows/Fonts/arial.ttf"),
-        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-    ]
-    for font_path in font_candidates:
-        if font_path.exists():
-            pdfmetrics.registerFont(TTFont("MikotonSans", str(font_path)))
-            font_name = "MikotonSans"
-            break
+    if completed.returncode != 0:
+        raise DocumentGenerationError("PDF_EXPORT_FAILED", "LibreOffice PDF export failed")
 
-    proposal = payload["proposal"]
-    customer = payload["customer"]
-    content = payload["content"]
-    page = canvas.Canvas(str(output_path), pagesize=A4)
-    width, height = A4
-    y = height - 50
+    pdf_path = output_dir / f"{xlsm.path.stem}.pdf"
+    if not pdf_path.exists() or pdf_path.stat().st_size == 0:
+        raise DocumentGenerationError("PDF_EXPORT_FAILED", "LibreOffice did not produce a PDF")
+    with pdf_path.open("rb") as handle:
+        if handle.read(5) != b"%PDF-":
+            raise DocumentGenerationError("PDF_EXPORT_FAILED", "Generated PDF is invalid")
 
-    def line(text: str, size: int = 10, gap: int = 16) -> None:
-        nonlocal y
-        page.setFont(font_name, size)
-        page.drawString(40, y, text[:120])
-        y -= gap
-
-    line("КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ", 16, 24)
-    line(f"КП № {proposal['number']} от {proposal['date']}", 11)
-    line(proposal["title"], 12, 22)
-    line(f"Заказчик: {customer.get('companyName') or 'Компания не указана'}")
-    line(f"Контакт: {customer.get('contactName') or 'Не указан'}")
-    line(f"Валюта: {proposal['currencyCode']}; срок действия: {proposal.get('validityDays', 14)} дней", 10, 22)
-    line("Работы:", 12)
-    total = 0.0
-    for item in content["workItems"]:
-        line_total = float(item["quantity"]) * float(item["rate"]) * (1 - float(item["discount"]))
-        total += line_total
-        line(f"{item.get('position')}. {item['block']}: {item['description']} — {line_total:,.2f} {proposal['currencyCode']}")
-    line(f"Итого: {total:,.2f} {proposal['currencyCode']}", 12, 22)
-    line("План:", 12)
-    for stage in content["plan"]:
-        line(f"{stage.get('position')}. {stage['title']} — {stage['duration']}: {stage['result']}")
-    page.showPage()
-    page.save()
-
-    return GeneratedFile(
+    return GeneratedLocalFile(
         format="pdf",
-        file_name=file_name,
+        file_name=pdf_path.name,
         content_type=PDF_CONTENT_TYPE,
-        size=output_path.stat().st_size,
-        sha256=_sha256(output_path),
-        url=output_path.resolve().as_uri(),
-        path=output_path,
+        size=pdf_path.stat().st_size,
+        sha256=_sha256(pdf_path),
+        path=pdf_path,
     )
 
 
-def generate_documents(payload: dict[str, Any], template_path: Path, mapping_path: Path, output_dir: Path) -> dict[str, Any]:
-    xlsm = generate_xlsm(payload, template_path, mapping_path, output_dir)
-    pdf = generate_pdf(payload, output_dir)
+def _store_file(
+    *,
+    file: GeneratedLocalFile,
+    storage: DocumentStorage,
+    proposal_id: str,
+    generation_id: str,
+    ttl_seconds: int,
+) -> StoredDocument:
+    storage_key = "/".join(
+        [
+            "commercial-proposals",
+            _sanitize_storage_segment(proposal_id),
+            _sanitize_storage_segment(generation_id),
+            _sanitize_storage_segment(file.file_name),
+        ]
+    )
+    storage.put(source_path=file.path, storage_key=storage_key, content_type=file.content_type)
+    download_url, expires_at = storage.get_download_url(
+        storage_key=storage_key,
+        expires_in_seconds=ttl_seconds,
+    )
+    return StoredDocument(
+        id=str(uuid.uuid4()),
+        format=file.format,
+        file_name=file.file_name,
+        content_type=file.content_type,
+        size=file.size,
+        sha256=file.sha256,
+        storage_key=storage_key,
+        download_url=download_url,
+        download_url_expires_at=expires_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    )
+
+
+def _generation_id(payload: dict[str, Any], idempotency_key: str) -> str:
+    seed = f"{payload['proposal']['id']}:{idempotency_key}:{TEMPLATE_VERSION}"
+    return hashlib.sha256(seed.encode()).hexdigest()[:32]
+
+
+def generate_documents(
+    payload: dict[str, Any],
+    template_path: Path,
+    mapping_path: Path,
+    output_dir: Path,
+    *,
+    storage: DocumentStorage | None = None,
+    idempotency_key: str | None = None,
+    libreoffice_binary: str = "libreoffice",
+    timeout_seconds: int = 60,
+    signed_url_ttl_seconds: int = DEFAULT_SIGNED_URL_TTL_SECONDS,
+) -> dict[str, Any]:
+    generation_key = idempotency_key or f"{payload['proposal']['id']}:{payload['proposal']['number']}"
+    generation_id = _generation_id(payload, generation_key)
+    generation_dir = output_dir / generation_id
+    generation_dir.mkdir(parents=True, exist_ok=True)
+
+    xlsm = generate_xlsm(payload, template_path, mapping_path, generation_dir)
+    pdf = generate_pdf_from_xlsm(
+        xlsm,
+        generation_dir,
+        libreoffice_binary=libreoffice_binary,
+        timeout_seconds=timeout_seconds,
+    )
+    document_storage = storage or LocalDocumentStorage(generation_dir / "storage", "")
+    stored_files = [
+        _store_file(
+            file=xlsm,
+            storage=document_storage,
+            proposal_id=payload["proposal"]["id"],
+            generation_id=generation_id,
+            ttl_seconds=signed_url_ttl_seconds,
+        ),
+        _store_file(
+            file=pdf,
+            storage=document_storage,
+            proposal_id=payload["proposal"]["id"],
+            generation_id=generation_id,
+            ttl_seconds=signed_url_ttl_seconds,
+        ),
+    ]
+
     return {
         "status": "success",
-        "generationId": hashlib.sha256(f"{payload['proposal']['id']}:{payload['proposal']['number']}:{TEMPLATE_VERSION}".encode()).hexdigest()[:32],
+        "generationId": generation_id,
         "templateCode": TEMPLATE_CODE,
         "templateVersion": TEMPLATE_VERSION,
-        "generatedAt": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "generatedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "files": [
-            {k: getattr(xlsm, k) for k in ("format", "file_name", "content_type", "size", "sha256", "url")},
-            {k: getattr(pdf, k) for k in ("format", "file_name", "content_type", "size", "sha256", "url")},
+            {
+                "id": file.id,
+                "format": file.format,
+                "fileName": file.file_name,
+                "contentType": file.content_type,
+                "size": file.size,
+                "sha256": file.sha256,
+                "storageKey": file.storage_key,
+                "downloadUrl": file.download_url,
+                "downloadUrlExpiresAt": file.download_url_expires_at,
+            }
+            for file in stored_files
         ],
     }
+
+
+def storage_from_environment() -> DocumentStorage:
+    storage_type = os.environ.get("DOCUMENT_STORAGE_TYPE", "local").lower()
+    if storage_type == "local":
+        root = Path(os.environ.get("DOCUMENT_STORAGE_PATH", "/var/lib/mikoton-document-service/storage"))
+        return LocalDocumentStorage(root, os.environ.get("DOCUMENT_PUBLIC_BASE_URL", ""))
+    if storage_type in {"s3", "s3-compatible", "minio"}:
+        return S3DocumentStorage(
+            endpoint=os.environ["MINIO_ENDPOINT"],
+            access_key=os.environ["MINIO_ACCESS_KEY"],
+            secret_key=os.environ["MINIO_SECRET_KEY"],
+            bucket=os.environ.get("MINIO_BUCKET", "commercial-proposals"),
+            secure=os.environ.get("MINIO_SECURE", "false").lower() == "true",
+            public_base_url=os.environ.get("MINIO_PUBLIC_BASE_URL") or None,
+        )
+    raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", f"Unsupported storage type: {storage_type}")
+
+
+def config_from_environment(project_root: Path) -> GeneratorConfig:
+    template_path = Path(
+        os.environ.get(
+            "DOCUMENT_TEMPLATE_PATH",
+            str(project_root / "templates" / "mikoton-commercial-proposal-v1.xlsm"),
+        )
+    )
+    mapping_path = Path(
+        os.environ.get(
+            "DOCUMENT_MAPPING_PATH",
+            str(project_root / "templates" / "mikoton-commercial-proposal-v1.mapping.json"),
+        )
+    )
+    temp_dir = Path(os.environ.get("DOCUMENT_TEMP_PATH", "/tmp/mikoton-document-service"))
+    return GeneratorConfig(
+        template_path=template_path,
+        mapping_path=mapping_path,
+        temp_dir=temp_dir,
+        pdf_engine=os.environ.get("PDF_ENGINE", "libreoffice").lower(),
+        libreoffice_binary=os.environ.get("LIBREOFFICE_BINARY", "libreoffice"),
+        timeout_seconds=int(os.environ.get("GENERATION_TIMEOUT_SECONDS", "60")),
+        storage=storage_from_environment(),
+        signed_url_ttl_seconds=int(
+            os.environ.get("DOCUMENT_SIGNED_URL_TTL_SECONDS", str(DEFAULT_SIGNED_URL_TTL_SECONDS))
+        ),
+    )
+
+
+def readiness(config: GeneratorConfig) -> dict[str, Any]:
+    checks = {
+        "template": config.template_path.exists(),
+        "mapping": config.mapping_path.exists(),
+        "tempWritable": False,
+        "storage": False,
+        "pdfEngine": False,
+    }
+    try:
+        config.temp_dir.mkdir(parents=True, exist_ok=True)
+        probe = config.temp_dir / ".readyz"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        checks["tempWritable"] = True
+    except Exception:
+        checks["tempWritable"] = False
+    try:
+        checks["storage"] = config.storage.is_ready()
+    except Exception:
+        checks["storage"] = False
+    checks["pdfEngine"] = config.pdf_engine == "libreoffice" and shutil.which(config.libreoffice_binary) is not None
+    return {"ready": all(checks.values()), "checks": checks}

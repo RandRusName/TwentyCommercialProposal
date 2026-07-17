@@ -28,7 +28,7 @@ export default defineApplication({
         'Server-side document-service base URL used by generation logic functions.',
       isSecret: false,
       type: FieldType.TEXT,
-      value: 'http://127.0.0.1:8010',
+      value: 'http://document-service:8010',
     },
     DOCUMENT_SERVICE_SECRET: {
       universalIdentifier:
