@@ -9,7 +9,7 @@ import type {
   OpportunityContext,
 } from 'src/domain/commercial-proposal';
 import { ApplicationError } from 'src/domain/commercial-proposal';
-import { COMMERCIAL_PROPOSAL_FIELD_FILES_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
+import { ATTACHMENT_FIELD_FILE_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 
 type CoreClient = InstanceType<typeof CoreApiClient>;
 
@@ -215,8 +215,7 @@ const createUploadForm = (
       `,
       variables: {
         file: null,
-        fieldMetadataUniversalIdentifier:
-          COMMERCIAL_PROPOSAL_FIELD_FILES_UNIVERSAL_IDENTIFIER,
+        fieldMetadataUniversalIdentifier: ATTACHMENT_FIELD_FILE_UNIVERSAL_IDENTIFIER,
       },
     }),
   );
@@ -545,25 +544,33 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
           file.contentType,
         );
 
-        await this.client.mutation({
-          createAttachment: {
-            __args: {
-              data: {
-                name: file.fileName,
-                targetCommercialProposalId: commercialProposalId,
-                file: [
-                  {
-                    fileId: uploadedFile.id,
-                    label: file.fileName,
-                  },
-                ],
-                fullPath: uploadedFile.path,
-                fileCategory: getAttachmentFileCategory(file),
+        try {
+          await this.client.mutation({
+            createAttachment: {
+              __args: {
+                data: {
+                  name: file.fileName,
+                  targetCommercialProposalId: commercialProposalId,
+                  file: [
+                    {
+                      fileId: uploadedFile.id,
+                      label: file.fileName,
+                    },
+                  ],
+                  fullPath: uploadedFile.path,
+                  fileCategory: getAttachmentFileCategory(file),
+                },
               },
+              id: true,
             },
-            id: true,
-          },
-        });
+          });
+        } catch (error) {
+          throw new ApplicationError(
+            'DOCUMENT_STORAGE_FAILED',
+            'Generated file attachment to Twenty failed',
+            error,
+          );
+        }
 
         return {
           ...file,

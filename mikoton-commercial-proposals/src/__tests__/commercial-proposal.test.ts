@@ -29,6 +29,9 @@ import {
   callAppRoute,
 } from 'src/front-components/utils/call-app-route';
 import {
+  ATTACHMENT_FIELD_FILE_UNIVERSAL_IDENTIFIER,
+} from 'src/constants/universal-identifiers';
+import {
   normalizeOpportunityAmount,
   normalizeOpportunityCurrency,
   TwentyRecordRepository,
@@ -654,6 +657,17 @@ describe('twenty record repository generated file attachments', () => {
           authorization: 'Bearer upload-token',
         },
       }),
+    );
+    const uploadRequest = vi.mocked(fetch).mock.calls.find(
+      ([url]) => url === 'https://twenty.test/metadata',
+    )?.[1] as RequestInit | undefined;
+    const uploadForm = uploadRequest?.body as FormData;
+    const operations = JSON.parse(uploadForm.get('operations') as string) as {
+      variables: { fieldMetadataUniversalIdentifier: string };
+    };
+
+    expect(operations.variables.fieldMetadataUniversalIdentifier).toBe(
+      ATTACHMENT_FIELD_FILE_UNIVERSAL_IDENTIFIER,
     );
     expect(mutation).toHaveBeenCalledWith({
       createAttachment: {
