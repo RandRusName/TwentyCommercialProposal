@@ -1,16 +1,16 @@
 # Phase 4 Smoke Test
 
-Status: target API smoke passed for app `0.1.31`; XLSX output change still needs target deployment and smoke.
+Status: target API smoke passed for app `0.1.32` with XLSX/PDF output; manual Excel/PDF visual check still pending.
 
 Date: 2026-07-17
 
 ## Versions
 
 - Target Twenty: `v2.20.0`
-- App version: `0.1.31`
-- App release commit: `663aae2685905a6fd6951f9f054d3fbfbae76174`
-- Tarball: `mikoton-commercial-proposals-0.1.31.tgz`
-- Tarball SHA-256: `a4f723a12994214414c0323d028121d5cbc5576ae2ab58cd36beaa5cd11b3f2d`
+- App version: `0.1.32`
+- App release commit: `354af194a5a034509a040853e15f63ae7058d54e`
+- Tarball: `mikoton-commercial-proposals-0.1.32.tgz`
+- Tarball SHA-256: `06118f11a33a087ddee01ec1532241e64e3f5b9858b0ef4d8e10586a39625737`
 - Document-service image: `mikoton-commercial-proposals/document-service:local`
 - PDF engine: `LibreOffice headless`
 - Storage: MinIO/S3-compatible, private bucket `commercial-proposals`
@@ -19,8 +19,8 @@ Date: 2026-07-17
 
 `deploy.bat` completed successfully on 2026-07-17:
 
-- previous version: `0.1.30`
-- published version: `0.1.31`
+- previous version: `0.1.31`
+- published version: `0.1.32`
 - private publish: success
 - install/upgrade: success
 - WSL tarball validation: success
@@ -36,21 +36,21 @@ No changes. Twenty metadata matches your manifest.
 
 Created records:
 
-- Company: `852b0de3-2f2e-4396-81fe-7205ba69cc0c`
-- Opportunity: `0976321b-d66a-4a7c-9494-08f2ed048fe6`
-- CommercialProposal: `7d623e71-35a2-4b33-ac3a-a950bdba05fe`
-- Proposal number: `КП-010 от 17.07.2026`
-- Generation id: `36e7edd0852e1fc178562dd36e30f8ab`
+- Company: `e436562c-b7c6-4e1e-b0e1-729d27613499`
+- Opportunity: `52b3b055-dc01-4c5d-94be-c84b21f0def5`
+- CommercialProposal: `df61e378-56c2-4914-8d9d-4c2f9a2110c0`
+- Proposal number: `КП-011 от 17.07.2026`
+- Generation id: `7dd95dd28629ce5f0ad0f7fefd09de5c`
 
 Verified:
 
 - status: `GENERATED`
-- `generatedAt`: `2026-07-17T13:19:53.000Z`
+- `generatedAt`: `2026-07-17T14:25:59.000Z`
 - `lastError`: empty
-- Opportunity relation: `0976321b-d66a-4a7c-9494-08f2ed048fe6`
-- Company relation: `852b0de3-2f2e-4396-81fe-7205ba69cc0c`
+- Opportunity relation: `52b3b055-dc01-4c5d-94be-c84b21f0def5`
+- Company relation: `e436562c-b7c6-4e1e-b0e1-729d27613499`
 - repeated request with the same generation key returned `generated=false`
-- result metadata contains `xlsm` and `pdf`
+- result metadata contains `xlsx` and `pdf`
 - both result files contain Twenty file ids and Twenty file URLs
 - CommercialProposal `Files` tab is backed by two standard Attachment records
 
@@ -58,8 +58,16 @@ Generated attachments:
 
 | Format | File |
 |---|---|
-| XLSM | `КП-010-от-17.07.2026-SMOKE-Files-Linked-2026-07-17T13-19-51-386Z.xlsm` |
-| PDF | `КП-010-от-17.07.2026-SMOKE-Files-Linked-2026-07-17T13-19-51-386Z.pdf` |
+| XLSX | `КП-011-от-17.07.2026-SMOKE-XLSX-2026-07-17T14-25-56-829Z.xlsx` |
+| PDF | `КП-011-от-17.07.2026-SMOKE-XLSX-2026-07-17T14-25-56-829Z.pdf` |
+
+Downloaded XLSX package checks from target:
+
+- ZIP package opens.
+- `xl/workbook.xml`: present.
+- `xl/worksheets/sheet1.xml`: present.
+- `xl/vbaProject.bin`: absent.
+- `macroEnabled` content type: absent.
 
 ## Previously Verified Foundation
 
@@ -77,7 +85,6 @@ Generated attachments:
 
 ## Not Yet Verified
 
-- Deployment and target smoke for the newer XLSX/PDF output build.
 - Manual UI click path from a CommercialProposal record to `Сформировать документ`.
 - Manual XLSX opening in Microsoft Excel.
 - Manual visual comparison of the generated PDF against the XLSX layout.
@@ -86,5 +93,5 @@ Generated attachments:
 Current blocker before `READY FOR PHASE 5`:
 
 ```text
-target deployment smoke for XLSX/PDF / manual XLSX-PDF check
+target UI smoke / manual XLSX-PDF check
 ```

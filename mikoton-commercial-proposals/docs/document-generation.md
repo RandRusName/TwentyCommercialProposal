@@ -68,10 +68,10 @@ No `file://` URL or container path is returned by the target storage flow.
 
 After the document-service returns XLSX/PDF files, the app logic function downloads them server-side, validates `size` and `sha256`, uploads them through the Twenty metadata file upload API for the standard `Attachment.file` field, and creates standard `Attachment` records with `targetCommercialProposalId`. This fills the CommercialProposal record `Files` tab. DOCX is not generated and there is no DOCX URL field in the app metadata.
 
-The target smoke on 2026-07-17 confirmed two generated attachments for `CommercialProposal 7d623e71-35a2-4b33-ac3a-a950bdba05fe`:
+The target smoke on 2026-07-17 confirmed two generated attachments for `CommercialProposal df61e378-56c2-4914-8d9d-4c2f9a2110c0`:
 
-- `КП-010-от-17.07.2026-SMOKE-Files-Linked-2026-07-17T13-19-51-386Z.xlsx`
-- `КП-010-от-17.07.2026-SMOKE-Files-Linked-2026-07-17T13-19-51-386Z.pdf`
+- `КП-011-от-17.07.2026-SMOKE-XLSX-2026-07-17T14-25-56-829Z.xlsx`
+- `КП-011-от-17.07.2026-SMOKE-XLSX-2026-07-17T14-25-56-829Z.pdf`
 
 ## App Configuration
 

@@ -27,13 +27,13 @@
   default business view. If Twenty `v2.20.0` still exposes them in the record
   field settings picker, that is a platform UI behavior rather than a runtime
   generation dependency.
-- Target API smoke for app `0.1.31` confirmed `GENERATED`, final number
-  `КП-010 от 17.07.2026`, two Twenty Attachment records in the
-  CommercialProposal Files tab, XLSM/PDF formats, and idempotent repeated
+- Target API smoke for app `0.1.32` confirmed `GENERATED`, final number
+  `КП-011 от 17.07.2026`, two Twenty Attachment records in the
+  CommercialProposal Files tab, XLSX/PDF formats, and idempotent repeated
   generation.
-- Starting with the next deployment after app `0.1.31`, generated Excel files
-  are `.xlsx` without VBA/macros. A new target smoke is required to replace the
-  older XLSM/PDF evidence above.
+- Generated Excel files are `.xlsx` without VBA/macros. Target download check
+  confirmed the XLSX ZIP package opens and does not contain `xl/vbaProject.bin`
+  or a `macroEnabled` content type.
 - Manual UI generation smoke and manual Microsoft Excel opening check are not
   yet executed for the XLSX build.
 - Forced target `FAILED -> retry -> GENERATED` recovery test is not yet
