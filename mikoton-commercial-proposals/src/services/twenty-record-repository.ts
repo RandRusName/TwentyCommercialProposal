@@ -56,15 +56,6 @@ type UploadedTwentyFile = {
   url: string;
 };
 
-type CoreClientWithUpload = CoreClient & {
-  uploadFile: (
-    fileBuffer: Buffer,
-    filename: string,
-    contentType: string | undefined,
-    fieldMetadataUniversalIdentifier: string,
-  ) => Promise<UploadedTwentyFile>;
-};
-
 const COMMERCIAL_PROPOSAL_SELECTION = {
   id: true,
   title: true,
@@ -139,6 +130,99 @@ const assertGeneratedFileBuffer = (
 const getAttachmentFileCategory = (
   file: CommercialProposalGenerationFile,
 ) => (file.format === 'xlsm' ? 'SPREADSHEET' : 'TEXT_DOCUMENT');
+
+const getTwentyGraphqlUrl = () => {
+  const apiUrl = process.env.TWENTY_API_URL;
+
+  if (apiUrl === undefined || apiUrl.trim() === '') {
+    throw new ApplicationError(
+      'DOCUMENT_STORAGE_FAILED',
+      'Twenty API URL is not configured for generated file upload',
+    );
+  }
+
+  return `${apiUrl.replace(/\/$/, '')}/graphql`;
+};
+
+const getTwentyAccessToken = () => {
+  const token = process.env.TWENTY_APP_ACCESS_TOKEN ?? process.env.TWENTY_API_KEY;
+
+  if (token === undefined || token.trim() === '') {
+    throw new ApplicationError(
+      'DOCUMENT_STORAGE_FAILED',
+      'Twenty access token is not available for generated file upload',
+    );
+  }
+
+  return token;
+};
+
+const uploadGeneratedFileToTwenty = async (
+  fileBuffer: Buffer,
+  fileName: string,
+  contentType: string,
+): Promise<UploadedTwentyFile> => {
+  const form = new FormData();
+
+  form.append(
+    'operations',
+    JSON.stringify({
+      query: `
+        mutation UploadFilesFieldFileByUniversalIdentifier(
+          $file: Upload!
+          $fieldMetadataUniversalIdentifier: String!
+        ) {
+          uploadFilesFieldFileByUniversalIdentifier(
+            file: $file
+            fieldMetadataUniversalIdentifier: $fieldMetadataUniversalIdentifier
+          ) {
+            id
+            path
+            size
+            createdAt
+            url
+          }
+        }
+      `,
+      variables: {
+        file: null,
+        fieldMetadataUniversalIdentifier:
+          COMMERCIAL_PROPOSAL_FIELD_FILES_UNIVERSAL_IDENTIFIER,
+      },
+    }),
+  );
+  form.append('map', JSON.stringify({ '0': ['variables.file'] }));
+  form.append(
+    '0',
+    new Blob([fileBuffer as unknown as BlobPart], { type: contentType }),
+    fileName,
+  );
+
+  const response = await fetch(getTwentyGraphqlUrl(), {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${getTwentyAccessToken()}`,
+    },
+    body: form,
+  });
+  const responseText = await response.text();
+  const payload = responseText.trim() === '' ? null : JSON.parse(responseText);
+
+  if (
+    !response.ok ||
+    payload === null ||
+    payload.errors !== undefined ||
+    payload.data?.uploadFilesFieldFileByUniversalIdentifier === undefined
+  ) {
+    throw new ApplicationError(
+      'DOCUMENT_STORAGE_FAILED',
+      'Generated file upload to Twenty failed',
+    );
+  }
+
+  return payload.data
+    .uploadFilesFieldFileByUniversalIdentifier as UploadedTwentyFile;
+};
 
 const classifyReadError = (error: unknown): ApplicationErrorCode => {
   const message = getErrorMessage(error);
@@ -382,8 +466,6 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
     commercialProposalId: string,
     files: CommercialProposalGenerationFile[],
   ): Promise<CommercialProposalGenerationFile[]> {
-    const client = this.client as CoreClientWithUpload;
-
     return Promise.all(
       files.map(async (file) => {
         const response = await fetch(file.downloadUrl);
@@ -411,11 +493,10 @@ export class TwentyRecordRepository implements CommercialProposalRepository {
         const buffer = Buffer.from(await response.arrayBuffer());
         assertGeneratedFileBuffer(file, buffer);
 
-        const uploadedFile = await client.uploadFile(
+        const uploadedFile = await uploadGeneratedFileToTwenty(
           buffer,
           file.fileName,
           file.contentType,
-          COMMERCIAL_PROPOSAL_FIELD_FILES_UNIVERSAL_IDENTIFIER,
         );
 
         await this.client.mutation({

@@ -596,28 +596,40 @@ describe('opportunity amount normalization', () => {
 
 describe('twenty record repository generated file attachments', () => {
   it('uploads generated files and creates CommercialProposal attachments', async () => {
-    const uploadFile = vi.fn(async () => ({
-      id: 'twenty-file-id',
-      path: 'files-field/twenty-file-id.pdf',
-      size: 5,
-      createdAt: '2026-07-12T10:11:12Z',
-      url: 'https://twenty.test/files/twenty-file-id.pdf',
-    }));
     const mutation = vi.fn(async () => ({ createAttachment: { id: 'attachment-id' } }));
     const repository = new TwentyRecordRepository({
       query: vi.fn(),
       mutation,
-      uploadFile,
     } as never);
+    process.env.TWENTY_API_URL = 'https://twenty.test';
+    process.env.TWENTY_APP_ACCESS_TOKEN = 'app-token';
 
     vi.stubGlobal(
       'fetch',
       vi.fn(
-        async () =>
-          new Response('hello', {
-            status: 200,
-            headers: { 'content-type': 'application/pdf' },
-          }),
+        async (url: string) => {
+          if (url === 'https://documents.test/proposal.pdf') {
+            return new Response('hello', {
+              status: 200,
+              headers: { 'content-type': 'application/pdf' },
+            });
+          }
+
+          return new Response(
+            JSON.stringify({
+              data: {
+                uploadFilesFieldFileByUniversalIdentifier: {
+                  id: 'twenty-file-id',
+                  path: 'files-field/twenty-file-id.pdf',
+                  size: 5,
+                  createdAt: '2026-07-12T10:11:12Z',
+                  url: 'https://twenty.test/files/twenty-file-id.pdf',
+                },
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        },
       ),
     );
 
@@ -632,11 +644,14 @@ describe('twenty record repository generated file attachments', () => {
       },
     ]);
 
-    expect(uploadFile).toHaveBeenCalledWith(
-      expect.any(Buffer),
-      'proposal.pdf',
-      'application/pdf',
-      expect.any(String),
+    expect(fetch).toHaveBeenCalledWith(
+      'https://twenty.test/graphql',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer app-token',
+        },
+      }),
     );
     expect(mutation).toHaveBeenCalledWith({
       createAttachment: {
