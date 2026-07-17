@@ -603,6 +603,8 @@ describe('twenty record repository generated file attachments', () => {
     } as never);
     process.env.TWENTY_API_URL = 'https://twenty.test';
     process.env.TWENTY_APP_ACCESS_TOKEN = 'app-token';
+    process.env.TWENTY_FILE_UPLOAD_API_KEY = 'upload-token';
+    delete process.env.TWENTY_API_KEY;
 
     vi.stubGlobal(
       'fetch',
@@ -649,7 +651,7 @@ describe('twenty record repository generated file attachments', () => {
       expect.objectContaining({
         method: 'POST',
         headers: {
-          authorization: 'Bearer app-token',
+          authorization: 'Bearer upload-token',
         },
       }),
     );
