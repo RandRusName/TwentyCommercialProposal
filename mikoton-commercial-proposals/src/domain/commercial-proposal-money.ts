@@ -7,23 +7,35 @@ type DecimalSpec = {
   max?: bigint;
 };
 
+type DecimalInput = string | number;
+
 const DECIMAL_REGEX = /^(0|[1-9]\d*)(\.\d+)?$/;
 
 const pow10 = (scale: number) => 10n ** BigInt(scale);
 
 const parseScaledDecimal = (
-  value: string,
+  value: DecimalInput,
   { fieldName, maxScale, min, max }: DecimalSpec,
 ) => {
-  if (typeof value !== 'string' || !DECIMAL_REGEX.test(value)) {
+  if (typeof value !== 'string' && typeof value !== 'number') {
     throw new ApplicationError(
       'COMMERCIAL_PROPOSAL_VALIDATION_FAILED',
-      `${fieldName} must be a positive decimal string`,
+      `${fieldName} must be a positive decimal string or number`,
+    );
+  }
+
+  const normalizedValue =
+    typeof value === 'number' && Number.isFinite(value) ? String(value) : value;
+
+  if (typeof normalizedValue !== 'string' || !DECIMAL_REGEX.test(normalizedValue)) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_VALIDATION_FAILED',
+      `${fieldName} must be a positive decimal string or number`,
     );
   }
 
   const [, integerPart, fractionalWithDot] =
-    /^(0|[1-9]\d*)(\.(\d+))?$/.exec(value) ?? [];
+    /^(0|[1-9]\d*)(\.(\d+))?$/.exec(normalizedValue) ?? [];
   const fractionalPart = fractionalWithDot?.slice(1) ?? '';
 
   if (fractionalPart.length > maxScale) {
@@ -71,9 +83,9 @@ export const calculateProposalLineAmount = ({
   unitPrice,
   discountPercent,
 }: {
-  quantity: string;
-  unitPrice: string;
-  discountPercent: string;
+  quantity: DecimalInput;
+  unitPrice: DecimalInput;
+  discountPercent: DecimalInput;
 }): NormalizedMoneyLine => {
   const quantityScaled = parseScaledDecimal(quantity, {
     fieldName: 'quantity',

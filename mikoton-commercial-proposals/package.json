@@ -1,6 +1,6 @@
 {
   "name": "mikoton-commercial-proposals",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "license": "MIT",
   "engines": {
     "node": "^24.5.0",

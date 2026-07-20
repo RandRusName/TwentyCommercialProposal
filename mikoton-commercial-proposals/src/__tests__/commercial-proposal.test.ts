@@ -775,6 +775,13 @@ describe('commercial proposal aggregate domain', () => {
   it('calculates money without float drift and rounds half-up', () => {
     expect(
       calculateProposalLineAmount({
+        quantity: 2,
+        unitPrice: 5000,
+        discountPercent: 10,
+      }).lineAmount,
+    ).toBe(9000);
+    expect(
+      calculateProposalLineAmount({
         quantity: '1.005',
         unitPrice: '100.00',
         discountPercent: '0',
