@@ -1,4 +1,4 @@
-import { defineApplicationRole, STANDARD_OBJECT } from 'twenty-sdk/define';
+import { defineApplicationRole } from 'twenty-sdk/define';
 
 import {
   APP_DISPLAY_NAME,
@@ -18,20 +18,6 @@ export default defineApplicationRole({
   canSoftDeleteAllObjectRecords: true,
   canDestroyAllObjectRecords: false,
   objectPermissions: [
-    {
-      objectUniversalIdentifier: STANDARD_OBJECT.opportunity.universalIdentifier,
-      canReadObjectRecords: true,
-      canUpdateObjectRecords: false,
-      canSoftDeleteObjectRecords: false,
-      canDestroyObjectRecords: false,
-    },
-    {
-      objectUniversalIdentifier: STANDARD_OBJECT.company.universalIdentifier,
-      canReadObjectRecords: true,
-      canUpdateObjectRecords: false,
-      canSoftDeleteObjectRecords: false,
-      canDestroyObjectRecords: false,
-    },
     {
       objectUniversalIdentifier:
         COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
