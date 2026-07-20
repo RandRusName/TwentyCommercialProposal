@@ -30,10 +30,10 @@ Implemented in this phase:
 - draft metadata fields for source, template, language and payload snapshot.
 - functional vertical slice from Opportunity command menu to a
   `CommercialProposal` DRAFT success state.
-- Phase 4 local document generation foundation:
-  - versioned XLSM template asset;
-  - declarative mapping v1;
-  - external document-service MVP;
+- document generation:
+  - legacy XLSM template v1 and macro-free XLSX template v2;
+  - declarative versioned mappings;
+  - external document-service with persistent idempotency manifests;
   - command/front component/route for generation;
   - XLSX/PDF attachment to the CommercialProposal `Files` tab.
 
@@ -43,7 +43,7 @@ Not implemented in this phase:
 - public Marketplace distribution;
 - Company entry point;
 - record-page widget;
-- proposal items;
+- CatalogItem and catalog picker;
 - CPQ features.
 
 ## Local Checks
@@ -170,15 +170,15 @@ The aggregate editor flow includes:
 - duplicate `clientKey`/id and persisted-integrity validation;
 - canonical total calculation from re-read persisted children;
 - best-effort final revision re-check;
-- generation guard: `AGGREGATE_V2` cannot use legacy schema `1.0` generation.
+- strict generation dispatch: `AGGREGATE_V2` uses schema `2.0` and template `2`;
 - `Редактировать КП` command for a single CommercialProposal;
 - explicit-save editor for header, work items, stages and terms;
 - local preview plus authoritative server recalculation;
 - dirty/reset, conflict and read-only states.
 
-Schema `2.0` generation, template v2, dynamic XLSX rows, and CatalogItem remain
-out of scope. `AGGREGATE_V2` data is saved safely but document generation stays
-blocked until Prompt 5.3.
+Schema `2.0` generation is enabled for persisted `AGGREGATE_V2` records. Template
+v2 supports 50 work items and 10 stages and produces macro-free XLSX plus PDF.
+CatalogItem remains out of scope until Prompt 5.4.
 
 `test:integration` requires an ephemeral Twenty instance:
 

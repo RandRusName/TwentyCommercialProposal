@@ -49,9 +49,12 @@
   is indicated in the UI but cannot be intercepted reliably.
 - Editor conflict handling reloads the canonical aggregate on explicit user
   action; automatic merge is intentionally not implemented.
-- `AGGREGATE_V2` document generation is intentionally blocked until Prompt 5.3
-  implements schema `2.0` and template v2. `LEGACY_V1` schema `1.0`
-  generation remains available.
+- `AGGREGATE_V2` generation is enabled through schema `2.0` and macro-free XLSX
+  template v2. Template v2 currently supports at most 50 work items and 10
+  stages; larger proposals are rejected instead of truncated.
+- Microsoft Excel was not available during Prompt 5.3 target validation. The
+  downloaded XLSX passed ZIP/workbook parsing, formula and print-area checks,
+  while LibreOffice produced and rendered a valid one-page PDF.
 - Optimistic concurrency is best-effort unless a future target/platform spike
   proves an official CAS/conditional update primitive is available.
 - Child `clientKey` replay safety is application-level parent+clientKey lookup;

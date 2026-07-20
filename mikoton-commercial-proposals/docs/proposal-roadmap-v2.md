@@ -2,7 +2,7 @@
 
 ## Prompt 5.3 implementation status
 
-Schema/template dispatch, aggregate snapshot validation and hashing, macro-free XLSX template v2, LibreOffice PDF, persistent generation manifests and per-file Twenty attachment checkpoints are implemented. Target App/UI evidence is tracked in `phase-5-3-smoke-test.md` and must be complete before Prompt 5.4.
+Schema/template dispatch, aggregate snapshot validation and hashing, macro-free XLSX template v2, LibreOffice PDF, persistent generation manifests and per-file Twenty attachment checkpoints are implemented. Target API/UI generation, legacy regression, attachment idempotency and a clean repeated metadata plan are recorded in `phase-5-3-smoke-test.md`.
 
 ## Principle
 

@@ -14,7 +14,7 @@ Schema `2.0` generates documents from saved `CommercialProposal` aggregate data.
 
 ## Transition Guard
 
-Before Prompt 5.3 is complete:
+Historical transition rule used before Prompt 5.3 was completed:
 
 | `contentModelVersion` | Generation behavior |
 |---|---|
@@ -42,7 +42,7 @@ Do not:
 - generate a zero-total document;
 - downgrade `AGGREGATE_V2` to `LEGACY_V1`.
 
-After Prompt 5.3:
+Active dispatch after Prompt 5.3:
 
 ```text
 LEGACY_V1    -> schema 1.0 / template v1
@@ -175,7 +175,9 @@ workItems: max 5
 plan: 1..3 stages
 ```
 
-Prompt 5.3 should introduce template v2 designed for expandable or multi-page tables. This is preferred over risky row insertion into v1.
+Prompt 5.3 introduced a separate macro-free template v2 with fixed capacity for
+50 items and 10 stages. It avoids risky row insertion into legacy template v1;
+requests above those limits are rejected without truncation.
 
 ## Output Formats
 

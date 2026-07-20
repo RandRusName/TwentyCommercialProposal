@@ -86,16 +86,22 @@ In `target` mode, setup does not sync metadata and never uninstalls the app.
 The test creates `[SMOKE]` business records and performs best-effort cleanup of
 those records only.
 
-Observed on 2026-07-20 after private install of App `0.1.36`:
+Observed on 2026-07-20 after private install of App `0.1.37`:
 
-- WSL `corepack yarn test:target-smoke` passed, 1 file / 7 tests.
+- WSL `corepack yarn test:target-smoke` passed, 1 file / 8 tests.
 - The test exercised authenticated draft, context, editor, save, recalculate and
-  generation-guard routes on the target Twenty.
-- The aggregate scenario saved three items and two stages, recalculated the
-  canonical total, replayed the same operation without duplicates, rejected a
-  stale revision and rejected a fabricated foreign child id.
+  generation routes on the target Twenty.
+- The aggregate scenario saved eight items and four stages, including fractional
+  quantities, discounts and a long description. It recalculated the canonical
+  total, replayed the same save without duplicate children, rejected a stale
+  revision and rejected a fabricated foreign child id.
+- Incomplete generation validation left the record in `DRAFT`. Completed data
+  generated schema `2.0` / template `2`, attached XLSX/PDF, and replayed the same
+  generation key without duplicate files.
+- A separate target regression generated a `LEGACY_V1` record with template `1`.
 - Browser smoke used the front-component application access token and confirmed
-  editable, conflict, reload, generation-blocked and GENERATED read-only states.
+  the v2 generation success state, disabled repeat action and two Files-tab
+  attachments.
 - The isolated target smoke business records were cleaned up. The App was not
   uninstalled and metadata was not modified by the test.
 

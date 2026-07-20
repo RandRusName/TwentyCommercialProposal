@@ -136,6 +136,51 @@ def text_value(cell_node: ET.Element) -> str:
 
 
 class GeneratorTest(unittest.TestCase):
+    def test_v2_writes_twenty_items_and_eight_stages_without_truncation(self) -> None:
+        payload = fixture_payload_v2()
+        payload["content"]["workItems"] = [
+            {
+                "position": position,
+                "block": f"Block {position}",
+                "name": f"Item {position}",
+                "description": f"Description {position}",
+                "quantity": 1,
+                "unit": "hour",
+                "unitPrice": position,
+                "discountPercent": 0,
+                "lineAmount": position,
+            }
+            for position in range(1, 21)
+        ]
+        payload["content"]["plan"] = [
+            {
+                "position": position,
+                "title": f"Stage {position}",
+                "result": f"Result {position}",
+                "duration": f"{position} days",
+                "description": f"Stage description {position}",
+            }
+            for position in range(1, 9)
+        ]
+        payload["proposal"]["amount"] = 210
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = generate_xlsx(
+                payload, TEMPLATE_V2_PATH, MAPPING_V2_PATH, Path(tmp)
+            )
+            with zipfile.ZipFile(output.path) as package:
+                sheet = ET.fromstring(package.read("xl/worksheets/sheet1.xml"))
+                self.assertEqual(text_value(cell(sheet, "C35")), "Item 20")
+                self.assertEqual(text_value(cell(sheet, "B76")), "Stage 8")
+                self.assertEqual(
+                    cell(sheet, "I35").find("m:f", NS).text,
+                    "E35*G35*(1-H35/100)",
+                )
+                self.assertEqual(
+                    cell(sheet, "I66").find("m:f", NS).text,
+                    "SUM(I16:I65)",
+                )
+
     def test_v2_generates_macro_free_xlsx_with_separate_name_and_description(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = generate_xlsx(

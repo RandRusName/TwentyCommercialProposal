@@ -36,6 +36,7 @@ const headers = () => ({
 
 const createdIds = {
   commercialProposal: null as string | null,
+  legacyCommercialProposal: null as string | null,
   opportunity: null as string | null,
   opportunityWithoutCompany: null as string | null,
   company: null as string | null,
@@ -271,6 +272,10 @@ describe('commercial proposal backend vertical slice', () => {
   afterAll(async () => {
     await deleteRecord(
       'deleteCommercialProposal',
+      createdIds.legacyCommercialProposal,
+    );
+    await deleteRecord(
+      'deleteCommercialProposal',
       createdIds.commercialProposal,
     );
     await deleteRecord(
@@ -370,6 +375,48 @@ describe('commercial proposal backend vertical slice', () => {
     });
   });
 
+  it('keeps LEGACY_V1 generation on schema 1.0 and template 1', async () => {
+    expect(createdIds.opportunity).not.toBeNull();
+    if (createdIds.opportunity === null) return;
+
+    const legacyDraftKey = globalThis.crypto.randomUUID();
+    const draft = await callDraftRoute({
+      source: {
+        object: 'opportunity',
+        recordId: createdIds.opportunity,
+      },
+      templateCode: SUPPORTED_TEMPLATE_CODE,
+      language: SUPPORTED_LANGUAGE,
+      idempotencyKey: legacyDraftKey,
+    });
+    expect(draft.response.status).toBe(200);
+    const proposalId = (draft.payload.draft as { id: string }).id;
+    createdIds.legacyCommercialProposal = proposalId;
+
+    const generationKey = globalThis.crypto.randomUUID();
+    const generation = await callGenerateRoute({
+      commercialProposalId: proposalId,
+      idempotencyKey: generationKey,
+    });
+    expect(generation.response.status).toBe(200);
+    expect(generation.payload).toMatchObject({
+      status: 'success',
+      generated: true,
+      commercialProposal: {
+        id: proposalId,
+        status: 'GENERATED',
+        contentModelVersion: 'LEGACY_V1',
+        templateVersion: '1',
+      },
+      result: {
+        generationIdempotencyKey: generationKey,
+        templateVersion: '1',
+      },
+    });
+    const files = (generation.payload.result as { files: unknown[] }).files;
+    expect(files).toHaveLength(2);
+  });
+
   it('saves and reloads the aggregate editor without identity duplicates', async () => {
     const proposalId = createdIds.commercialProposal;
     expect(proposalId).not.toBeNull();
@@ -432,20 +479,31 @@ describe('commercial proposal backend vertical slice', () => {
     expect(duplicate.payload).toMatchObject({ error: { code: 'COMMERCIAL_PROPOSAL_VALIDATION_FAILED' } });
 
     const aggregateOperation = globalThis.crypto.randomUUID();
-    const itemKeys = [globalThis.crypto.randomUUID(), globalThis.crypto.randomUUID(), globalThis.crypto.randomUUID()];
-    const stageKeys = [globalThis.crypto.randomUUID(), globalThis.crypto.randomUUID()];
+    const itemKeys = Array.from({ length: 8 }, () =>
+      globalThis.crypto.randomUUID(),
+    );
+    const stageKeys = Array.from({ length: 4 }, () =>
+      globalThis.crypto.randomUUID(),
+    );
     const saveBody = {
       operationId: aggregateOperation,
       editorRevision: 2,
       header: baseHeader,
       items: [
-        { clientKey: itemKeys[0], block: 'Анализ', name: 'Discovery', quantity: '1.5', unit: 'час', unitPrice: '100', discountPercent: '10' },
-        { clientKey: itemKeys[1], block: 'Разработка', name: 'Build', quantity: '2', unit: 'час', unitPrice: '50', discountPercent: '0' },
-        { clientKey: itemKeys[2], block: 'Запуск', name: 'Launch', quantity: '1', unit: 'проект', unitPrice: '25', discountPercent: '0' },
+        { clientKey: itemKeys[0], block: 'Analysis', name: 'Discovery', description: 'A deliberately long target-smoke description that verifies the generated document keeps item names and descriptions in separate cells without silently truncating the saved aggregate.', quantity: '1.5', unit: 'hour', unitPrice: '100', discountPercent: '10' },
+        { clientKey: itemKeys[1], block: 'Analysis', name: 'Architecture', quantity: '2', unit: 'hour', unitPrice: '50', discountPercent: '0' },
+        { clientKey: itemKeys[2], block: 'Delivery', name: 'Prototype', quantity: '1', unit: 'project', unitPrice: '25', discountPercent: '0' },
+        { clientKey: itemKeys[3], block: 'Delivery', name: 'Implementation', quantity: '0.5', unit: 'day', unitPrice: '200', discountPercent: '0' },
+        { clientKey: itemKeys[4], block: 'Quality', name: 'Review', quantity: '3', unit: 'hour', unitPrice: '10', discountPercent: '5' },
+        { clientKey: itemKeys[5], block: 'Quality', name: 'Testing', quantity: '4', unit: 'hour', unitPrice: '12.5', discountPercent: '0' },
+        { clientKey: itemKeys[6], block: 'Launch', name: 'Training', quantity: '2.25', unit: 'hour', unitPrice: '40', discountPercent: '20' },
+        { clientKey: itemKeys[7], block: 'Launch', name: 'Handover', quantity: '1', unit: 'project', unitPrice: '300', discountPercent: '0' },
       ],
       stages: [
-        { clientKey: stageKeys[0], title: 'Старт', result: 'Требования', duration: '1 день' },
-        { clientKey: stageKeys[1], title: 'Запуск', result: 'Рабочее решение', duration: '2 дня' },
+        { clientKey: stageKeys[0], title: 'Discovery', result: 'Approved requirements', duration: '1 day' },
+        { clientKey: stageKeys[1], title: 'Design', result: 'Approved architecture', duration: '2 days' },
+        { clientKey: stageKeys[2], title: 'Delivery', result: 'Working solution', duration: '5 days' },
+        { clientKey: stageKeys[3], title: 'Handover', result: 'Accepted release', duration: '1 day' },
       ],
     };
     const saved = await callProposalRoute(proposalId, 'save-editor', saveBody);
@@ -453,24 +511,24 @@ describe('commercial proposal backend vertical slice', () => {
     expect(saved.payload).toMatchObject({
       saved: true,
       replayed: false,
-      proposal: { contentModelVersion: 'AGGREGATE_V2', editorRevision: 3, amount: 260 },
+      proposal: { contentModelVersion: 'AGGREGATE_V2', editorRevision: 3, amount: 810.5 },
     });
-    expect(saved.payload.items).toHaveLength(3);
-    expect(saved.payload.stages).toHaveLength(2);
+    expect(saved.payload.items).toHaveLength(8);
+    expect(saved.payload.stages).toHaveLength(4);
 
     const replay = await callProposalRoute(proposalId, 'save-editor', saveBody);
     expect(replay.response.status).toBe(200);
     expect(replay.payload).toMatchObject({ replayed: true, proposal: { editorRevision: 3 } });
-    expect(replay.payload.items).toHaveLength(3);
+    expect(replay.payload.items).toHaveLength(8);
 
     const reloaded = await callProposalRoute(proposalId, 'editor-context', {});
     expect(reloaded.payload).toMatchObject({
       isEditable: true,
-      proposal: { contentModelVersion: 'AGGREGATE_V2', editorRevision: 3, amount: 260 },
-      generationAvailability: { allowed: false, reason: 'AGGREGATE_V2_NOT_SUPPORTED_UNTIL_PROMPT_5_3' },
+      proposal: { contentModelVersion: 'AGGREGATE_V2', editorRevision: 3, amount: 810.5 },
+      generationAvailability: { allowed: true },
     });
-    expect(reloaded.payload.items).toHaveLength(3);
-    expect(reloaded.payload.stages).toHaveLength(2);
+    expect(reloaded.payload.items).toHaveLength(8);
+    expect(reloaded.payload.stages).toHaveLength(4);
 
     const stale = await callProposalRoute(proposalId, 'save-editor', {
       ...saveBody,
@@ -494,11 +552,117 @@ describe('commercial proposal backend vertical slice', () => {
       items: saveBody.items.map(({ clientKey, quantity, unitPrice, discountPercent }) => ({ clientKey, quantity, unitPrice, discountPercent })),
     });
     expect(recalculated.response.status).toBe(200);
-    expect(recalculated.payload).toMatchObject({ amount: 260, currencyCode: 'RUB' });
+    expect(recalculated.payload).toMatchObject({ amount: 810.5, currencyCode: 'RUB' });
 
-    const generation = await callGenerateRoute({ commercialProposalId: proposalId, idempotencyKey: globalThis.crypto.randomUUID() });
-    expect(generation.response.status).toBe(422);
-    expect(generation.payload).toMatchObject({ error: { code: 'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED' } });
+    const incompleteSave = await callProposalRoute(proposalId, 'save-editor', {
+      ...saveBody,
+      operationId: globalThis.crypto.randomUUID(),
+      editorRevision: 3,
+      stages: saveBody.stages.map((stage, index) =>
+        index === 0 ? { ...stage, result: '' } : stage,
+      ),
+    });
+    expect(incompleteSave.response.status).toBe(200);
+    expect(incompleteSave.payload).toMatchObject({
+      proposal: { status: 'DRAFT', editorRevision: 4 },
+    });
+
+    const invalidGeneration = await callGenerateRoute({
+      commercialProposalId: proposalId,
+      idempotencyKey: globalThis.crypto.randomUUID(),
+    });
+    expect(invalidGeneration.response.status).toBe(400);
+    expect(invalidGeneration.payload).toMatchObject({
+      error: { code: 'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED' },
+    });
+    const afterInvalidGeneration = await callProposalRoute(
+      proposalId,
+      'editor-context',
+      {},
+    );
+    expect(afterInvalidGeneration.payload).toMatchObject({
+      proposal: { status: 'DRAFT', editorRevision: 4, generatedAt: null },
+    });
+
+    const completedSave = await callProposalRoute(proposalId, 'save-editor', {
+      ...saveBody,
+      operationId: globalThis.crypto.randomUUID(),
+      editorRevision: 4,
+    });
+    expect(completedSave.response.status).toBe(200);
+    expect(completedSave.payload).toMatchObject({
+      proposal: { status: 'DRAFT', editorRevision: 5, amount: 810.5 },
+    });
+
+    const generationIdempotencyKey = globalThis.crypto.randomUUID();
+    const generation = await callGenerateRoute({
+      commercialProposalId: proposalId,
+      idempotencyKey: generationIdempotencyKey,
+    });
+    expect(generation.response.status).toBe(200);
+    expect(generation.payload).toMatchObject({
+      status: 'success',
+      generated: true,
+      commercialProposal: {
+        id: proposalId,
+        status: 'GENERATED',
+        contentModelVersion: 'AGGREGATE_V2',
+        templateVersion: '2',
+      },
+      result: {
+        schemaVersion: '2.0',
+        generationIdempotencyKey,
+        templateVersion: '2',
+      },
+    });
+
+    const firstResult = generation.payload.result as {
+      generationId: string;
+      snapshotHash: string;
+      files: Array<{
+        format: string;
+        sha256: string;
+        storageKey: string;
+        twentyFileId?: string;
+      }>;
+    };
+    expect(firstResult.generationId).toBeTruthy();
+    expect(firstResult.snapshotHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(firstResult.files).toHaveLength(2);
+    expect(firstResult.files.map((file) => file.format).sort()).toEqual([
+      'pdf',
+      'xlsx',
+    ]);
+    for (const file of firstResult.files) {
+      expect(file.sha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(file.storageKey).toBeTruthy();
+      expect(file.twentyFileId).toBeTruthy();
+    }
+
+    const replayedGeneration = await callGenerateRoute({
+      commercialProposalId: proposalId,
+      idempotencyKey: generationIdempotencyKey,
+    });
+    expect(replayedGeneration.response.status).toBe(200);
+    expect(replayedGeneration.payload).toMatchObject({
+      status: 'success',
+      generated: false,
+      commercialProposal: {
+        id: proposalId,
+        status: 'GENERATED',
+      },
+      result: {
+        generationId: firstResult.generationId,
+        generationIdempotencyKey,
+        snapshotHash: firstResult.snapshotHash,
+      },
+    });
+    const replayedFiles = (
+      replayedGeneration.payload.result as typeof firstResult
+    ).files;
+    expect(replayedFiles.map((file) => file.twentyFileId).sort()).toEqual(
+      firstResult.files.map((file) => file.twentyFileId).sort(),
+    );
   });
 
   it('returns structured INVALID_INPUT for missing context opportunityId', async () => {
