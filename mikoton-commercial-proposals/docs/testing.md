@@ -141,3 +141,22 @@ Prompt 5.1 evidence on 2026-07-20:
 - Additional target aggregate smoke passed: editor context, recalculate, save-editor,
   `LEGACY_V1 -> AGGREGATE_V2`, replayed same `operationId`, and generation
   guard `COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED`.
+
+## Prompt 5.2 Editor Tests
+
+Local evidence on 2026-07-20:
+
+- WSL `corepack yarn lint`: passed, 0 warnings/errors.
+- WSL `corepack yarn typecheck`: passed.
+- WSL `corepack yarn test:unit`: passed, 3 files / 79 tests before final
+  deployment validation.
+- WSL `python3 -m unittest discover -s document-service/tests -v`: passed,
+  4 tests.
+- WSL `scripts/build-wsl.sh`: passed; editor bundle included and tarball
+  manifest validation succeeded.
+
+Coverage includes duplicate request identities, persisted duplicate detection,
+canonical persisted totals, final revision re-read, partial-failure replay,
+minimal recalculate payload, backend error-code preservation, immutable editor
+helpers, comma decimals, validation, dirty state, stable save operation ids and
+canonical response application.

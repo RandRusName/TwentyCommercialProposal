@@ -50,16 +50,6 @@ Prompt 5.1 must not use raw DB access or modify Twenty core to obtain CAS.
     "contentModelVersion": "LEGACY_V1",
     "editorRevision": 3,
     "lastEditorOperationId": null,
-    "opportunity": {
-      "id": "uuid",
-      "name": "Opportunity name",
-      "amount": 120000,
-      "currencyCode": "RUB"
-    },
-    "company": {
-      "id": "uuid",
-      "name": "Customer"
-    },
     "contactName": null,
     "contextAndGoal": null,
     "currencyCode": "RUB",
@@ -69,12 +59,27 @@ Prompt 5.1 must not use raw DB access or modify Twenty core to obtain CAS.
     "nextStep": null,
     "amount": 120000
   },
+  "opportunity": {
+    "id": "uuid",
+    "name": "Opportunity name",
+    "amount": 120000,
+    "currencyCode": "RUB"
+  },
+  "company": {
+    "id": "uuid",
+    "name": "Customer"
+  },
   "items": [],
   "stages": [],
   "legacySuggestion": {
     "canCreateStarterItem": true,
     "amount": 120000,
     "currencyCode": "RUB"
+  },
+  "isEditable": true,
+  "generationAvailability": {
+    "allowed": true,
+    "reason": null
   }
 }
 ```
@@ -129,6 +134,8 @@ Rules:
 - `clientKey` is a UUID generated once per local row and sent on every save.
 - Decimal values should be strings in the request to avoid UI float drift.
 - Existing child ids must be ownership-checked against the current proposal.
+- Duplicate ids and duplicate client keys in one request are rejected before
+  any mutation. Existing ids cannot be paired with different client keys.
 
 ## Save Editor Response
 
@@ -162,6 +169,32 @@ Rules:
 ```
 
 The response is canonical: normalized positions, persisted ids, recalculated totals, and current revision.
+
+Before the proposal header update, the server re-reads persisted children,
+verifies count and client-key sets, and derives `amount` from persisted
+`lineAmount`. Persisted duplicate client keys fail with
+`COMMERCIAL_PROPOSAL_DATA_INTEGRITY_ERROR` and are never auto-repaired.
+
+## Recalculate Request
+
+Recalculation is pure and accepts only calculation data:
+
+```json
+{
+  "currencyCode": "RUB",
+  "items": [
+    {
+      "clientKey": "uuid",
+      "quantity": "1.5",
+      "unitPrice": "5500.00",
+      "discountPercent": "5.00"
+    }
+  ]
+}
+```
+
+The route validates the path UUID, loads the proposal in the caller context,
+and permits only `DRAFT` or `FAILED`.
 
 ## Replay-Safe Save
 
@@ -227,6 +260,8 @@ Otherwise return:
 
 ```text
 COMMERCIAL_PROPOSAL_CHILD_FORBIDDEN
+COMMERCIAL_PROPOSAL_CHILD_IDENTITY_CONFLICT
+COMMERCIAL_PROPOSAL_DATA_INTEGRITY_ERROR
 ```
 
 ## Concurrency

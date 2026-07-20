@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { defineFrontComponent } from 'twenty-sdk/define';
 import {
   enqueueSnackbar,
@@ -18,6 +18,7 @@ import {
   getSafeErrorMessage,
   IDEMPOTENCY_SETUP_ERROR,
 } from 'src/front-components/create-commercial-proposal.helpers';
+import type { EditorContextResponse } from 'src/front-components/commercial-proposal-editor/editor-types';
 import { callAppRoute } from 'src/front-components/utils/call-app-route';
 
 type GenerateResponse = {
@@ -120,10 +121,41 @@ const GenerateCommercialProposal = () => {
     }
   });
   const [result, setResult] = useState<GenerateResponse | null>(null);
+  const [editorContext, setEditorContext] =
+    useState<EditorContextResponse | null>(null);
+  const [isLoadingContext, setIsLoadingContext] = useState(true);
+
+  useEffect(() => {
+    if (commercialProposalId === null) {
+      setIsLoadingContext(false);
+      return;
+    }
+
+    void callAppRoute<EditorContextResponse>(
+      `/commercial-proposals/${encodeURIComponent(commercialProposalId)}/editor-context`,
+      {},
+    )
+      .then(setEditorContext)
+      .catch((caughtError) => {
+        setError(
+          getSafeErrorMessage(
+            caughtError,
+            'Не удалось загрузить данные коммерческого предложения',
+          ),
+        );
+      })
+      .finally(() => setIsLoadingContext(false));
+  }, [commercialProposalId]);
+
+  const aggregateGenerationBlocked =
+    editorContext?.generationAvailability.allowed === false;
 
   const disabled =
     commercialProposalId === null ||
     idempotencyKey === null ||
+    isLoadingContext ||
+    editorContext === null ||
+    aggregateGenerationBlocked ||
     isGenerating ||
     result !== null;
 
@@ -197,7 +229,7 @@ const GenerateCommercialProposal = () => {
       <h2 style={styles.title}>Сформировать документ</h2>
       <p style={styles.muted}>
         Будут сформированы XLSX и PDF через внешний document-service.
-        Template v1 supports up to 5 work items.
+        Шаблон версии 1 поддерживает не более 5 позиций работ.
       </p>
 
       <div style={styles.box}>
@@ -207,6 +239,13 @@ const GenerateCommercialProposal = () => {
       </div>
 
       {error !== null && <div style={styles.error}>{error}</div>}
+
+      {aggregateGenerationBlocked && (
+        <div style={styles.error}>
+          Состав работ сохранён. Формирование XLSX/PDF для расширенного КП
+          будет доступно после подключения шаблона v2.
+        </div>
+      )}
 
       {result !== null && (
         <div style={styles.success}>

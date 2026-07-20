@@ -40,8 +40,11 @@
   executed.
 - No DOCX generation is implemented.
 - No email/send workflow is implemented.
-- Prompt 5.1 aggregate backend foundation is implemented, but no rich editor
-  front component is implemented yet. Editor UI belongs to Prompt 5.2.
+- The aggregate editor is explicit-save only. Twenty SDK v2.20.0 does not expose
+  a supported front-component navigation blocker, so closing with unsaved data
+  is indicated in the UI but cannot be intercepted reliably.
+- Editor conflict handling reloads the canonical aggregate on explicit user
+  action; automatic merge is intentionally not implemented.
 - `AGGREGATE_V2` document generation is intentionally blocked until Prompt 5.3
   implements schema `2.0` and template v2. `LEGACY_V1` schema `1.0`
   generation remains available.

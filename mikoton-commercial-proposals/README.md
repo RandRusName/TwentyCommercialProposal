@@ -152,9 +152,9 @@ Then run `deploy.bat` again.
 
 See `docs/private-deployment.md` for tarball validation details and output location.
 
-## Prompt 5.1 Aggregate Backend
+## Commercial Proposal Editor
 
-The backend aggregate foundation adds:
+The aggregate editor flow includes:
 
 - `CommercialProposalItem` and `CommercialProposalStage` app-owned metadata;
 - model-versioned `CommercialProposal` fields, including `contentModelVersion`;
@@ -165,10 +165,18 @@ The backend aggregate foundation adds:
 - deterministic fixed-scale money calculation;
 - replay-safe save with `operationId` and child `clientKey`;
 - ownership validation for child ids;
+- duplicate `clientKey`/id and persisted-integrity validation;
+- canonical total calculation from re-read persisted children;
+- best-effort final revision re-check;
 - generation guard: `AGGREGATE_V2` cannot use legacy schema `1.0` generation.
+- `Редактировать КП` command for a single CommercialProposal;
+- explicit-save editor for header, work items, stages and terms;
+- local preview plus authoritative server recalculation;
+- dirty/reset, conflict and read-only states.
 
-Rich editor UI, schema `2.0` generation, template v2, dynamic XLSX rows, and
-CatalogItem remain out of scope for Prompt 5.1.
+Schema `2.0` generation, template v2, dynamic XLSX rows, and CatalogItem remain
+out of scope. `AGGREGATE_V2` data is saved safely but document generation stays
+blocked until Prompt 5.3.
 
 `test:integration` requires an ephemeral Twenty instance:
 

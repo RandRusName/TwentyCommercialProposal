@@ -104,7 +104,14 @@ export type SaveEditorResult = CommercialProposalAggregate & {
 
 export type RecalculateRequest = {
   currencyCode: string | null;
-  items: SaveEditorItemInput[];
+  items: RecalculateItemInput[];
+};
+
+export type RecalculateItemInput = {
+  clientKey: string;
+  quantity: string;
+  unitPrice: string;
+  discountPercent: string;
 };
 
 export type RecalculateResult = {
@@ -184,6 +191,20 @@ const UUID_REGEX =
 
 const EDITABLE_STATUSES = new Set<CommercialProposalStatus>(['DRAFT', 'FAILED']);
 
+const assertUniqueValues = (
+  values: Array<string | undefined>,
+  fieldName: string,
+) => {
+  const presentValues = values.filter((value): value is string => value !== undefined);
+
+  if (new Set(presentValues).size !== presentValues.length) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_VALIDATION_FAILED',
+      `${fieldName} values must be unique`,
+    );
+  }
+};
+
 const requireUuid = (value: unknown, fieldName: string) => {
   if (typeof value !== 'string' || !UUID_REGEX.test(value)) {
     throw new ApplicationError(
@@ -194,6 +215,9 @@ const requireUuid = (value: unknown, fieldName: string) => {
 
   return value;
 };
+
+export const validateCommercialProposalId = (value: unknown) =>
+  requireUuid(value, 'proposalId');
 
 const optionalUuid = (value: unknown, fieldName: string) => {
   if (value === undefined || value === null || value === '') {
@@ -278,6 +302,23 @@ export const normalizeSaveEditorRequest = (
     );
   }
 
+  assertUniqueValues(
+    body.items.map((item) => item.clientKey),
+    'items.clientKey',
+  );
+  assertUniqueValues(
+    body.stages.map((stage) => stage.clientKey),
+    'stages.clientKey',
+  );
+  assertUniqueValues(
+    body.items.map((item) => item.id),
+    'items.id',
+  );
+  assertUniqueValues(
+    body.stages.map((stage) => stage.id),
+    'stages.id',
+  );
+
   return {
     operationId: requireUuid(body.operationId, 'operationId'),
     editorRevision,
@@ -335,6 +376,39 @@ const normalizeItems = (
     };
   });
 
+const normalizeRecalculateItems = (
+  items: RecalculateItemInput[],
+  currencyCode: string | null,
+) => {
+  assertUniqueValues(
+    items.map((item) => item.clientKey),
+    'items.clientKey',
+  );
+
+  return items.map((item, index) => {
+    const clientKey = requireUuid(item.clientKey, `items[${index}].clientKey`);
+    const calculated = calculateProposalLineAmount({
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      discountPercent: item.discountPercent,
+    });
+
+    if (currencyCode === null) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_VALIDATION_FAILED',
+        'currencyCode is required when items are present',
+      );
+    }
+
+    return {
+      clientKey,
+      position: index + 1,
+      currencyCode,
+      ...calculated,
+    };
+  });
+};
+
 const normalizeStages = (
   stages: SaveEditorStageInput[],
 ): NormalizedEditorStage[] =>
@@ -348,7 +422,9 @@ const normalizeStages = (
     description: optionalString(stage.description),
   }));
 
-const ensureEditable = (aggregate: CommercialProposalAggregate) => {
+export const ensureCommercialProposalEditable = (
+  aggregate: CommercialProposalAggregate,
+) => {
   if (!EDITABLE_STATUSES.has(aggregate.proposal.status)) {
     throw new ApplicationError(
       'COMMERCIAL_PROPOSAL_INVALID_STATUS',
@@ -357,11 +433,48 @@ const ensureEditable = (aggregate: CommercialProposalAggregate) => {
   }
 };
 
+const assertUniquePersistedClientKeys = (
+  records: Array<{ clientKey: string }>,
+  recordType: 'item' | 'stage',
+) => {
+  const keys = records.map((record) => record.clientKey);
+
+  if (new Set(keys).size !== keys.length) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_DATA_INTEGRITY_ERROR',
+      `Commercial proposal contains duplicate persisted ${recordType} client keys`,
+    );
+  }
+};
+
+export const assertAggregateIntegrity = (
+  aggregate: CommercialProposalAggregate,
+) => {
+  assertUniquePersistedClientKeys(aggregate.items, 'item');
+  assertUniquePersistedClientKeys(aggregate.stages, 'stage');
+};
+
 const buildNormalizedSave = (
   aggregate: CommercialProposalAggregate,
   request: SaveEditorRequest,
 ): NormalizedSaveEditorRequest => {
-  ensureEditable(aggregate);
+  ensureCommercialProposalEditable(aggregate);
+  assertUniqueValues(
+    request.items.map((item) => item.clientKey),
+    'items.clientKey',
+  );
+  assertUniqueValues(
+    request.stages.map((stage) => stage.clientKey),
+    'stages.clientKey',
+  );
+  assertUniqueValues(
+    request.items.map((item) => item.id),
+    'items.id',
+  );
+  assertUniqueValues(
+    request.stages.map((stage) => stage.id),
+    'stages.id',
+  );
 
   if (aggregate.proposal.editorRevision !== request.editorRevision) {
     throw new ApplicationError(
@@ -429,8 +542,100 @@ const ensureChildOwnership = (
   }
 };
 
-export const buildEditorContext = (aggregate: CommercialProposalAggregate) => ({
+const ensureChildIdentity = async (
+  proposalId: string,
+  aggregate: CommercialProposalAggregate,
+  normalized: NormalizedSaveEditorRequest,
+  repository: CommercialProposalAggregateRepository,
+) => {
+  const itemsById = new Map(aggregate.items.map((item) => [item.id, item]));
+  const stagesById = new Map(aggregate.stages.map((stage) => [stage.id, stage]));
+
+  for (const item of normalized.items) {
+    const existingById = item.id === undefined ? undefined : itemsById.get(item.id);
+    const existingByKey = await repository.findItemByParentAndClientKey(
+      proposalId,
+      item.clientKey,
+    );
+
+    if (
+      (existingById !== undefined && existingById.clientKey !== item.clientKey) ||
+      (existingByKey !== null && item.id !== undefined && existingByKey.id !== item.id)
+    ) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_CHILD_IDENTITY_CONFLICT',
+        'Commercial proposal item id and clientKey identify different records',
+      );
+    }
+  }
+
+  for (const stage of normalized.stages) {
+    const existingById = stage.id === undefined ? undefined : stagesById.get(stage.id);
+    const existingByKey = await repository.findStageByParentAndClientKey(
+      proposalId,
+      stage.clientKey,
+    );
+
+    if (
+      (existingById !== undefined && existingById.clientKey !== stage.clientKey) ||
+      (existingByKey !== null && stage.id !== undefined && existingByKey.id !== stage.id)
+    ) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_CHILD_IDENTITY_CONFLICT',
+        'Commercial proposal stage id and clientKey identify different records',
+      );
+    }
+  }
+};
+
+const assertCanonicalChildren = (
+  persisted: CommercialProposalAggregate,
+  normalized: NormalizedSaveEditorRequest,
+) => {
+  assertAggregateIntegrity(persisted);
+  const requestedItemKeys = new Set(normalized.items.map((item) => item.clientKey));
+  const requestedStageKeys = new Set(normalized.stages.map((stage) => stage.clientKey));
+  const persistedItemKeys = new Set(persisted.items.map((item) => item.clientKey));
+  const persistedStageKeys = new Set(persisted.stages.map((stage) => stage.clientKey));
+  const sameSet = (left: Set<string>, right: Set<string>) =>
+    left.size === right.size && [...left].every((value) => right.has(value));
+
+  if (
+    persisted.items.length !== normalized.items.length ||
+    persisted.stages.length !== normalized.stages.length ||
+    !sameSet(persistedItemKeys, requestedItemKeys) ||
+    !sameSet(persistedStageKeys, requestedStageKeys)
+  ) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_SAVE_FAILED',
+      'Persisted commercial proposal children do not match the requested aggregate',
+    );
+  }
+};
+
+export const buildEditorContext = (
+  aggregate: CommercialProposalAggregate,
+  displayContext?: {
+    opportunity: {
+      id: string;
+      name: string;
+      amount: number | null;
+      currencyCode: string | null;
+    } | null;
+    company: { id: string; name: string } | null;
+  },
+) => ({
   ...aggregate,
+  opportunity: displayContext?.opportunity ?? null,
+  company: displayContext?.company ?? null,
+  isEditable: EDITABLE_STATUSES.has(aggregate.proposal.status),
+  generationAvailability:
+    aggregate.proposal.contentModelVersion === 'AGGREGATE_V2'
+      ? {
+          allowed: false,
+          reason: 'AGGREGATE_V2_NOT_SUPPORTED_UNTIL_PROMPT_5_3',
+        }
+      : { allowed: true, reason: null },
   legacySuggestion:
     aggregate.proposal.contentModelVersion === 'LEGACY_V1' &&
     aggregate.items.length === 0 &&
@@ -452,7 +657,7 @@ export const buildEditorContext = (aggregate: CommercialProposalAggregate) => ({
 export const recalculateCommercialProposal = (
   request: RecalculateRequest,
 ): RecalculateResult => {
-  const items = normalizeItems(request.items, request.currencyCode);
+  const items = normalizeRecalculateItems(request.items, request.currencyCode);
 
   return {
     currencyCode: request.currencyCode,
@@ -480,6 +685,7 @@ export const saveCommercialProposalEditor = async ({
 }): Promise<SaveEditorResult> => {
   requireUuid(proposalId, 'proposalId');
   const aggregate = await repository.getCommercialProposalAggregate(proposalId);
+  assertAggregateIntegrity(aggregate);
 
   if (aggregate.proposal.lastEditorOperationId === request.operationId) {
     return {
@@ -491,6 +697,7 @@ export const saveCommercialProposalEditor = async ({
 
   const normalized = buildNormalizedSave(aggregate, request);
   ensureChildOwnership(aggregate, normalized);
+  await ensureChildIdentity(proposalId, aggregate, normalized, repository);
 
   for (const item of normalized.items) {
     const existingByKey = await repository.findItemByParentAndClientKey(
@@ -517,6 +724,7 @@ export const saveCommercialProposalEditor = async ({
   }
 
   const persisted = await repository.getCommercialProposalAggregate(proposalId);
+  assertAggregateIntegrity(persisted);
   const keptItemKeys = new Set(normalized.items.map((item) => item.clientKey));
   const keptStageKeys = new Set(normalized.stages.map((stage) => stage.clientKey));
 
@@ -532,9 +740,30 @@ export const saveCommercialProposalEditor = async ({
     }
   }
 
+  const canonical = await repository.getCommercialProposalAggregate(proposalId);
+  assertCanonicalChildren(canonical, normalized);
+
+  const finalRevisionAggregate =
+    await repository.getCommercialProposalAggregate(proposalId);
+
+  if (
+    finalRevisionAggregate.proposal.editorRevision !==
+    aggregate.proposal.editorRevision
+  ) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT',
+      'Commercial proposal was changed during save. Reload it and try again.',
+    );
+  }
+
+  const canonicalAmount =
+    canonical.items.length === 0
+      ? aggregate.proposal.amount ?? 0
+      : sumLineAmounts(canonical.items.map((item) => item.lineAmount));
+
   await repository.updateCommercialProposalForEditor(proposalId, {
     header: normalized.header,
-    amount: normalized.amount,
+    amount: canonicalAmount,
     contentModelVersion: normalized.nextContentModelVersion,
     editorRevision: aggregate.proposal.editorRevision + 1,
     lastEditorOperationId: normalized.operationId,

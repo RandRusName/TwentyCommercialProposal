@@ -67,6 +67,7 @@ Generated XLSX/PDF files are uploaded to Twenty and attached to the CommercialPr
 - Navigation item: `Commercial Proposals`.
 - Command menu item: `Create commercial proposal`, available in Opportunity object context.
 - Command menu item: `Generate commercial proposal`, available in CommercialProposal context for `DRAFT` and `FAILED` records.
+- Command menu item: `Редактировать КП`, available when exactly one CommercialProposal is selected. Editable statuses are enforced server-side; historical statuses open read-only.
 
 The default app view exposes business fields only. JSON/debug fields remain stored for audit but are not part of the default list view. Twenty `v2.20.0` may still show stored fields in the record field settings picker.
 
@@ -131,3 +132,6 @@ No `catalogItem` relation is added in Prompt 5.1.
 
 Prompt 5.1 uses application-level parent + `clientKey` lookup/upsert for
 replay safety. It does not claim database-level compound uniqueness.
+
+Prompt 5.2 adds no business objects or fields. Its only metadata additions are
+the editor front component and command menu item.

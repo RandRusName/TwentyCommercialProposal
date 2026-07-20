@@ -40,6 +40,8 @@ const handler = async (
     const applicationError = toApplicationError(error);
 
     console.error('save-editor-commercial-proposal failed', {
+      proposalId: event.pathParameters.id,
+      operationId: event.body?.operationId,
       code: applicationError.code,
       cause:
         applicationError.cause instanceof Error

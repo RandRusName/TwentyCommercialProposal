@@ -37,6 +37,8 @@ export class AppRouteError extends Error {
     readonly code: AppRouteErrorCode,
     message: string,
     readonly diagnostic: AppRouteDiagnostic,
+    readonly applicationErrorCode?: string,
+    readonly responseStatus?: number,
   ) {
     super(message);
     this.name = 'AppRouteError';
@@ -117,7 +119,13 @@ const throwAppRouteError = (
   diagnostic: AppRouteDiagnostic,
 ): never => {
   logRouteDiagnostic(code, diagnostic);
-  throw new AppRouteError(code, message, diagnostic);
+  throw new AppRouteError(
+    code,
+    message,
+    diagnostic,
+    undefined,
+    diagnostic.responseStatus,
+  );
 };
 
 const getStructuredErrorMessage = (payload: object | null) => {
@@ -137,6 +145,21 @@ const getStructuredErrorMessage = (payload: object | null) => {
 
   return null;
 };
+
+const getStructuredErrorCode = (payload: object | null) => {
+  if (payload === null || !('error' in payload)) {
+    return undefined;
+  }
+
+  const error = (payload as AppRouteFailurePayload).error;
+
+  return typeof error === 'object' && typeof error?.code === 'string'
+    ? error.code
+    : undefined;
+};
+
+export const isApplicationError = (error: unknown, code: string) =>
+  error instanceof AppRouteError && error.applicationErrorCode === code;
 
 const getApplicationAccessToken = async (diagnostic: AppRouteDiagnostic) => {
   const requestToken =
@@ -223,30 +246,40 @@ export const callAppRoute = async <TResponse extends object>(
     diagnostic.responseBodyPresent = error.body !== undefined;
 
     const errorPayload = isObjectPayload(error.body) ? error.body : null;
+    const applicationErrorCode = getStructuredErrorCode(errorPayload);
 
     if (error.status === 401) {
-      return throwAppRouteError(
+      logRouteDiagnostic('APP_ROUTE_UNAUTHORIZED', diagnostic);
+      throw new AppRouteError(
         'APP_ROUTE_UNAUTHORIZED',
         APP_ROUTE_AUTH_MESSAGE,
         diagnostic,
+        applicationErrorCode,
+        error.status,
       );
     }
 
     if (error.status === 403) {
-      return throwAppRouteError(
+      logRouteDiagnostic('APP_ROUTE_FORBIDDEN', diagnostic);
+      throw new AppRouteError(
         'APP_ROUTE_FORBIDDEN',
         APP_ROUTE_AUTH_MESSAGE,
         diagnostic,
+        applicationErrorCode,
+        error.status,
       );
     }
 
     const structuredMessage = getStructuredErrorMessage(errorPayload);
 
     if (structuredMessage !== null) {
-      return throwAppRouteError(
+      logRouteDiagnostic('APP_ROUTE_APPLICATION_ERROR', diagnostic);
+      throw new AppRouteError(
         'APP_ROUTE_APPLICATION_ERROR',
         structuredMessage,
         diagnostic,
+        applicationErrorCode,
+        error.status,
       );
     }
 

@@ -56,7 +56,16 @@ Prompt 5.1 adds backend aggregate metadata and routes:
 
 ## Remaining Limitations
 
-- No rich editor UI exists yet; Prompt 5.2 owns the front component.
+- Prompt 5.2 adds the rich editor UI; its deployment evidence is tracked in
+  `docs/phase-5-2-smoke-test.md`.
 - `AGGREGATE_V2` generation is intentionally blocked until Prompt 5.3.
 - Optimistic concurrency is best-effort because SDK/Core API v2.20.0 did not expose CAS, transactions, or affected-row conditional updates.
 - Child `clientKey` replay safety is application-level parent lookup/upsert, not a confirmed compound database unique constraint.
+
+## Prompt 5.2 Closure Of Earlier Gaps
+
+- Header-only legacy save and model/amount preservation remain covered.
+- Foreign/fabricated child ids are rejected; identity mismatch has a dedicated
+  `COMMERCIAL_PROPOSAL_CHILD_IDENTITY_CONFLICT` response.
+- Partial failures are covered by deterministic unit fault injection. No unsafe
+  target fault injection was performed.

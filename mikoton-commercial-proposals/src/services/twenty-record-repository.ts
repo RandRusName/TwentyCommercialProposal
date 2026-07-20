@@ -36,6 +36,11 @@ type OpportunityRecord = {
   } | null;
 };
 
+type CompanyRecord = {
+  id: string;
+  name?: string | null;
+};
+
 type CommercialProposalRecord = {
   id: string;
   title?: string | null;
@@ -494,6 +499,23 @@ export class TwentyRecordRepository
       amount: normalizeOpportunityAmount(opportunity.amount),
       currencyCode: normalizeOpportunityCurrency(opportunity.amount),
     };
+  }
+
+  async getCompanyContext(
+    companyId: string,
+  ): Promise<{ id: string; name: string } | null> {
+    const response = await this.client.query({
+      company: {
+        __args: { filter: { id: { eq: companyId } } },
+        id: true,
+        name: true,
+      },
+    });
+    const company = response.company as CompanyRecord | null | undefined;
+
+    return company === null || company === undefined
+      ? null
+      : { id: company.id, name: company.name ?? company.id };
   }
 
   async findDraftByIdempotencyKey(

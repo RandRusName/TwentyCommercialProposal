@@ -1,0 +1,215 @@
+import { calculateProposalLineAmount } from 'src/domain/commercial-proposal-money';
+import type { SaveEditorRequest } from 'src/domain/commercial-proposal-aggregate';
+import { createIdempotencyKey } from 'src/front-components/create-commercial-proposal.helpers';
+import type {
+  EditorContextResponse,
+  EditorItem,
+  EditorStage,
+  EditorState,
+  EditorValidation,
+} from 'src/front-components/commercial-proposal-editor/editor-types';
+
+export const normalizeDecimalInput = (value: string) =>
+  value.trim().replace(',', '.');
+
+export const createEmptyItem = (): EditorItem => ({
+  clientKey: createIdempotencyKey(),
+  block: '',
+  name: '',
+  description: '',
+  quantity: '1',
+  unit: '',
+  unitPrice: '0',
+  discountPercent: '0',
+});
+
+export const duplicateItem = (item: EditorItem): EditorItem => ({
+  ...item,
+  id: undefined,
+  clientKey: createIdempotencyKey(),
+});
+
+export const createEmptyStage = (): EditorStage => ({
+  clientKey: createIdempotencyKey(),
+  title: '',
+  result: '',
+  duration: '',
+  description: '',
+});
+
+export const duplicateStage = (stage: EditorStage): EditorStage => ({
+  ...stage,
+  id: undefined,
+  clientKey: createIdempotencyKey(),
+});
+
+export const moveEntry = <T>(entries: T[], index: number, offset: -1 | 1) => {
+  const target = index + offset;
+
+  if (target < 0 || target >= entries.length) {
+    return entries;
+  }
+
+  const next = [...entries];
+  [next[index], next[target]] = [next[target] as T, next[index] as T];
+  return next;
+};
+
+export const removeEntry = <T>(entries: T[], index: number) =>
+  entries.filter((_, entryIndex) => entryIndex !== index);
+
+export const applyCanonicalResponse = (
+  context: EditorContextResponse,
+): EditorState => ({
+  proposalId: context.proposal.id,
+  editorRevision: context.proposal.editorRevision,
+  contentModelVersion: context.proposal.contentModelVersion,
+  status: context.proposal.status,
+  number: context.proposal.number,
+  amount: context.proposal.amount,
+  header: {
+    title: context.proposal.title,
+    companyId: context.proposal.companyId,
+    contactName: context.proposal.contactName,
+    contextAndGoal: context.proposal.contextAndGoal,
+    currencyCode: context.proposal.currencyCode,
+    validityDays: context.proposal.validityDays,
+    paymentTerms: context.proposal.paymentTerms,
+    assumptions: context.proposal.assumptions,
+    nextStep: context.proposal.nextStep,
+  },
+  items: context.items.map((item) => ({
+    id: item.id,
+    clientKey: item.clientKey,
+    block: item.block,
+    name: item.name,
+    description: item.description ?? '',
+    quantity: String(item.quantity),
+    unit: item.unit,
+    unitPrice: String(item.unitPrice),
+    discountPercent: String(item.discountPercent),
+  })),
+  stages: context.stages.map((stage) => ({
+    id: stage.id,
+    clientKey: stage.clientKey,
+    title: stage.title,
+    result: stage.result ?? '',
+    duration: stage.duration ?? '',
+    description: stage.description ?? '',
+  })),
+});
+
+const validateMoney = (item: EditorItem, index: number, errors: Record<string, string>) => {
+  try {
+    calculateProposalLineAmount({
+      quantity: normalizeDecimalInput(item.quantity),
+      unitPrice: normalizeDecimalInput(item.unitPrice),
+      discountPercent: normalizeDecimalInput(item.discountPercent),
+    });
+  } catch {
+    errors[`items.${index}.money`] = 'Проверьте количество, ставку и скидку';
+  }
+};
+
+export const validateEditorState = (state: EditorState): EditorValidation => {
+  const errors: Record<string, string> = {};
+
+  if (state.header.title.trim() === '') errors.title = 'Укажите заголовок';
+  if (!Number.isInteger(state.header.validityDays) || state.header.validityDays <= 0) {
+    errors.validityDays = 'Срок действия должен быть положительным целым числом';
+  }
+  if (state.items.length > 0 && (state.header.currencyCode?.trim() ?? '') === '') {
+    errors.currencyCode = 'Укажите валюту';
+  }
+  state.items.forEach((item, index) => {
+    if (item.block.trim() === '') errors[`items.${index}.block`] = 'Укажите блок';
+    if (item.name.trim() === '') errors[`items.${index}.name`] = 'Укажите наименование';
+    if (item.unit.trim() === '') errors[`items.${index}.unit`] = 'Укажите единицу';
+    validateMoney(item, index, errors);
+  });
+  state.stages.forEach((stage, index) => {
+    if (stage.title.trim() === '') errors[`stages.${index}.title`] = 'Укажите название';
+  });
+
+  return { valid: Object.keys(errors).length === 0, errors };
+};
+
+export const buildSaveRequest = (
+  state: EditorState,
+  operationId = createIdempotencyKey(),
+): SaveEditorRequest => ({
+  operationId,
+  editorRevision: state.editorRevision,
+  header: {
+    ...state.header,
+    title: state.header.title.trim(),
+    currencyCode: state.header.currencyCode?.trim().toUpperCase() || null,
+  },
+  items: state.items.map((item) => ({
+    id: item.id,
+    clientKey: item.clientKey,
+    block: item.block.trim(),
+    name: item.name.trim(),
+    description: item.description.trim() || null,
+    quantity: normalizeDecimalInput(item.quantity),
+    unit: item.unit.trim(),
+    unitPrice: normalizeDecimalInput(item.unitPrice),
+    discountPercent: normalizeDecimalInput(item.discountPercent),
+  })),
+  stages: state.stages.map((stage) => ({
+    id: stage.id,
+    clientKey: stage.clientKey,
+    title: stage.title.trim(),
+    result: stage.result.trim() || null,
+    duration: stage.duration.trim() || null,
+    description: stage.description.trim() || null,
+  })),
+});
+
+export const isEditorDirty = (current: EditorState, canonical: EditorState) =>
+  JSON.stringify(current) !== JSON.stringify(canonical);
+
+export const calculatePreview = (state: EditorState) => {
+  try {
+    return state.items.reduce(
+      (total, item) =>
+        total +
+        calculateProposalLineAmount({
+          quantity: normalizeDecimalInput(item.quantity),
+          unitPrice: normalizeDecimalInput(item.unitPrice),
+          discountPercent: normalizeDecimalInput(item.discountPercent),
+        }).lineAmount,
+      0,
+    );
+  } catch {
+    return null;
+  }
+};
+
+export const formatMoney = (amount: number | null, currencyCode: string | null) => {
+  if (amount === null) return 'Не указано';
+  const currency = currencyCode?.trim().toUpperCase();
+
+  if (currency !== undefined && /^[A-Z]{3}$/.test(currency)) {
+    try {
+      return new Intl.NumberFormat('ru-RU', {
+        style: 'currency',
+        currency,
+      }).format(amount);
+    } catch {
+      // Use numeric fallback below.
+    }
+  }
+
+  return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(amount)}${currency === undefined ? '' : ` ${currency}`}`;
+};
+
+export const createStarterItem = (
+  suggestion: EditorContextResponse['legacySuggestion'],
+): EditorItem => ({
+  ...createEmptyItem(),
+  block: 'Работы',
+  name: suggestion.suggestedTitle ?? 'Работы по проекту',
+  unit: 'проект',
+  unitPrice: String(suggestion.amount ?? 0),
+});

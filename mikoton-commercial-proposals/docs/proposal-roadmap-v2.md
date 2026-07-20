@@ -77,6 +77,8 @@ Rollback point:
 
 ## Prompt 5.2 — CommercialProposal Editor UI
 
+Status: implemented; target validation is recorded in `phase-5-2-smoke-test.md`.
+
 Scope:
 
 - Add editor front component for DRAFT/FAILED.
@@ -86,6 +88,8 @@ Scope:
 - Generate `operationId` per save.
 - Show legacy starter suggestion.
 - Respect read-only statuses.
+- Harden child identity, canonical totals, partial-failure replay and final revision checks.
+- Preserve backend application error codes in the front client.
 
 Out of scope:
 
