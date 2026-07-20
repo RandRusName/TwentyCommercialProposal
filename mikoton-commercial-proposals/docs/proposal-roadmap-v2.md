@@ -2,28 +2,34 @@
 
 ## Principle
 
-Do not implement the whole CPQ/editor/template system in one jump. Move in narrow prompts with an explicit rollback point and target smoke per step.
+Move in narrow prompts with explicit rollback points. Do not implement metadata, editor UI, generation schema v2, template v2, and CatalogItem in one step.
 
 ## Prompt 5.1 — Metadata Objects + Backend Aggregate
 
 Scope:
 
-- Add `CommercialProposalItem` metadata object.
-- Add `CommercialProposalStage` metadata object.
-- Add new `CommercialProposal` header fields.
-- Add repository aggregate read/save methods.
-- Add shared validation and money calculation helpers.
-- Add backend aggregate routes:
-  - `editor-context`
-  - `save-editor`
-  - `recalculate`
+- Add `CommercialProposalItem`.
+- Add `CommercialProposalStage`.
+- Add `CommercialProposal.contentModelVersion`.
+- Add `CommercialProposal.editorRevision`.
+- Add `CommercialProposal.lastEditorOperationId`.
+- Add `CommercialProposal.version`.
+- Add business header fields: `contactName`, `contextAndGoal`, `validityDays`, `paymentTerms`, `assumptions`, `nextStep`.
+- Add `clientKey` to items/stages.
+- Add save `operationId`.
+- Spike Twenty SDK/Core API v2.20.0 concurrency capabilities.
+- Implement replay-safe aggregate save.
+- Add ownership validation for child ids.
+- Add generation guard for `AGGREGATE_V2`.
+- Keep exact metadata nullability from architecture docs.
 
 Out of scope:
 
 - Rich editor UI.
-- Generation schema v2.
-- Dynamic spreadsheet rows.
-- CatalogItem.
+- Schema `2.0` generation.
+- Template v2 / dynamic rows.
+- `CatalogItem`.
+- `CommercialProposalItem.catalogItem`.
 
 Likely files:
 
@@ -38,82 +44,78 @@ docs/metadata-model.md
 
 Acceptance criteria:
 
-- Metadata plan is non-destructive and app-owned.
-- Unit tests cover validation, decimal calculations, ordering, and aggregate save.
-- Integration test can create a proposal with items and stages.
-- Existing generated proposals remain readable.
-
-Rollback point:
-
-- Before metadata apply, rollback by reverting app commit.
-- After metadata apply, deploy previous app version that ignores new objects if needed.
+1. Legacy generation continues to work for `LEGACY_V1`.
+2. `AGGREGATE_V2` generation is blocked until Prompt 5.3 with `COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED`.
+3. Repeated save with same `operationId` creates no duplicate children.
+4. Partial-failure replay creates no duplicate children.
+5. Foreign child id is rejected with `COMMERCIAL_PROPOSAL_CHILD_FORBIDDEN`.
+6. `editorRevision` conflict behavior matches the real platform guarantee: CAS if supported, otherwise documented best-effort.
+7. Header-only legacy save does not change `contentModelVersion` and does not overwrite legacy `amount`.
+8. First successful save with valid items converts to `AGGREGATE_V2`.
+9. `catalogItem` relation is not added.
+10. Metadata plan is app-owned and non-destructive.
 
 Target smoke:
 
-- Open a DRAFT.
-- Save 2 items and 2 stages through backend route.
-- Verify amount is recalculated.
+```text
+1. Open LEGACY_V1 DRAFT.
+2. Save header only.
+3. Verify amount/model version unchanged.
+4. Save 2 items + 2 stages.
+5. Verify conversion to AGGREGATE_V2.
+6. Verify amount recalculated.
+7. Repeat same operationId.
+8. Verify no duplicate children.
+9. Try generation.
+10. Verify controlled model-not-supported error.
+```
+
+Rollback point:
+
+- Before metadata apply: revert app commit.
+- After metadata apply: deploy previous app version that ignores new fields/objects.
 
 ## Prompt 5.2 — CommercialProposal Editor UI
 
 Scope:
 
-- Add front component/editor for DRAFT/FAILED proposals.
-- Sections:
-  - Общие данные
-  - Состав работ
-  - План работ
-  - Условия
-  - Итог
-- Explicit save.
-- Dirty state.
-- Validation messages.
-- Read-only states for generated/sent/accepted.
-- Starter-line suggestion for legacy DRAFT/FAILED.
+- Add editor front component for DRAFT/FAILED.
+- Render sections: header, work items, stages, terms, total.
+- Use aggregate save route.
+- Generate stable `clientKey` for each new local row.
+- Generate `operationId` per save.
+- Show legacy starter suggestion.
+- Respect read-only statuses.
 
 Out of scope:
 
-- CatalogItem picker.
-- Generation schema v2 changes.
-- Dynamic template.
-
-Likely files:
-
-```text
-src/front-components/
-src/command-menu-items/
-src/domain/
-docs/testing.md
-docs/phase-4-smoke-test.md
-```
+- Catalog picker.
+- Schema `2.0` generation.
+- Template v2.
 
 Acceptance criteria:
 
-- User can edit items and stages.
-- Double-save and stale revision are handled.
-- Amount shown in UI matches server canonical total.
-
-Rollback point:
-
-- Remove editor command/front component deployment while keeping metadata.
+- User can edit and save items/stages.
+- Stale revision is handled according to Prompt 5.1 capability result.
+- Amount shown in UI equals canonical server total for `AGGREGATE_V2`.
 
 Target smoke:
 
 - Create proposal from Opportunity.
 - Open editor.
-- Save 3 items, 2 stages, terms.
-- Reload and verify canonical data.
+- Save 3 items and 2 stages.
+- Reload and verify canonical aggregate.
 
-## Prompt 5.3 — Generation Snapshot v2 + XLSX Dynamic Rows
+## Prompt 5.3 — Generation Snapshot v2 + XLSX Template v2
 
 Scope:
 
 - Add schema `2.0` builder from saved aggregate.
 - Add template version `2`.
-- Update document-service to consume schema `2.0`.
+- Update document-service for schema `2.0`.
 - Support more than 5 work items through redesigned expandable/multi-page template.
 - Keep output formats XLSX and PDF.
-- Keep v1 generation readable for legacy records.
+- Keep schema `1.0` readable for `LEGACY_V1`.
 
 Out of scope:
 
@@ -121,57 +123,37 @@ Out of scope:
 - Regenerate/version history.
 - Email sending.
 
-Likely files:
-
-```text
-src/domain/commercial-proposal.ts
-src/services/document-service-client.ts
-src/logic-functions/generate-commercial-proposal.logic-function.ts
-document-service/
-templates/
-docs/template-mapping-v1.md
-docs/document-generation.md
-```
-
 Acceptance criteria:
 
-- Generation fails safely if no items.
+- `LEGACY_V1` uses schema `1.0`.
+- `AGGREGATE_V2` uses schema `2.0`.
+- Schema/template mismatch is rejected.
 - Generation uses saved items/stages, not Opportunity amount/name placeholders.
-- XLSX/PDF contain 6+ rows correctly.
-- Existing schema `1.0` generated records remain readable.
-
-Rollback point:
-
-- Keep template v1 and schema v1 generation available until v2 target smoke passes.
+- XLSX/PDF support 6+ rows without truncation.
 
 Target smoke:
 
-- Generate proposal with 8+ work items.
-- Verify PDF has correct totals and no hidden truncation.
+- Generate `AGGREGATE_V2` proposal with 8+ work items.
+- Verify PDF totals and layout.
 
 ## Prompt 5.4 — CatalogItem
 
 Scope:
 
 - Add optional `CatalogItem` metadata object.
-- Add picker integration in editor.
-- Copy selected catalog values into `CommercialProposalItem`.
-- Support inactive catalog items.
+- Add nullable `CommercialProposalItem.catalogItem`.
+- Add picker integration.
+- Copy selected catalog values into item snapshot.
 
 Out of scope:
 
 - Price approval workflow.
 - Multi-currency conversion.
-- Public catalog marketplace.
 
 Acceptance criteria:
 
-- Selecting a catalog item creates an editable proposal item snapshot.
-- Updating catalog does not alter existing proposal items.
-
-Rollback point:
-
-- Hide picker and keep manual item editing.
+- Catalog selection creates editable item snapshot.
+- Catalog changes do not mutate existing proposal items.
 
 ## Prompt 5.5 — Production Deployment + End-to-End Smoke
 
@@ -180,13 +162,9 @@ Scope:
 - Full target deployment.
 - Metadata plan/apply validation.
 - Editor UI smoke.
-- Generation smoke with v2 schema/template.
+- Generation smoke with schema `2.0`.
 - Legacy record compatibility smoke.
 - Permission smoke where possible.
-
-Out of scope:
-
-- Phase 6 features like approval, e-signature, email automation.
 
 Acceptance criteria:
 
@@ -195,18 +173,12 @@ Acceptance criteria:
 - No metadata duplicates.
 - No data loss.
 
-Rollback point:
-
-- Restore app previous version or backup according to operational runbook.
-
 ## Recommended Sequence
 
 ```text
-5.1 backend aggregate
-→ 5.2 editor UI
-→ 5.3 generation schema/template v2
-→ 5.4 catalog
-→ 5.5 production hardening and smoke
+5.1 backend aggregate and guard
+-> 5.2 editor UI
+-> 5.3 schema/template v2 generation
+-> 5.4 CatalogItem
+-> 5.5 production hardening and smoke
 ```
-
-Catalog is intentionally after the editor/generation path. It should accelerate item creation, not become the source of truth for proposal history.

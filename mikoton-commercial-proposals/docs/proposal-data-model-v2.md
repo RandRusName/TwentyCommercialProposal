@@ -2,86 +2,70 @@
 
 ## 1. Context
 
-The current Twenty App creates `CommercialProposal` records from `Opportunity` and can generate XLSX/PDF documents through the external document-service. Phase 3 is complete. Phase 4 foundation exists and uses a versioned template mapping, server-side generation route, status transitions, generated file attachments, and result metadata.
+The current app can create `CommercialProposal` drafts from `Opportunity` and generate XLSX/PDF files. The existing generation path is legacy schema `1.0`: it can synthesize one work item from the Opportunity name/amount when the proposal has no real line-item model.
 
-This document designs the next data model only. It does not introduce metadata, universal identifiers, production code, deployment, or template changes.
+Prompt 5.1 must introduce the aggregate data model without breaking legacy generation. Prompt 5.3 will introduce schema `2.0` generation from the aggregate.
+
+This document is architecture only. It does not create metadata, universal identifiers, production code, templates, document-service changes, or deployment.
 
 ## 2. Problem
 
-`Opportunity` is a short sales forecast card, for example:
+`Opportunity` is a sales forecast card:
 
 ```text
-Name = Сделать бота
-Amount = 120000 RUB
+name = short opportunity title
+amount = expected deal value
 ```
 
-The current generation payload turns that into one artificial work item and one artificial plan stage:
+A real commercial proposal needs:
 
-```text
-Work item = draft title, quantity 1, unit project, rate Opportunity.amount
-Plan stage = Согласование и старт
-```
+- proposal header and terms;
+- multiple priced work items;
+- delivery stages;
+- immutable generation snapshot;
+- generated file metadata.
 
-Real commercial proposals need a first-class aggregate:
-
-```text
-CommercialProposal
-├── CommercialProposalItem[]
-└── CommercialProposalStage[]
-```
-
-The current model also mixes sales forecast, proposal total, work composition, draft request snapshot, and generation snapshot in the same fields.
+The current single-object model mixes forecast amount, proposal total, work composition, draft input snapshot, and generation snapshot.
 
 ## 3. Current Model
 
 ### Opportunity
 
-| Field | Type | Nullable | Source of truth | Current usage |
-|---|---|---:|---|---|
-| `id` | UUID | no | Twenty standard object | Source record for draft creation |
-| `name` | TEXT | yes | Sales user | Draft title and generated context text |
-| `amount.amountMicros` | CURRENCY internals | yes | Sales forecast | Converted to decimal and copied to `CommercialProposal.amount` |
-| `amount.currencyCode` | CURRENCY internals | yes | Sales forecast | Copied to `CommercialProposal.currencyCode` |
-| `company` | relation | yes | Sales data | Copied to proposal relation and document customer |
-
-`Opportunity.amount` currently means expected deal value, not exact proposal total.
-
-### Company
-
-| Field | Type | Nullable | Current usage |
-|---|---|---:|---|
-| `id` | UUID | no | Related customer for proposal |
-| `name` | TEXT | yes | Customer company name in UI and generated document |
+| Field | Type | Meaning | Current usage |
+|---|---|---|---|
+| `id` | UUID | Standard Twenty record id | Source record for draft |
+| `name` | TEXT | Deal title | Used in draft title and legacy generation text |
+| `amount.amountMicros` | Currency internals | Forecast / expected deal value | Converted to decimal |
+| `amount.currencyCode` | Currency internals | Forecast currency | Copied to proposal currency |
+| `company` | relation | Customer company | Copied to proposal relation |
 
 ### CommercialProposal
 
-| Field | Type | Nullable | Default / current behavior | Current usage |
-|---|---|---:|---|---|
-| `title` | TEXT | no | Draft: `Черновик КП - <Opportunity>`; generated: `<number> - <Opportunity>` | Label field and document title |
-| `number` | TEXT | no | Draft: `DRAFT-<idempotencyKey>`; generated: `КП-### от DD.MM.YYYY` | Proposal number |
-| `status` | SELECT | no | `DRAFT` | Lifecycle |
-| `sourceType` | SELECT | no | `OPPORTUNITY` | Source marker |
-| `templateCode` | TEXT | no | Draft app code, then `mikoton-commercial-proposal` | Generation template |
-| `templateVersion` | TEXT | yes | `null`, then `1` | Generation template version |
-| `language` | TEXT | no | `ru-RU` | Generation payload |
-| `payloadSnapshot` | RAW_JSON | yes | Draft request, later generation payload | Mixed technical snapshot |
-| `resultMetadata` | RAW_JSON | yes | `null`, then generated file metadata | Generated artifacts |
-| `amount` | NUMBER(2) | yes | Opportunity amount snapshot | Currently used as the single work item rate |
-| `currencyCode` | TEXT | yes | Opportunity currency | Currency for generated proposal |
-| `opportunity` | relation | no | Source opportunity | Link back to sales opportunity |
-| `company` | relation | yes | Opportunity company | Customer relation |
-| `generatedAt` | DATE_TIME | yes | `null`, then success timestamp | Generation completion |
-| `files` | FILES | yes | generated XLSX/PDF | Twenty Files tab and attachments |
-| `idempotencyKey` | TEXT | no | UI operation UUID | Draft idempotency |
-| `lastError` | TEXT | yes | `null`, then safe error | Failure display |
+| Field | Type | Current meaning |
+|---|---|---|
+| `title` | TEXT | Draft/generated title |
+| `number` | TEXT | Draft technical number or final `КП-### от DD.MM.YYYY` |
+| `status` | SELECT | `DRAFT`, `GENERATING`, `GENERATED`, etc. |
+| `sourceType` | SELECT | Currently `OPPORTUNITY` |
+| `templateCode` / `templateVersion` | TEXT | Current generation template routing |
+| `language` | TEXT | `ru-RU` |
+| `payloadSnapshot` | RAW_JSON | Draft request, later generation snapshot |
+| `resultMetadata` | RAW_JSON | Generated files metadata |
+| `amount` | NUMBER | Legacy Opportunity amount snapshot |
+| `currencyCode` | TEXT | Copied Opportunity currency |
+| `opportunity` / `company` | RELATION | Source/customer links |
+| `generatedAt` | DATE_TIME | Successful generation timestamp |
+| `files` | FILES | Generated XLSX/PDF attached to record |
+| `idempotencyKey` | TEXT | Draft create operation key |
+| `lastError` | TEXT | Safe failure message |
 
 Known limitations:
 
-- There are no work item or stage records.
-- `amount` is not a calculated proposal total.
-- `payloadSnapshot` is used for both draft creation input and immutable generation payload.
-- Generated schema v1 is limited by template v1 to 5 work items and 1-3 stages.
-- Current generated Excel artifact is XLSX/PDF. The source template may be XLSM, but production output is macro-free XLSX.
+- No `CommercialProposalItem`.
+- No `CommercialProposalStage`.
+- `amount` is not always an aggregate total.
+- Legacy generation can synthesize business content from Opportunity.
+- Template v1 supports up to 5 work items and 1-3 stages.
 
 ## 4. Target Model
 
@@ -93,7 +77,7 @@ Company
         └── CommercialProposalStage[]
 ```
 
-Future-compatible extension:
+Future extension, not Prompt 5.1:
 
 ```text
 CatalogItem
@@ -108,268 +92,285 @@ erDiagram
   COMPANY ||--o{ COMMERCIAL_PROPOSAL : customer
   COMMERCIAL_PROPOSAL ||--o{ COMMERCIAL_PROPOSAL_ITEM : contains
   COMMERCIAL_PROPOSAL ||--o{ COMMERCIAL_PROPOSAL_STAGE : plans
-  CATALOG_ITEM o|--o{ COMMERCIAL_PROPOSAL_ITEM : sourced_from
+  CATALOG_ITEM o|--o{ COMMERCIAL_PROPOSAL_ITEM : sourced_from_future
 ```
 
-## 6. Entity Definitions
+`CATALOG_ITEM` is shown only for future compatibility. It is explicitly outside Prompt 5.1 metadata.
 
-### CommercialProposal
+## 6. CommercialProposal
 
-`CommercialProposal` is the aggregate root. It owns business header fields, customer context, commercial terms, generated artifacts, and lifecycle status.
+`CommercialProposal` is the aggregate root. It owns lifecycle, header fields, terms, generated artifacts, and child records.
 
-| Field | FieldType | Nullable | Default | Editable states | Source of truth | Reuse | Technical |
-|---|---|---:|---|---|---|---:|---:|
-| `title` | TEXT | no | from Opportunity name | DRAFT, FAILED | User/editor | yes | no |
-| `number` | TEXT | no | technical draft number | generated once before generation | Numbering service | yes | no |
-| `version` | NUMBER | no | `1` | system only | Proposal version marker | new | yes |
-| `editorRevision` | NUMBER | no | `1` | system only | Optimistic concurrency | new | yes |
-| `status` | SELECT | no | `DRAFT` | system transitions | Lifecycle | yes | no |
-| `sourceType` | SELECT | no | `OPPORTUNITY` | read-only | Source marker | yes | yes |
-| `opportunity` | RELATION | no | source Opportunity | read-only after create | Source link | yes | no |
-| `company` | RELATION | yes | Opportunity company | DRAFT, FAILED | Customer link | yes | no |
-| `contactName` | TEXT | yes | `null` | DRAFT, FAILED | User/editor | new | no |
-| `contextAndGoal` | TEXT | yes | suggested from Opportunity | DRAFT, FAILED | User/editor | new | no |
-| `currencyCode` | TEXT | no when items exist | Opportunity currency or user selected | DRAFT, FAILED | Proposal header | yes | no |
-| `validityDays` | NUMBER | no | `14` | DRAFT, FAILED | Proposal header | new | no |
-| `paymentTerms` | TEXT | yes | configured default | DRAFT, FAILED | User/editor | new | no |
-| `assumptions` | TEXT | yes | configured default | DRAFT, FAILED | User/editor | new | no |
-| `nextStep` | TEXT | yes | configured default | DRAFT, FAILED | User/editor | new | no |
-| `amount` | NUMBER(2) | no | `0` | recalculated by server | Sum of item line amounts | yes | no |
-| `templateCode` | TEXT | no | `mikoton-commercial-proposal` | DRAFT, FAILED | Template selector/config | yes | yes |
-| `templateVersion` | TEXT | yes | `2` for v2 generation | system | Template resolver | yes | yes |
-| `language` | TEXT | no | `ru-RU` | DRAFT, FAILED | Proposal header | yes | no |
-| `payloadSnapshot` | RAW_JSON | yes | `null` | generation only | Immutable generation snapshot | yes | yes |
-| `resultMetadata` | RAW_JSON | yes | `null` | generation only | Generated artifacts metadata | yes | yes |
-| `generatedAt` | DATE_TIME | yes | `null` | generation only | Generation completion | yes | no |
-| `files` | FILES | yes | `null` | generation only | Generated file attachments | yes | no |
-| `idempotencyKey` | TEXT | no | draft operation UUID | read-only | Draft idempotency | yes | yes |
-| `lastError` | TEXT | yes | `null` | system | Safe failure message | yes | yes |
+| Field | FieldType | Metadata nullable | Default | User editable | Source of truth |
+|---|---|---:|---|---:|---|
+| `title` | TEXT | no | from Opportunity name | yes in DRAFT/FAILED | Editor |
+| `number` | TEXT | no | `DRAFT-*`, final at generation | no | Numbering service |
+| `version` | NUMBER | no | `1` | no | Business version of proposal |
+| `contentModelVersion` | SELECT | no | `LEGACY_V1` | no | Stored content model |
+| `editorRevision` | NUMBER | no | `1` | no | Editor concurrency marker |
+| `lastEditorOperationId` | TEXT | yes | `null` | no | Replay-safe save marker |
+| `status` | SELECT | no | `DRAFT` | no | Lifecycle |
+| `sourceType` | SELECT | no | `OPPORTUNITY` | no | Source marker |
+| `opportunity` | RELATION | no | source Opportunity | no | Source link |
+| `company` | RELATION | yes | Opportunity company | yes in DRAFT/FAILED | Customer link |
+| `contactName` | TEXT | yes | `null` | yes in DRAFT/FAILED | Editor |
+| `contextAndGoal` | TEXT | yes | suggested text | yes in DRAFT/FAILED | Editor |
+| `currencyCode` | TEXT | yes | Opportunity currency | yes in DRAFT/FAILED | Proposal currency |
+| `validityDays` | NUMBER | no | `14` | yes in DRAFT/FAILED | Editor |
+| `paymentTerms` | TEXT | yes | default text | yes in DRAFT/FAILED | Editor |
+| `assumptions` | TEXT | yes | default text | yes in DRAFT/FAILED | Editor |
+| `nextStep` | TEXT | yes | default text | yes in DRAFT/FAILED | Editor |
+| `amount` | NUMBER(2) | keep current metadata | current value or `0` | no | Depends on `contentModelVersion` |
+| `templateCode` | TEXT | no | current code | no initially | Template routing |
+| `templateVersion` | TEXT | yes | `null` / generation version | no | Template routing |
+| `language` | TEXT | no | `ru-RU` | yes in DRAFT/FAILED | Editor |
+| `payloadSnapshot` | RAW_JSON | yes | `null` | no | Immutable generation snapshot |
+| `resultMetadata` | RAW_JSON | yes | `null` | no | Generated artifact metadata |
+| `generatedAt` | DATE_TIME | yes | `null` | no | Generation completion |
+| `files` | FILES | yes | `null` | no | Generated files |
+| `idempotencyKey` | TEXT | no | draft UUID | no | Draft create idempotency |
+| `lastError` | TEXT | yes | `null` | no | Safe app error |
 
-Decision: reuse `amount` as the materialized exact proposal total. Do not add `totalAmount`.
+### `contentModelVersion`
 
-### CommercialProposalItem
+Metadata contract:
 
-`CommercialProposalItem` is a priced line in the proposal. It is the source of truth for work composition and price.
+```text
+name: contentModelVersion
+type: SELECT
+isNullable: false
+defaultValue: LEGACY_V1
+editable by user: false
+values: LEGACY_V1, AGGREGATE_V2
+```
 
-| Field | FieldType | Nullable | Default | Validation | Index | Relation |
-|---|---|---:|---|---|---|---|
-| `commercialProposal` | RELATION | no | parent | required | yes | many-to-one |
-| `position` | NUMBER | no | server normalized | integer `>= 1` | yes | none |
-| `block` | TEXT | no | `Работы` or user value | non-empty | optional | none |
-| `name` | TEXT | no | empty | non-empty | optional searchable | none |
-| `description` | TEXT | yes | `null` | required before generation if `name` insufficient | no | none |
-| `quantity` | NUMBER | no | `1` | `> 0`, up to 4 decimals | no | none |
-| `unit` | TEXT | no | `час` or `проект` | non-empty | no | none |
-| `unitPrice` | NUMBER | no | `0` | `>= 0`, 2 decimals | no | none |
-| `discountPercent` | NUMBER | no | `0` | `0..100`, 2 decimals | no | none |
-| `lineAmount` | NUMBER | no | calculated | server-calculated, 2 decimals | no | none |
-| `currencyCode` | TEXT | no | parent currency | equals parent currency | no | none |
-| `catalogItem` | RELATION | yes | `null` | future only | optional | many-to-one to future CatalogItem |
+Semantics:
 
-`lineAmount` is stored physically for list views, generation, sorting, and audit readability, but it is never trusted from UI. The server recalculates it on every aggregate save.
-
-### CommercialProposalStage
-
-`CommercialProposalStage` is a delivery plan row. It is independent from priced work items.
-
-| Field | FieldType | Nullable | Default | Validation | Index | Relation |
-|---|---|---:|---|---|---|---|
-| `commercialProposal` | RELATION | no | parent | required | yes | many-to-one |
-| `position` | NUMBER | no | server normalized | integer `>= 1` | yes | none |
-| `title` | TEXT | no | empty | non-empty | optional searchable | none |
-| `result` | TEXT | no | empty | non-empty before generation | no | none |
-| `duration` | TEXT | no | empty | non-empty before generation | no | none |
-| `description` | TEXT | yes | `null` | optional | no | none |
-
-### Future CatalogItem
-
-Do not implement in the first v2 delivery. Design for a nullable relation:
-
-| Field | FieldType | Notes |
+| Value | Meaning | Generation |
 |---|---|---|
-| `name` | TEXT | Display name |
-| `type` | SELECT | Service/product/etc. |
-| `category` | TEXT or SELECT | Grouping |
-| `description` | TEXT | Default description |
-| `defaultUnit` | TEXT | Copied to item |
-| `defaultPrice` | NUMBER(2) | Copied to item |
-| `currencyCode` | TEXT | Copied to item |
-| `isActive` | BOOLEAN | Hide inactive from picker |
-| `sortOrder` | NUMBER | Picker ordering |
+| `LEGACY_V1` | Proposal still uses old content model. `amount` may be an Opportunity snapshot. Items/stages may be absent. | Schema `1.0` allowed. |
+| `AGGREGATE_V2` | Items are source of truth, stages are source of truth, `amount = SUM(lineAmount)`. | Schema `2.0` required after Prompt 5.3. |
 
-Snapshot rule: selecting a `CatalogItem` copies values into `CommercialProposalItem`. Later catalog changes do not mutate old proposals.
+Do not use `version` for this. `version` is the business version of the proposal; `contentModelVersion` is the stored content format.
 
-## 7. Field Matrix
+## 7. CommercialProposalItem
 
-| Entity | Field | FieldType | Nullable | Default | Index | Relation |
-|---|---|---|---:|---|---|---|
-| CommercialProposal | `amount` | NUMBER(2) | no | `0` | optional | none |
-| CommercialProposal | `currencyCode` | TEXT | conditional | Opportunity currency | optional | none |
-| CommercialProposal | `version` | NUMBER | no | `1` | no | none |
-| CommercialProposal | `editorRevision` | NUMBER | no | `1` | no | none |
-| CommercialProposal | `contactName` | TEXT | yes | `null` | no | none |
-| CommercialProposal | `contextAndGoal` | TEXT | yes | suggested | no | none |
-| CommercialProposal | `validityDays` | NUMBER | no | `14` | no | none |
-| CommercialProposal | `paymentTerms` | TEXT | yes | default | no | none |
-| CommercialProposal | `assumptions` | TEXT | yes | default | no | none |
-| CommercialProposal | `nextStep` | TEXT | yes | default | no | none |
-| CommercialProposalItem | `commercialProposal` | RELATION | no | parent | yes | CP 1:N |
-| CommercialProposalItem | `position` | NUMBER | no | normalized | yes | none |
-| CommercialProposalItem | `block` | TEXT | no | `Работы` | no | none |
-| CommercialProposalItem | `name` | TEXT | no | empty | optional | none |
-| CommercialProposalItem | `description` | TEXT | yes | `null` | no | none |
-| CommercialProposalItem | `quantity` | NUMBER(4) | no | `1` | no | none |
-| CommercialProposalItem | `unit` | TEXT | no | `час` | no | none |
-| CommercialProposalItem | `unitPrice` | NUMBER(2) | no | `0` | no | none |
-| CommercialProposalItem | `discountPercent` | NUMBER(2) | no | `0` | no | none |
-| CommercialProposalItem | `lineAmount` | NUMBER(2) | no | calculated | no | none |
-| CommercialProposalItem | `currencyCode` | TEXT | no | parent currency | no | none |
-| CommercialProposalStage | `commercialProposal` | RELATION | no | parent | yes | CP 1:N |
-| CommercialProposalStage | `position` | NUMBER | no | normalized | yes | none |
-| CommercialProposalStage | `title` | TEXT | no | empty | optional | none |
-| CommercialProposalStage | `result` | TEXT | no | empty | no | none |
-| CommercialProposalStage | `duration` | TEXT | no | empty | no | none |
-| CommercialProposalStage | `description` | TEXT | yes | `null` | no | none |
+Prompt 5.1 child object. It is a standalone snapshot object and must not include `catalogItem` yet.
 
-## 8. Relation Matrix
+| Field | FieldType | Metadata nullable | Default | Validation |
+|---|---|---:|---|---|
+| `commercialProposal` | RELATION | no | parent | required |
+| `clientKey` | TEXT | no | UI UUID | UUID, user-hidden |
+| `position` | NUMBER | no | server normalized | integer `>= 1` |
+| `block` | TEXT | no | `Работы` | non-empty |
+| `name` | TEXT | no | empty | required on save |
+| `description` | TEXT | yes | `null` | optional |
+| `quantity` | NUMBER | no | `1` | `> 0`, up to 4 decimals |
+| `unit` | TEXT | no | `час` or `проект` | required |
+| `unitPrice` | NUMBER | no | `0` | `>= 0`, 2 decimals |
+| `discountPercent` | NUMBER | no | `0` | `0..100`, 2 decimals |
+| `lineAmount` | NUMBER | no | calculated | server-calculated, 2 decimals |
+| `currencyCode` | TEXT | no | parent currency | equals parent currency |
 
-| From | To | Cardinality | Ownership | Delete behavior |
-|---|---|---|---|---|
-| Opportunity | CommercialProposal | 1:N | Opportunity is source, not owner | Deleting Opportunity should not silently delete proposals; proposal becomes inaccessible only if Twenty relation requires it |
-| Company | CommercialProposal | 1:N | Company is customer link | Deleting Company should null proposal company if supported, otherwise block/manual review |
-| CommercialProposal | CommercialProposalItem | 1:N | Proposal owns items | Deleting proposal may delete items only through app-managed cleanup; avoid target destructive cleanup without explicit operator action |
-| CommercialProposal | CommercialProposalStage | 1:N | Proposal owns stages | Same as items |
-| CatalogItem | CommercialProposalItem | 0/1:N | Catalog is reference only | Archiving catalog does not change item snapshot |
+Logical uniqueness:
 
-## 9. Lifecycle
+```text
+(commercialProposalId, clientKey)
+```
 
-| Status | Header editable | Items editable | Stages editable | Can generate | Notes |
-|---|---:|---:|---:|---:|---|
-| `DRAFT` | yes | yes | yes | yes | Normal editor state |
-| `FAILED` | yes | yes | yes | yes | Retry allowed after correction |
-| `GENERATING` | no | no | no | no | Read-only, generation in progress |
-| `GENERATED` | no | no | no | no | Read-only artifact state |
-| `SENT` | no | no | no | no | Sent document must remain stable |
-| `ACCEPTED` | no | no | no | no | Accepted document must remain stable |
-| `REJECTED` | no | no | no | no | Historical state |
-| `CANCELLED` | no | no | no | no | Historical state |
+If Twenty metadata does not support a compound unique index, Prompt 5.1 must use a lookup-by-parent-and-clientKey fallback and document that it is replay-safe best effort, not a database-level uniqueness guarantee.
 
-Future regeneration/versioning should create a new proposal version or explicit revision flow. Do not mutate a generated/sent/accepted proposal in place.
+`lineAmount` is physically stored but never trusted from UI.
 
-## 10. Source-of-Truth Rules
+## 8. CommercialProposalStage
 
-- `CommercialProposalItem[]` is the source of truth for work scope and pricing.
-- `CommercialProposal.amount` is a materialized aggregate: sum of rounded `lineAmount`.
-- `CommercialProposalStage[]` is the source of truth for the work plan.
-- `Opportunity.amount` is sales forecast only.
-- `payloadSnapshot` is the immutable generation snapshot captured at generation time.
-- `resultMetadata` is generated artifact metadata only.
-- Generation must not derive work items from Opportunity name, Opportunity amount, transient UI state, hardcoded placeholders, or spreadsheet formulas alone.
+Prompt 5.1 child object.
 
-## 11. Money Calculation
+| Field | FieldType | Metadata nullable | Default | Validation |
+|---|---|---:|---|---|
+| `commercialProposal` | RELATION | no | parent | required |
+| `clientKey` | TEXT | no | UI UUID | UUID, user-hidden |
+| `position` | NUMBER | no | server normalized | integer `>= 1` |
+| `title` | TEXT | no | empty | required on save |
+| `result` | TEXT | yes | `null` | required before schema `2.0` generation |
+| `duration` | TEXT | yes | `null` | required before schema `2.0` generation |
+| `description` | TEXT | yes | `null` | optional |
 
-Recommended policy:
+Prompt 5.1 editor save may persist incomplete stages in DRAFT/FAILED. Generation validation is stricter.
+
+## 9. Field Matrix
+
+| Entity | Field | FieldType | Metadata nullable | Index / uniqueness |
+|---|---|---|---:|---|
+| CommercialProposal | `contentModelVersion` | SELECT | no | optional filter |
+| CommercialProposal | `editorRevision` | NUMBER | no | none |
+| CommercialProposal | `lastEditorOperationId` | TEXT | yes | optional |
+| CommercialProposal | `amount` | existing NUMBER | keep current | existing behavior |
+| CommercialProposal | `currencyCode` | TEXT | yes | optional |
+| CommercialProposalItem | `commercialProposal` | RELATION | no | parent lookup |
+| CommercialProposalItem | `clientKey` | TEXT | no | logical unique with parent |
+| CommercialProposalItem | `position` | NUMBER | no | parent sort |
+| CommercialProposalStage | `commercialProposal` | RELATION | no | parent lookup |
+| CommercialProposalStage | `clientKey` | TEXT | no | logical unique with parent |
+| CommercialProposalStage | `position` | NUMBER | no | parent sort |
+
+Exact nullability rules:
+
+- `CommercialProposal.currencyCode` remains metadata-nullable. Application requires it when `AGGREGATE_V2` has items and before schema `2.0` generation.
+- Do not make destructive nullability changes to existing fields without metadata plan.
+- `CommercialProposalItem.description` is optional.
+- `CommercialProposalStage.result` and `duration` are nullable metadata fields but required by schema `2.0` generation.
+
+## 10. Lifecycle
+
+| Status | Editable | Generation allowed |
+|---|---:|---|
+| `DRAFT` | yes | yes, subject to model-version guard |
+| `FAILED` | yes | yes, subject to model-version guard |
+| `GENERATING` | no | no |
+| `GENERATED` | no | no |
+| `SENT` | no | no |
+| `ACCEPTED` | no | no |
+| `REJECTED` | no | no |
+| `CANCELLED` | no | no |
+
+## 11. Amount Semantics
+
+`amount` is state-dependent:
+
+| `contentModelVersion` | Meaning of `amount` |
+|---|---|
+| `LEGACY_V1` | Legacy snapshot / historical value. It may equal Opportunity amount and does not have to match child rows. |
+| `AGGREGATE_V2` | Materialized aggregate: `SUM(CommercialProposalItem.lineAmount)`. Server recalculates it on aggregate save. |
+
+Do not state that `amount` is always an aggregate without qualifying it by `contentModelVersion`.
+
+## 12. Source-of-Truth Rules
+
+For `LEGACY_V1`:
+
+- Current schema `1.0` rules remain valid.
+- Items/stages may be absent.
+- `amount` may be an Opportunity snapshot.
+
+For `AGGREGATE_V2`:
+
+- `CommercialProposalItem[]` is source of truth for work composition and pricing.
+- `CommercialProposalStage[]` is source of truth for the plan.
+- `CommercialProposal.amount` is derived from child line amounts.
+- Generation must not use legacy synthetic content.
+
+For all versions:
+
+- `Opportunity.amount` is forecast only.
+- `payloadSnapshot` is immutable generation input.
+- `resultMetadata` is artifact metadata.
+
+## 13. Money Calculation
+
+Policy:
 
 ```text
 quantity: up to 4 decimals
 unitPrice: 2 decimals
 discountPercent: 2 decimals
 lineAmount = roundHalfUp(quantity * unitPrice * (1 - discountPercent / 100), 2)
-amount = sum(lineAmount)
+amount = sum(rounded lineAmount)
 ```
 
-Use a decimal helper or integer minor units in server code. Do not use unchecked JavaScript floating-point arithmetic for authoritative totals. Twenty `FieldType.NUMBER` can store display values, but calculations should be deterministic before writing records.
+Use a decimal helper or integer minor units. Do not use unchecked JavaScript floating-point arithmetic for authoritative totals.
 
-All items in one proposal must share `CommercialProposal.currencyCode`. Currency conversion is out of scope for v2.
+## 14. Validation
 
-## 12. Validation
-
-CommercialProposal:
+### Editor save validation
 
 - `title` required.
-- `currencyCode` required when items exist.
-- `validityDays > 0`.
-- Editable only in `DRAFT` and `FAILED`.
-- At least one valid item before generation.
-- All items share the proposal currency.
+- Item `name` required.
+- Item `quantity > 0`.
+- Item `unit` required.
+- Item `unitPrice >= 0`.
+- Item `discountPercent` between `0` and `100`.
+- Stage `title` required.
+- Stage `result` and `duration` may be empty in DRAFT/FAILED.
+- Zero items are allowed only while the record remains `LEGACY_V1`.
+- Transition to `AGGREGATE_V2` requires at least one valid item.
 
-Item:
+### Generation validation schema `2.0`
 
-- `position >= 1`; server normalizes positions.
-- `name` required.
-- `quantity > 0`.
-- `unit` required.
-- `unitPrice >= 0`.
-- `discountPercent >= 0 && discountPercent <= 100`.
-- `lineAmount` must match server calculation.
+- `contentModelVersion = AGGREGATE_V2`.
+- At least one item.
+- At least one complete stage if template v2 requires a plan.
+- Stage `result` and `duration` filled.
+- `currencyCode` filled.
+- Total positive.
+- Total matches line amounts.
+- No invalid children.
 
-Stage:
+## 15. Conversion Rule
 
-- `position >= 1`; server normalizes positions.
-- `title`, `result`, and `duration` required before generation.
+A proposal remains `LEGACY_V1` until the first successful aggregate save with at least one valid item.
 
-Generation:
+On conversion:
 
-- Status must be `DRAFT` or `FAILED`.
-- Total must be positive unless an explicit zero-price proposal flag is added later.
-- No concurrent generation.
-- Snapshot total must match item totals.
+```text
+contentModelVersion = AGGREGATE_V2
+amount = SUM(server-calculated lineAmount)
+editorRevision = editorRevision + 1
+```
 
-## 13. Migration
+Conversion is irreversible.
 
-No hidden mass migration.
+Header-only save on a legacy DRAFT/FAILED:
 
-Existing `DRAFT` / `FAILED`:
+- keeps `contentModelVersion = LEGACY_V1`;
+- keeps legacy `amount` unchanged;
+- keeps schema `1.0` generation available;
+- does not count as conversion.
 
-- Keep existing record.
-- On first editor open, offer to create one starter item from current `title` and `amount`.
-- User can accept, edit, or discard the suggestion.
-- After save, `amount` becomes the aggregate total.
+Starter item accepted and saved:
 
-Existing `GENERATED`, `SENT`, `ACCEPTED`, `REJECTED`, `CANCELLED`:
+- converts to `AGGREGATE_V2`;
+- recalculates `amount`;
+- legacy amount stops being source of truth.
 
-- Keep read-only as legacy proposals.
-- Do not rewrite `payloadSnapshot`, `resultMetadata`, files, or generated numbers.
+New records before Prompt 5.3:
 
-## 14. Compatibility
+- are created as `LEGACY_V1`;
+- convert after aggregate save with items;
+- cannot use aggregate generation until Prompt 5.3.
 
-- Existing generated files remain valid historical artifacts.
-- Generation schema v1 remains readable for legacy records.
-- New generation should use schema `2.0` and template version `2`.
-- Existing `CommercialProposal.amount` values are treated as legacy snapshots until a proposal is edited in v2.
-- Current draft idempotency key remains unchanged.
+## 16. CatalogItem Boundary
 
-## 15. Risks
+`CommercialProposalItem.catalogItem` is not part of Prompt 5.1 metadata. Prompt 5.1 items are independent snapshots.
+
+CatalogItem belongs to Prompt 5.4. When added later, the relation must be nullable and catalog values must be copied into item fields. Catalog changes must not mutate historical proposal items.
+
+## 17. Risks
 
 | Risk | Mitigation |
 |---|---|
-| Twenty metadata upgrade creates unexpected changes | Use metadata plan, apply only app-owned object additions/fields |
-| Partial aggregate save across multiple custom objects | Validate first, upsert before delete, use `editorRevision`, return canonical reload on failure |
-| Decimal precision drift | Central decimal helper, server-calculated totals, tests with edge cases |
-| Dynamic spreadsheet rows | Prefer template v2 designed for expandable tables over ad hoc row insertion in template v1 |
-| Legacy proposal compatibility | Read-only legacy mode and schema-version branching |
-| Payload schema compatibility | Versioned schema `1.0` and `2.0` with explicit generator routing |
+| Metadata upgrade affects existing fields | Add app-owned fields/objects only; plan before apply |
+| Partial aggregate save creates duplicate children | `clientKey` + parent lookup/upsert + operation replay |
+| Concurrency stronger than platform supports | Prompt 5.1 must spike CAS; otherwise document best-effort |
+| `amount` semantics misunderstood | Always qualify by `contentModelVersion` |
+| v2 data generated by v1 generator | Block `AGGREGATE_V2` generation until Prompt 5.3 |
+| Catalog scope creep | Explicitly defer relation to Prompt 5.4 |
 
-## 16. Open Questions Closed
+## 18. Closed Decisions
 
 | Question | Recommendation |
 |---|---|
-| Reuse `amount` or add `totalAmount`? | Reuse `amount` as proposal total. It avoids duplicate totals and matches likely integrations. Existing records are handled as legacy until edited. |
-| Store `lineAmount` physically? | Yes, as a materialized value recalculated by the server on every save. |
-| How to calculate decimals? | Use deterministic decimal/integer-minor-unit logic; round line amounts half-up to 2 decimals, sum rounded lines. |
-| Aggregate save or CRUD routes? | Aggregate save for the first editor. It gives atomic validation and simpler ordering. |
-| Partial failures? | Validate first, upsert new/changed children before deleting removed ones, use `editorRevision`, return safe error and canonical reload. |
-| Existing DRAFT? | Offer one-time starter item from legacy title/amount on editor open; no silent migration. |
-| Existing GENERATED? | Keep read-only legacy, do not mutate artifacts or snapshots. |
-| Sync Opportunity.amount? | Do not update automatically. After accepted/primary proposal, offer explicit user action later. |
-| Contact relation or text field? | Use `contactName` TEXT first. Contact relation can be added later. |
-| Template upgrade strategy? | Create templateVersion `2` and schema `2.0`; keep v1 for legacy generation. |
-| How support 6+ rows? | Prefer redesigned template v2 with expandable/multi-page layout; avoid stretching v1 beyond its 5-row design. |
-| When add CatalogItem? | After item/stage editor and v2 generation are stable. |
-| Need `version` field? | Yes, add a simple numeric proposal version marker now for future regeneration/versioning compatibility. |
-| Need optimistic concurrency? | Yes, add `editorRevision` for aggregate save. |
-| Editable statuses? | `DRAFT` and `FAILED` only. |
+| How distinguish legacy and aggregate? | `contentModelVersion` SELECT: `LEGACY_V1`, `AGGREGATE_V2`. |
+| When conversion happens? | First successful aggregate save with at least one valid item. |
+| Can v2 generate before Prompt 5.3? | No. Return `COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED`. |
+| How avoid duplicate children? | `clientKey` UUID per child plus parent lookup/upsert. |
+| How handle save retry? | `operationId` plus `lastEditorOperationId`; replay-safe convergent save. |
+| Concurrency guarantee? | CAS if Twenty supports conditional update; otherwise honest best-effort. |
+| Legacy amount? | Preserve until conversion; after conversion amount is aggregate. |
+| Nullable currencyCode? | Metadata nullable; application requires conditionally. |
+| Description required? | No. Item description optional. |
+| CatalogItem relation? | Prompt 5.4 only. |
 
-## 17. Recommended Decision
+## 19. Recommended Decision
 
-Adopt `CommercialProposal` as an aggregate root with owned `CommercialProposalItem` and `CommercialProposalStage` child objects. Reuse `CommercialProposal.amount` as the materialized proposal total. Move generation from synthetic Opportunity-based content to immutable schema `2.0` snapshots built from saved proposal header, items, and stages. Keep existing records safe through read-only legacy behavior and opt-in starter-line conversion for editable legacy drafts.
+Adopt `CommercialProposal` as an aggregate root with `contentModelVersion`. Prompt 5.1 may save aggregate data and convert proposals to `AGGREGATE_V2`, but generation for `AGGREGATE_V2` must be blocked until Prompt 5.3 implements schema `2.0` and template v2.

@@ -2,28 +2,68 @@
 
 ## Goal
 
-Schema `2.0` makes saved `CommercialProposal` data, not `Opportunity` shortcuts, the source of generated documents.
+Schema `2.0` generates documents from saved `CommercialProposal` aggregate data. It must never synthesize work items from Opportunity name or Opportunity amount.
+
+## Transition Guard
+
+Before Prompt 5.3 is complete:
+
+| `contentModelVersion` | Generation behavior |
+|---|---|
+| `LEGACY_V1` | Current schema `1.0` generation remains available. |
+| `AGGREGATE_V2` | Generation must be blocked. |
+
+Structured error:
+
+```text
+COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED
+```
+
+User-facing message:
+
+```text
+Генерация документов для новой модели КП пока недоступна.
+Сохранённые данные не потеряны.
+```
+
+Do not:
+
+- silently use the legacy generator;
+- collapse aggregate items into one row;
+- use Opportunity amount;
+- generate a zero-total document;
+- downgrade `AGGREGATE_V2` to `LEGACY_V1`.
+
+After Prompt 5.3:
+
+```text
+LEGACY_V1    -> schema 1.0 / template v1
+AGGREGATE_V2 -> schema 2.0 / template v2
+```
+
+The generator must reject schema/template mismatches.
 
 ## Snapshot Timing
 
-The immutable generation snapshot is created only when generation starts:
+For schema `2.0`, the immutable snapshot is created only when generation starts:
 
 ```text
 CommercialProposal DRAFT/FAILED
-→ validate header/items/stages
-→ assign final number if needed
-→ build schema 2.0 snapshot
-→ save payloadSnapshot
-→ status GENERATING
-→ call document-service
+-> validate aggregate
+-> assign final number if needed
+-> build schema 2.0 snapshot
+-> save payloadSnapshot
+-> status GENERATING
+-> call document-service
 ```
 
-The snapshot must be deterministic:
+Snapshot must be deterministic:
 
-- Items ordered by normalized `position`.
-- Stages ordered by normalized `position`.
-- Totals recalculated server-side before snapshot.
-- Currency checked consistently across proposal and items.
+- items ordered by normalized `position`;
+- stages ordered by normalized `position`;
+- totals recalculated server-side;
+- currency checked consistently;
+- no transient UI state included.
 
 ## Contract
 
@@ -35,8 +75,9 @@ The snapshot must be deterministic:
   "proposal": {
     "id": "uuid",
     "number": "КП-012 от 17.07.2026",
-    "title": "Автоматизация обработки заявок",
+    "title": "Commercial proposal",
     "version": 1,
+    "contentModelVersion": "AGGREGATE_V2",
     "date": "2026-07-17",
     "language": "ru-RU",
     "currencyCode": "RUB",
@@ -45,23 +86,23 @@ The snapshot must be deterministic:
   },
   "customer": {
     "companyId": "uuid",
-    "companyName": "ООО Пример",
-    "contactName": "Иванов Александр"
+    "companyName": "Customer",
+    "contactName": "Contact"
   },
   "contractor": {
     "name": "Шибеев Роман",
     "email": "consulting@mikoton.ru"
   },
   "content": {
-    "contextAndGoal": "Описание контекста и цели проекта.",
+    "contextAndGoal": "Context and goal.",
     "workItems": [
       {
         "position": 1,
-        "block": "Анализ",
-        "name": "Диагностика процесса",
-        "description": "Интервью и фиксация требований.",
+        "block": "Analysis",
+        "name": "Discovery",
+        "description": "Requirements discovery.",
         "quantity": 8,
-        "unit": "час",
+        "unit": "hour",
         "unitPrice": 5500,
         "discountPercent": 0,
         "lineAmount": 44000,
@@ -71,56 +112,62 @@ The snapshot must be deterministic:
     "plan": [
       {
         "position": 1,
-        "title": "Старт и диагностика",
-        "result": "Зафиксированные требования и план работ.",
-        "duration": "2 дня"
+        "title": "Start",
+        "result": "Confirmed scope.",
+        "duration": "2 days",
+        "description": null
       }
     ],
-    "paymentTerms": "50% предоплата, 50% после сдачи работ.",
-    "assumptions": "Сроки зависят от доступности представителей заказчика.",
-    "nextStep": "Согласовать состав работ и дату старта."
+    "paymentTerms": "Payment terms.",
+    "assumptions": "Assumptions.",
+    "nextStep": "Next step."
   }
 }
 ```
 
-## Validation
+## Schema 2.0 Generation Validation
 
 Before writing `payloadSnapshot`:
 
+- `contentModelVersion = AGGREGATE_V2`.
+- status is `DRAFT` or `FAILED`.
 - `schemaVersion = 2.0`.
 - `templateCode = mikoton-commercial-proposal`.
 - `templateVersion = 2`.
-- At least one valid work item.
-- At least one valid stage.
-- `proposal.amount` equals the sum of item `lineAmount`.
-- All item currencies equal `proposal.currencyCode`.
-- `validityDays > 0`.
-- `number` is final, not `DRAFT-*`.
+- final number assigned, not `DRAFT-*`.
+- at least one valid item.
+- at least one complete stage if template v2 requires a plan.
+- stage `result` and `duration` filled.
+- `currencyCode` filled.
+- `proposal.amount > 0`.
+- `proposal.amount` equals sum of item `lineAmount`.
+- all item currencies equal `proposal.currencyCode`.
+- no invalid children.
+
+This is stricter than editor save validation.
 
 ## Compatibility With v1
 
-Schema `1.0` remains for historical records and the current template v1. It synthesizes content from Opportunity and supports a maximum of 5 work items.
+Schema `1.0` remains available for `LEGACY_V1`. Existing generated records remain historical artifacts.
 
-Schema `2.0` should use template version `2`. The generator should reject schema/template mismatches instead of silently downgrading.
+Schema `2.0` is only for `AGGREGATE_V2`. It must not read work composition from:
+
+- Opportunity name;
+- Opportunity amount;
+- UI transient state;
+- hardcoded placeholder work item;
+- spreadsheet formulas as the only source.
 
 ## Template Strategy
 
-The current template v1 has a fixed work-item area and is intentionally limited:
+Template v1 is limited to:
 
 ```text
 workItems: max 5
 plan: 1..3 stages
 ```
 
-Recommendation: create a template v2 designed for expandable or multi-page tables. This is safer than retrofitting dynamic row insertion into v1.
-
-Options:
-
-| Option | Recommendation |
-|---|---|
-| Dynamic row insertion into v1 | Not preferred; high risk around formulas, print area, and layout. |
-| Redesigned template v2 with expandable table | Preferred for Prompt 5.3. |
-| Multi-page template v2 | Use if real proposals regularly exceed one page. |
+Prompt 5.3 should introduce template v2 designed for expandable or multi-page tables. This is preferred over risky row insertion into v1.
 
 ## Output Formats
 
@@ -131,23 +178,24 @@ XLSX
 PDF
 ```
 
-Do not reintroduce DOCX. Source template format can remain an internal implementation detail, but generated Excel files should stay macro-free XLSX unless a future decision reverses that.
+Do not reintroduce DOCX. Generated Excel files should remain macro-free XLSX unless a future ADR changes that decision.
 
 ## Result Metadata
 
-`resultMetadata` should continue to store generated artifact metadata:
+Schema `2.0` should store:
 
 ```json
 {
   "generationId": "uuid",
   "generationIdempotencyKey": "uuid",
+  "schemaVersion": "2.0",
   "templateCode": "mikoton-commercial-proposal",
   "templateVersion": "2",
-  "schemaVersion": "2.0",
+  "snapshotHash": "sha256",
   "files": [
     {
       "format": "xlsx",
-      "fileName": "КП-012-Example.xlsx",
+      "fileName": "proposal.xlsx",
       "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "size": 123456,
       "sha256": "...",
@@ -161,10 +209,6 @@ Do not reintroduce DOCX. Source template format can remain an internal implement
 
 ## Idempotency
 
-Use the existing generation idempotency key for route retries. The snapshot hash should also be stored or derivable:
+Generation keeps a separate route idempotency key. Repeated generation with the same key and same canonical snapshot should return the same generation result and avoid duplicate files.
 
-```text
-snapshotHash = sha256(canonical JSON payload)
-```
-
-Repeated generation with the same idempotency key and same snapshot should return the same generation result and avoid duplicate files.
+If payload changes, the snapshot hash changes and should be treated as a different generation operation unless a future regeneration/versioning flow is introduced.

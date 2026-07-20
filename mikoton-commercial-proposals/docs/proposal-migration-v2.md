@@ -2,132 +2,181 @@
 
 ## Scope
 
-This plan describes a safe future migration from the current single-object proposal model to the v2 aggregate model. It is design-only and must not be treated as an executed migration.
+This is a design-only migration plan. It does not execute metadata changes, data migration, deployment, or code changes.
 
-## Current Records
+## Metadata Additions for Prompt 5.1
 
-Existing records can contain:
-
-- `DRAFT` or `FAILED` proposals with legacy `amount` copied from `Opportunity.amount`.
-- `GENERATED` proposals with schema `1.0` `payloadSnapshot`, generated XLSX/PDF files, `generatedAt`, and `resultMetadata`.
-- Future lifecycle statuses such as `SENT`, `ACCEPTED`, `REJECTED`, and `CANCELLED`.
-
-## Metadata Additions
-
-Future Prompt 5.1 should add only app-owned metadata:
+Prompt 5.1 should add only app-owned metadata:
 
 - `CommercialProposalItem`
 - `CommercialProposalStage`
-- New fields on `CommercialProposal`: `version`, `editorRevision`, `contactName`, `contextAndGoal`, `validityDays`, `paymentTerms`, `assumptions`, `nextStep`
+- `CommercialProposal.contentModelVersion`
+- `CommercialProposal.editorRevision`
+- `CommercialProposal.lastEditorOperationId`
+- `CommercialProposal.version`
+- business header fields: `contactName`, `contextAndGoal`, `validityDays`, `paymentTerms`, `assumptions`, `nextStep`
+- `CommercialProposalItem.clientKey`
+- `CommercialProposalStage.clientKey`
 
-No existing universal identifiers should be changed. New universal identifiers must follow the existing constant naming convention, for example:
+Do not add in Prompt 5.1:
+
+- `CatalogItem`
+- `CommercialProposalItem.catalogItem`
+- generation schema `2.0` document-service implementation
+- template v2
+
+No existing universal identifiers should be changed.
+
+## `contentModelVersion`
+
+Metadata contract:
 
 ```text
-COMMERCIAL_PROPOSAL_ITEM_OBJECT_UNIVERSAL_IDENTIFIER
-COMMERCIAL_PROPOSAL_STAGE_OBJECT_UNIVERSAL_IDENTIFIER
-COMMERCIAL_PROPOSAL_ITEM_FIELD_COMMERCIAL_PROPOSAL_UNIVERSAL_IDENTIFIER
-COMMERCIAL_PROPOSAL_STAGE_FIELD_COMMERCIAL_PROPOSAL_UNIVERSAL_IDENTIFIER
+name: contentModelVersion
+type: SELECT
+isNullable: false
+defaultValue: LEGACY_V1
+editable by user: false
+values: LEGACY_V1, AGGREGATE_V2
 ```
+
+Meaning:
+
+| Value | Migration meaning |
+|---|---|
+| `LEGACY_V1` | Existing or new proposal still compatible with current schema `1.0`; `amount` may be legacy snapshot. |
+| `AGGREGATE_V2` | Proposal has saved child items; items/stages are source of truth; schema `2.0` required for generation. |
 
 ## Status-by-Status Behavior
 
-| Existing status | Migration behavior | User experience |
-|---|---|---|
-| `DRAFT` | Do not create child rows automatically. Mark as editable legacy draft. | First editor open offers a starter item from current `title` and `amount`. |
-| `FAILED` | Same as `DRAFT`. | User may correct content and retry generation. |
-| `GENERATING` | Treat as transient read-only. | Let current generation finish/fail before v2 editing. |
-| `GENERATED` | Leave read-only legacy. | Existing files and snapshots remain unchanged. |
-| `SENT` | Leave read-only legacy. | No conversion. |
-| `ACCEPTED` | Leave read-only legacy. | No conversion; preserve commercial record. |
-| `REJECTED` | Leave read-only legacy. | No conversion. |
-| `CANCELLED` | Leave read-only legacy. | No conversion. |
+| Existing status | Migration behavior |
+|---|---|
+| `DRAFT` | Openable in editor. Starts as `LEGACY_V1`. Header-only save keeps legacy mode. Save with valid items converts to `AGGREGATE_V2`. |
+| `FAILED` | Same as `DRAFT`. |
+| `GENERATING` | Read-only. Do not convert; wait for current operation to finish/fail. |
+| `GENERATED` | Read-only `LEGACY_V1` historical record. Do not mutate files/snapshots/amount. |
+| `SENT` | Read-only historical record. |
+| `ACCEPTED` | Read-only historical record. |
+| `REJECTED` | Read-only historical record. |
+| `CANCELLED` | Read-only historical record. |
 
-## Legacy Draft Conversion
+## Conversion Rule
 
-The editor should detect an editable proposal with no child items.
+A proposal remains `LEGACY_V1` until the first successful aggregate save with at least one valid item.
 
-Recommended prompt:
+Header-only save on legacy DRAFT/FAILED:
 
-```text
-У этого КП ещё нет состава работ. Создать стартовую строку из текущей суммы?
-```
+- `contentModelVersion` remains `LEGACY_V1`;
+- legacy `amount` remains unchanged;
+- schema `1.0` generation remains available;
+- no conversion happens.
 
-If accepted:
+Save with one or more valid items:
 
-- Create one item:
-  - `position = 1`
-  - `block = Работы`
-  - `name = CommercialProposal.title`
-  - `description = null`
-  - `quantity = 1`
-  - `unit = проект`
-  - `unitPrice = legacy amount`
-  - `discountPercent = 0`
-  - `lineAmount = legacy amount`
-  - `currencyCode = proposal.currencyCode`
-- Create one starter stage only if the user accepts suggested plan defaults.
-- Set `amount` to the calculated aggregate.
-- Increment `editorRevision`.
+- `contentModelVersion = AGGREGATE_V2`;
+- `amount = SUM(server-calculated lineAmount)`;
+- `editorRevision` increments;
+- conversion is irreversible.
 
-If rejected:
+## Starter Item
 
-- Keep amount until the user saves real items.
-- Generation remains blocked because at least one valid item is required.
+For editable legacy proposals with no items, the editor may offer a starter item suggestion from current title/amount.
 
-## Existing Generated Records
+If accepted and saved:
 
-Existing generated records are historical artifacts. Do not:
+- create a real item with its own `clientKey`;
+- convert to `AGGREGATE_V2`;
+- recalculate `amount`;
+- legacy amount stops being source of truth.
 
-- Rewrite `payloadSnapshot`.
-- Regenerate files.
-- Change `resultMetadata`.
-- Recalculate `amount`.
-- Attach new item/stage rows silently.
+If ignored:
 
-If regeneration/versioning is needed later, create a new proposal version or explicit duplicate/regenerate flow.
+- record remains `LEGACY_V1`;
+- header-only changes are allowed;
+- schema `1.0` generation remains available.
 
-## Opportunity Amount Compatibility
+## New Records
 
-`Opportunity.amount` remains the forecast/expected deal value. `CommercialProposal.amount` becomes the precise proposal total.
+Before Prompt 5.3:
 
-During draft creation in v2:
+- new drafts are created as `LEGACY_V1`;
+- they convert to `AGGREGATE_V2` only after aggregate save with items;
+- `AGGREGATE_V2` generation is blocked until Prompt 5.3.
 
-- Set `CommercialProposal.amount = 0`.
-- Copy `currencyCode` from Opportunity when available.
-- Show `Opportunity.amount` as a suggestion in the editor.
-- Do not update `Opportunity.amount` automatically.
+After Prompt 5.3, a separate decision can decide whether new drafts start directly as `AGGREGATE_V2`. Do not make that automatic in Prompt 5.1.
 
-Future accepted-proposal flow may offer:
+## Legacy Amount
+
+For `LEGACY_V1`:
 
 ```text
-Обновить сумму сделки до суммы принятого КП?
+amount = legacy snapshot / historical value
 ```
 
-That action must be explicit and auditable.
+It may be copied from Opportunity and is not required to equal child rows.
+
+For `AGGREGATE_V2`:
+
+```text
+amount = SUM(CommercialProposalItem.lineAmount)
+```
+
+It is server-calculated.
+
+## Opportunity Amount
+
+`Opportunity.amount` remains forecast. Do not update it automatically during v2 conversion or generation.
+
+A future accepted-proposal flow may offer an explicit, auditable action to sync the Opportunity amount.
+
+## Generation During Migration
+
+Before Prompt 5.3:
+
+- `LEGACY_V1` generation continues through schema `1.0`;
+- `AGGREGATE_V2` generation returns `COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED`;
+- no downgrade or synthetic legacy fallback is allowed.
+
+After Prompt 5.3:
+
+- `LEGACY_V1` uses schema `1.0` / template v1;
+- `AGGREGATE_V2` uses schema `2.0` / template v2.
+
+## Replay Safety
+
+Migration to child objects must support retry:
+
+- items/stages have `clientKey`;
+- save request has `operationId`;
+- proposal has `lastEditorOperationId`;
+- repeated save with same `operationId` returns canonical aggregate if already completed;
+- partial-failure replay converges through parent+clientKey upsert.
+
+This is replay-safe convergent behavior, not exactly-once semantics.
 
 ## Metadata Plan Safety
 
 Before applying v2 metadata:
 
-1. Run metadata plan against a non-production or backup-protected workspace.
-2. Confirm changes are limited to app-owned object additions and field additions.
-3. Stop if the plan deletes business data, modifies Twenty standard objects unexpectedly, or changes unrelated layouts.
-4. Keep current `CommercialProposal` fields and universal identifiers stable.
+1. Run metadata plan.
+2. Confirm changes are app-owned additions.
+3. Confirm no existing field nullability is destructively tightened.
+4. Confirm `CatalogItem` and `catalogItem` relation are absent.
+5. Stop if the plan deletes data, changes unrelated objects, or mutates existing universal identifiers.
 
 ## Rollback
 
-Because metadata additions may not be trivially reversible in Twenty, rollback should be operational:
-
-- Keep database/object storage backup before metadata apply.
-- If app deployment fails before metadata apply, revert app version only.
-- If metadata apply succeeds but app fails, deploy previous app version that ignores child objects.
-- Do not destructive-uninstall the app from target as normal rollback.
+- Before metadata apply: revert app commit.
+- After metadata apply: deploy previous app version that ignores new objects.
+- Do not destructive-uninstall from target as normal rollback.
+- Keep operational backup before target metadata apply.
 
 ## Acceptance Criteria for Future Migration
 
 - Existing generated proposals remain readable.
 - Existing files stay attached.
 - Existing draft creation still works.
-- v2 editor can open legacy DRAFT/FAILED safely.
+- Header-only legacy save preserves amount/model version.
+- First save with items converts to `AGGREGATE_V2`.
+- `AGGREGATE_V2` generation is blocked until Prompt 5.3.
 - No hidden mass conversion occurs.
-- No existing proposal is deleted or renumbered.
