@@ -9,7 +9,7 @@ type GuardedOperation = 'uninstall' | 'sync';
 
 const APP_PATH = process.cwd();
 const CONFIG_DIR = path.join(os.homedir(), '.twenty');
-const REMOTE_NAME = 'integration';
+const REMOTE_NAME = 'local';
 let didConfigureRemote = false;
 let testInstanceMode: TestInstanceMode | null = null;
 
@@ -71,8 +71,9 @@ async function checkServer(apiUrl: string) {
 function writeConfig(apiUrl: string, apiKey: string) {
   const payload = JSON.stringify(
     {
+      version: 1,
       remotes: {
-        [REMOTE_NAME]: { apiUrl, apiKey, accessToken: apiKey },
+        [REMOTE_NAME]: { apiUrl, apiKey },
       },
       defaultRemote: REMOTE_NAME,
     },
