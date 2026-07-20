@@ -111,6 +111,33 @@ const callContextRoute = async (body: Record<string, unknown>) => {
   return { response, payload };
 };
 
+const callProposalRoute = async (
+  proposalId: string,
+  suffix: 'editor-context' | 'save-editor' | 'recalculate',
+  body: Record<string, unknown>,
+) => {
+  const response = await fetch(
+    `${apiUrl}/s/commercial-proposals/${encodeURIComponent(proposalId)}/${suffix}`,
+    {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+    },
+  );
+  const payload = (await response.json()) as Record<string, unknown>;
+  return { response, payload };
+};
+
+const callGenerateRoute = async (body: Record<string, unknown>) => {
+  const response = await fetch(`${apiUrl}/s/commercial-proposals/generate`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  const payload = (await response.json()) as Record<string, unknown>;
+  return { response, payload };
+};
+
 const createCompany = async () => {
   const response = await graphql<{ createCompany: CreatedRecord }>(
     `
@@ -341,6 +368,137 @@ describe('commercial proposal backend vertical slice', () => {
         currencyCode: 'USD',
       },
     });
+  });
+
+  it('saves and reloads the aggregate editor without identity duplicates', async () => {
+    const proposalId = createdIds.commercialProposal;
+    expect(proposalId).not.toBeNull();
+    if (proposalId === null) return;
+
+    const initial = await callProposalRoute(proposalId, 'editor-context', {});
+    expect(initial.response.status).toBe(200);
+    expect(initial.payload).toMatchObject({
+      status: 'success',
+      isEditable: true,
+      proposal: {
+        contentModelVersion: 'LEGACY_V1',
+        editorRevision: 1,
+        amount: 123.45,
+      },
+      opportunity: { name: smokeName, amount: 123.45, currencyCode: 'RUB' },
+      company: { name: smokeName },
+    });
+
+    const baseHeader = {
+      title: `${smokeName} proposal`,
+      companyId: createdIds.company,
+      contactName: 'Smoke Contact',
+      contextAndGoal: 'Smoke editor context',
+      currencyCode: 'RUB',
+      validityDays: 14,
+      paymentTerms: '50/50',
+      assumptions: 'Smoke only',
+      nextStep: 'Approve',
+    };
+    const headerOperation = globalThis.crypto.randomUUID();
+    const headerOnly = await callProposalRoute(proposalId, 'save-editor', {
+      operationId: headerOperation,
+      editorRevision: 1,
+      header: baseHeader,
+      items: [],
+      stages: [],
+    });
+    expect(headerOnly.response.status).toBe(200);
+    expect(headerOnly.payload).toMatchObject({
+      proposal: {
+        contentModelVersion: 'LEGACY_V1',
+        editorRevision: 2,
+        amount: 123.45,
+      },
+    });
+
+    const duplicateKey = globalThis.crypto.randomUUID();
+    const duplicate = await callProposalRoute(proposalId, 'save-editor', {
+      operationId: globalThis.crypto.randomUUID(),
+      editorRevision: 2,
+      header: baseHeader,
+      items: [
+        { clientKey: duplicateKey, block: 'A', name: 'One', quantity: '1', unit: 'hour', unitPrice: '1', discountPercent: '0' },
+        { clientKey: duplicateKey, block: 'B', name: 'Two', quantity: '1', unit: 'hour', unitPrice: '1', discountPercent: '0' },
+      ],
+      stages: [],
+    });
+    expect(duplicate.response.status).toBe(400);
+    expect(duplicate.payload).toMatchObject({ error: { code: 'COMMERCIAL_PROPOSAL_VALIDATION_FAILED' } });
+
+    const aggregateOperation = globalThis.crypto.randomUUID();
+    const itemKeys = [globalThis.crypto.randomUUID(), globalThis.crypto.randomUUID(), globalThis.crypto.randomUUID()];
+    const stageKeys = [globalThis.crypto.randomUUID(), globalThis.crypto.randomUUID()];
+    const saveBody = {
+      operationId: aggregateOperation,
+      editorRevision: 2,
+      header: baseHeader,
+      items: [
+        { clientKey: itemKeys[0], block: 'Анализ', name: 'Discovery', quantity: '1.5', unit: 'час', unitPrice: '100', discountPercent: '10' },
+        { clientKey: itemKeys[1], block: 'Разработка', name: 'Build', quantity: '2', unit: 'час', unitPrice: '50', discountPercent: '0' },
+        { clientKey: itemKeys[2], block: 'Запуск', name: 'Launch', quantity: '1', unit: 'проект', unitPrice: '25', discountPercent: '0' },
+      ],
+      stages: [
+        { clientKey: stageKeys[0], title: 'Старт', result: 'Требования', duration: '1 день' },
+        { clientKey: stageKeys[1], title: 'Запуск', result: 'Рабочее решение', duration: '2 дня' },
+      ],
+    };
+    const saved = await callProposalRoute(proposalId, 'save-editor', saveBody);
+    expect(saved.response.status).toBe(200);
+    expect(saved.payload).toMatchObject({
+      saved: true,
+      replayed: false,
+      proposal: { contentModelVersion: 'AGGREGATE_V2', editorRevision: 3, amount: 260 },
+    });
+    expect(saved.payload.items).toHaveLength(3);
+    expect(saved.payload.stages).toHaveLength(2);
+
+    const replay = await callProposalRoute(proposalId, 'save-editor', saveBody);
+    expect(replay.response.status).toBe(200);
+    expect(replay.payload).toMatchObject({ replayed: true, proposal: { editorRevision: 3 } });
+    expect(replay.payload.items).toHaveLength(3);
+
+    const reloaded = await callProposalRoute(proposalId, 'editor-context', {});
+    expect(reloaded.payload).toMatchObject({
+      isEditable: true,
+      proposal: { contentModelVersion: 'AGGREGATE_V2', editorRevision: 3, amount: 260 },
+      generationAvailability: { allowed: false, reason: 'AGGREGATE_V2_NOT_SUPPORTED_UNTIL_PROMPT_5_3' },
+    });
+    expect(reloaded.payload.items).toHaveLength(3);
+    expect(reloaded.payload.stages).toHaveLength(2);
+
+    const stale = await callProposalRoute(proposalId, 'save-editor', {
+      ...saveBody,
+      operationId: globalThis.crypto.randomUUID(),
+      editorRevision: 2,
+    });
+    expect(stale.response.status).toBe(409);
+    expect(stale.payload).toMatchObject({ error: { code: 'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT' } });
+
+    const fabricated = await callProposalRoute(proposalId, 'save-editor', {
+      ...saveBody,
+      operationId: globalThis.crypto.randomUUID(),
+      editorRevision: 3,
+      items: [{ ...saveBody.items[0], id: globalThis.crypto.randomUUID() }],
+    });
+    expect(fabricated.response.status).toBe(403);
+    expect(fabricated.payload).toMatchObject({ error: { code: 'COMMERCIAL_PROPOSAL_CHILD_FORBIDDEN' } });
+
+    const recalculated = await callProposalRoute(proposalId, 'recalculate', {
+      currencyCode: 'RUB',
+      items: saveBody.items.map(({ clientKey, quantity, unitPrice, discountPercent }) => ({ clientKey, quantity, unitPrice, discountPercent })),
+    });
+    expect(recalculated.response.status).toBe(200);
+    expect(recalculated.payload).toMatchObject({ amount: 260, currencyCode: 'RUB' });
+
+    const generation = await callGenerateRoute({ commercialProposalId: proposalId, idempotencyKey: globalThis.crypto.randomUUID() });
+    expect(generation.response.status).toBe(422);
+    expect(generation.payload).toMatchObject({ error: { code: 'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED' } });
   });
 
   it('returns structured INVALID_INPUT for missing context opportunityId', async () => {

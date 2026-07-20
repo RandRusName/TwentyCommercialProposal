@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { defineFrontComponent } from 'twenty-sdk/define';
 import {
   enqueueSnackbar,
@@ -55,7 +62,7 @@ const Field = ({ label, value, onChange, disabled, multiline = false, type = 'te
   error?: string;
 }) => {
   const styles = getEditorStyles(useColorScheme());
-  const id = `editor-${label.replace(/\W/g, '-').toLowerCase()}`;
+  const id = useId();
   return (
     <label style={styles.field} htmlFor={id}>
       <span style={styles.label}>{label}</span>
