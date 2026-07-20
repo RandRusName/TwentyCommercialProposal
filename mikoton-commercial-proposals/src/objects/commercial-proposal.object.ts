@@ -7,22 +7,38 @@ import {
 
 import {
   COMMERCIAL_PROPOSAL_FIELD_AMOUNT_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_ASSUMPTIONS_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_COMPANY_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_CONTACT_NAME_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_CONTENT_MODEL_VERSION_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_CONTEXT_AND_GOAL_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_CURRENCY_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_EDITOR_REVISION_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_FILES_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_GENERATED_AT_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_IDEMPOTENCY_KEY_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_ITEMS_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_LANGUAGE_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_LAST_EDITOR_OPERATION_ID_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_LAST_ERROR_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_NEXT_STEP_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_NUMBER_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_OPPORTUNITY_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_PAYLOAD_SNAPSHOT_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_PAYMENT_TERMS_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_RESULT_METADATA_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_SOURCE_TYPE_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_STAGES_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_STATUS_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_TEMPLATE_CODE_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_TEMPLATE_VERSION_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_TITLE_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_VALIDITY_DAYS_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_VERSION_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_ITEM_FIELD_COMMERCIAL_PROPOSAL_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_ITEM_OBJECT_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_STAGE_FIELD_COMMERCIAL_PROPOSAL_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_STAGE_OBJECT_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
   COMPANY_FIELD_COMMERCIAL_PROPOSALS_UNIVERSAL_IDENTIFIER,
   OPPORTUNITY_FIELD_COMMERCIAL_PROPOSALS_UNIVERSAL_IDENTIFIER,
@@ -89,6 +105,67 @@ export default defineObject({
     },
     {
       universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_VERSION_UNIVERSAL_IDENTIFIER,
+      type: FieldType.NUMBER,
+      name: 'version',
+      label: 'Version',
+      description: 'Business version of the commercial proposal',
+      defaultValue: 1,
+      isNullable: false,
+      universalSettings: {
+        decimals: 0,
+      },
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_CONTENT_MODEL_VERSION_UNIVERSAL_IDENTIFIER,
+      type: FieldType.SELECT,
+      name: 'contentModelVersion',
+      label: 'Content model version',
+      description:
+        'Stored content model: legacy synthetic model or aggregate item/stage model',
+      defaultValue: "'LEGACY_V1'",
+      isNullable: false,
+      options: [
+        {
+          position: 0,
+          label: 'Legacy v1',
+          value: 'LEGACY_V1',
+          color: 'gray',
+        },
+        {
+          position: 1,
+          label: 'Aggregate v2',
+          value: 'AGGREGATE_V2',
+          color: 'green',
+        },
+      ],
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_EDITOR_REVISION_UNIVERSAL_IDENTIFIER,
+      type: FieldType.NUMBER,
+      name: 'editorRevision',
+      label: 'Editor revision',
+      description: 'Best-effort optimistic concurrency revision for editor saves',
+      defaultValue: 1,
+      isNullable: false,
+      universalSettings: {
+        decimals: 0,
+      },
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_LAST_EDITOR_OPERATION_ID_UNIVERSAL_IDENTIFIER,
+      type: FieldType.TEXT,
+      name: 'lastEditorOperationId',
+      label: 'Last editor operation id',
+      description: 'Last completed aggregate editor save operation id',
+      isNullable: true,
+      defaultValue: null,
+    },
+    {
+      universalIdentifier:
         COMMERCIAL_PROPOSAL_FIELD_SOURCE_TYPE_UNIVERSAL_IDENTIFIER,
       type: FieldType.SELECT,
       name: 'sourceType',
@@ -129,6 +206,81 @@ export default defineObject({
       description: 'BCP-47 language tag requested for the commercial proposal',
       defaultValue: "'ru-RU'",
       isNullable: false,
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_CONTACT_NAME_UNIVERSAL_IDENTIFIER,
+      type: FieldType.TEXT,
+      name: 'contactName',
+      label: 'Contact name',
+      description: 'Customer contact name used in the proposal',
+      isNullable: true,
+      defaultValue: null,
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_CONTEXT_AND_GOAL_UNIVERSAL_IDENTIFIER,
+      type: FieldType.TEXT,
+      name: 'contextAndGoal',
+      label: 'Context and goal',
+      description: 'Business context and goal of the proposal',
+      isNullable: true,
+      defaultValue: null,
+      universalSettings: {
+        displayedMaxRows: 6,
+      },
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_VALIDITY_DAYS_UNIVERSAL_IDENTIFIER,
+      type: FieldType.NUMBER,
+      name: 'validityDays',
+      label: 'Validity days',
+      description: 'Commercial proposal validity period in calendar days',
+      defaultValue: 14,
+      isNullable: false,
+      universalSettings: {
+        decimals: 0,
+      },
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_PAYMENT_TERMS_UNIVERSAL_IDENTIFIER,
+      type: FieldType.TEXT,
+      name: 'paymentTerms',
+      label: 'Payment terms',
+      description: 'Payment terms included in the proposal',
+      isNullable: true,
+      defaultValue: null,
+      universalSettings: {
+        displayedMaxRows: 4,
+      },
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_ASSUMPTIONS_UNIVERSAL_IDENTIFIER,
+      type: FieldType.TEXT,
+      name: 'assumptions',
+      label: 'Assumptions',
+      description: 'Assumptions and exclusions included in the proposal',
+      isNullable: true,
+      defaultValue: null,
+      universalSettings: {
+        displayedMaxRows: 4,
+      },
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_NEXT_STEP_UNIVERSAL_IDENTIFIER,
+      type: FieldType.TEXT,
+      name: 'nextStep',
+      label: 'Next step',
+      description: 'Recommended next step for the customer',
+      isNullable: true,
+      defaultValue: null,
+      universalSettings: {
+        displayedMaxRows: 3,
+      },
     },
     {
       universalIdentifier:
@@ -205,6 +357,38 @@ export default defineObject({
       universalSettings: {
         relationType: RelationType.MANY_TO_ONE,
         joinColumnName: 'companyId',
+      },
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_ITEMS_UNIVERSAL_IDENTIFIER,
+      type: FieldType.RELATION,
+      name: 'items',
+      label: 'Items',
+      description: 'Commercial proposal work items',
+      isNullable: true,
+      relationTargetObjectMetadataUniversalIdentifier:
+        COMMERCIAL_PROPOSAL_ITEM_OBJECT_UNIVERSAL_IDENTIFIER,
+      relationTargetFieldMetadataUniversalIdentifier:
+        COMMERCIAL_PROPOSAL_ITEM_FIELD_COMMERCIAL_PROPOSAL_UNIVERSAL_IDENTIFIER,
+      universalSettings: {
+        relationType: RelationType.ONE_TO_MANY,
+      },
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_STAGES_UNIVERSAL_IDENTIFIER,
+      type: FieldType.RELATION,
+      name: 'stages',
+      label: 'Stages',
+      description: 'Commercial proposal delivery stages',
+      isNullable: true,
+      relationTargetObjectMetadataUniversalIdentifier:
+        COMMERCIAL_PROPOSAL_STAGE_OBJECT_UNIVERSAL_IDENTIFIER,
+      relationTargetFieldMetadataUniversalIdentifier:
+        COMMERCIAL_PROPOSAL_STAGE_FIELD_COMMERCIAL_PROPOSAL_UNIVERSAL_IDENTIFIER,
+      universalSettings: {
+        relationType: RelationType.ONE_TO_MANY,
       },
     },
     {

@@ -40,3 +40,12 @@
   executed.
 - No DOCX generation is implemented.
 - No email/send workflow is implemented.
+- Prompt 5.1 aggregate backend foundation is implemented, but no rich editor
+  front component is implemented yet. Editor UI belongs to Prompt 5.2.
+- `AGGREGATE_V2` document generation is intentionally blocked until Prompt 5.3
+  implements schema `2.0` and template v2. `LEGACY_V1` schema `1.0`
+  generation remains available.
+- Optimistic concurrency is best-effort unless a future target/platform spike
+  proves an official CAS/conditional update primitive is available.
+- Child `clientKey` replay safety is application-level parent+clientKey lookup;
+  no database-level compound uniqueness guarantee is claimed in Prompt 5.1.

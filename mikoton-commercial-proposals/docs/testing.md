@@ -112,3 +112,26 @@ CI uses:
 
 CI could not be observed as green from this local session because no commit was
 pushed and no GitHub workflow run URL was produced.
+
+## Prompt 5.1 Aggregate Backend Tests
+
+Added unit coverage:
+
+- deterministic fixed-scale money calculation and half-up rounding;
+- pure recalculation of unsaved item lines;
+- legacy editor context starter suggestion;
+- header-only save preserving `LEGACY_V1` and legacy `amount`;
+- first valid item save converting to `AGGREGATE_V2`;
+- completed save replay returning canonical aggregate without duplicate children
+  or second revision increment;
+- stale `editorRevision` conflict;
+- foreign child id ownership rejection;
+- `AGGREGATE_V2` generation guard before schema `2.0`.
+
+Local Prompt 5.1 evidence on 2026-07-20:
+
+- `yarn.cmd install --immutable`: passed with existing peer warning for `twenty-ui`.
+- `yarn.cmd typecheck`: passed.
+- `yarn.cmd test:unit`: passed, 2 files / 58 tests.
+
+Target metadata plan, deploy, and smoke are not yet executed for Prompt 5.1.

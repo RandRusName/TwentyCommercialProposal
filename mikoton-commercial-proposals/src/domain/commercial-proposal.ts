@@ -12,6 +12,9 @@ export type CommercialProposalStatus =
   | 'CANCELLED';
 
 export type CommercialProposalSourceType = 'OPPORTUNITY';
+export type CommercialProposalContentModelVersion =
+  | 'LEGACY_V1'
+  | 'AGGREGATE_V2';
 
 export type ApplicationErrorCode =
   | 'INVALID_INPUT'
@@ -24,6 +27,12 @@ export type ApplicationErrorCode =
   | 'COMMERCIAL_PROPOSAL_FORBIDDEN'
   | 'COMMERCIAL_PROPOSAL_INVALID_STATUS'
   | 'COMMERCIAL_PROPOSAL_NUMBER_LIMIT_REACHED'
+  | 'COMMERCIAL_PROPOSAL_CHILD_FORBIDDEN'
+  | 'COMMERCIAL_PROPOSAL_CHILD_NOT_FOUND'
+  | 'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT'
+  | 'COMMERCIAL_PROPOSAL_VALIDATION_FAILED'
+  | 'COMMERCIAL_PROPOSAL_SAVE_FAILED'
+  | 'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED'
   | 'DOCUMENT_SERVICE_UNAVAILABLE'
   | 'DOCUMENT_SERVICE_TIMEOUT'
   | 'DOCUMENT_SERVICE_FORBIDDEN'
@@ -92,6 +101,10 @@ export type CommercialProposalDraft = {
   title: string;
   number: string;
   status: CommercialProposalStatus;
+  version: number;
+  contentModelVersion: CommercialProposalContentModelVersion;
+  editorRevision: number;
+  lastEditorOperationId: string | null;
   sourceType: CommercialProposalSourceType;
   templateCode: string;
   templateVersion: string | null;
@@ -100,6 +113,12 @@ export type CommercialProposalDraft = {
   resultMetadata: CommercialProposalResultMetadata | Record<string, unknown> | null;
   opportunityId: string;
   companyId: string | null;
+  contactName: string | null;
+  contextAndGoal: string | null;
+  validityDays: number;
+  paymentTerms: string | null;
+  assumptions: string | null;
+  nextStep: string | null;
   amount: number | null;
   currencyCode: string | null;
   generatedAt: string | null;
@@ -466,6 +485,10 @@ export const createCommercialProposalDraft = async ({
         title,
         number,
         status: 'DRAFT',
+        version: 1,
+        contentModelVersion: 'LEGACY_V1',
+        editorRevision: 1,
+        lastEditorOperationId: null,
         sourceType: 'OPPORTUNITY',
         templateCode: input.templateCode,
         templateVersion: null,
@@ -474,6 +497,12 @@ export const createCommercialProposalDraft = async ({
         resultMetadata: null,
         opportunityId: opportunity.id,
         companyId: opportunity.company?.id ?? null,
+        contactName: null,
+        contextAndGoal: null,
+        validityDays: 14,
+        paymentTerms: null,
+        assumptions: null,
+        nextStep: null,
         amount: opportunity.amount,
         currencyCode: opportunity.currencyCode,
         generatedAt: null,
@@ -618,6 +647,13 @@ export const generateCommercialProposalDocuments = async ({
   now?: Date;
 }) => {
   const draft = await repository.getCommercialProposal(input.commercialProposalId);
+
+  if (draft.contentModelVersion === 'AGGREGATE_V2') {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED',
+      'Генерация документов для новой модели КП пока недоступна. Сохранённые данные не потеряны.',
+    );
+  }
 
   if (
     draft.status === 'GENERATED' &&

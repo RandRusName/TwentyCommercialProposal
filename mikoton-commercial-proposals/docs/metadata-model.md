@@ -69,3 +69,65 @@ Generated XLSX/PDF files are uploaded to Twenty and attached to the CommercialPr
 - Command menu item: `Generate commercial proposal`, available in CommercialProposal context for `DRAFT` and `FAILED` records.
 
 The default app view exposes business fields only. JSON/debug fields remain stored for audit but are not part of the default list view. Twenty `v2.20.0` may still show stored fields in the record field settings picker.
+
+## Prompt 5.1 Aggregate Backend Additions
+
+Prompt 5.1 adds additive metadata only. Existing field universal identifiers,
+`amount` FieldType/nullability, current Files/result fields, and current
+Opportunity/Company relations are not changed.
+
+### CommercialProposal fields
+
+- `version` (`NUMBER`, required, decimals 0, default `1`): business proposal version.
+- `contentModelVersion` (`SELECT`, required, default `LEGACY_V1`): `LEGACY_V1` or `AGGREGATE_V2`.
+- `editorRevision` (`NUMBER`, required, decimals 0, default `1`): best-effort optimistic concurrency marker.
+- `lastEditorOperationId` (`TEXT`, nullable): last completed aggregate editor save operation id.
+- `contactName` (`TEXT`, nullable).
+- `contextAndGoal` (`TEXT`, nullable, multiline).
+- `validityDays` (`NUMBER`, required, decimals 0, default `14`).
+- `paymentTerms` (`TEXT`, nullable, multiline).
+- `assumptions` (`TEXT`, nullable, multiline).
+- `nextStep` (`TEXT`, nullable, multiline).
+- `items` (`RELATION`, one-to-many to `commercialProposalItem`).
+- `stages` (`RELATION`, one-to-many to `commercialProposalStage`).
+
+`amount` is model-version dependent:
+
+- `LEGACY_V1`: legacy snapshot / historical value, often copied from Opportunity amount.
+- `AGGREGATE_V2`: server-calculated `SUM(CommercialProposalItem.lineAmount)`.
+
+### CommercialProposalItem
+
+- `commercialProposal` (`RELATION`, required, many-to-one).
+- `clientKey` (`TEXT`, required): UUID from the editor client for replay-safe upsert.
+- `sortOrder` (`NUMBER`, required, decimals 0): server-normalized order. The editor API exposes this value as `position`.
+- `block` (`TEXT`, required).
+- `name` (`TEXT`, required).
+- `description` (`TEXT`, nullable).
+- `quantity` (`NUMBER`, required, decimals 4).
+- `unit` (`TEXT`, required).
+- `unitPrice` (`NUMBER`, required, decimals 2).
+- `discountPercent` (`NUMBER`, required, decimals 2).
+- `lineAmount` (`NUMBER`, required, decimals 2): server-calculated.
+- `currencyCode` (`TEXT`, required).
+
+No `catalogItem` relation is added in Prompt 5.1.
+
+### CommercialProposalStage
+
+- `commercialProposal` (`RELATION`, required, many-to-one).
+- `clientKey` (`TEXT`, required): UUID from the editor client for replay-safe upsert.
+- `sortOrder` (`NUMBER`, required, decimals 0): server-normalized order. The editor API exposes this value as `position`.
+- `title` (`TEXT`, required).
+- `result` (`TEXT`, nullable): required later by schema `2.0` generation.
+- `duration` (`TEXT`, nullable): required later by schema `2.0` generation.
+- `description` (`TEXT`, nullable).
+
+### Aggregate routes
+
+- `POST /s/commercial-proposals/:id/editor-context`
+- `POST /s/commercial-proposals/:id/save-editor`
+- `POST /s/commercial-proposals/:id/recalculate`
+
+Prompt 5.1 uses application-level parent + `clientKey` lookup/upsert for
+replay safety. It does not claim database-level compound uniqueness.

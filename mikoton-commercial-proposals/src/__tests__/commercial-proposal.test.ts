@@ -37,6 +37,16 @@ import {
   TwentyRecordRepository,
 } from 'src/services/twenty-record-repository';
 import { HttpDocumentServiceClient } from 'src/services/document-service-client';
+import {
+  buildEditorContext,
+  recalculateCommercialProposal,
+  saveCommercialProposalEditor,
+  type CommercialProposalAggregate,
+  type CommercialProposalAggregateRepository,
+  type CommercialProposalItem,
+  type CommercialProposalStage,
+} from 'src/domain/commercial-proposal-aggregate';
+import { calculateProposalLineAmount } from 'src/domain/commercial-proposal-money';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -87,6 +97,10 @@ const makeDraft = (
   title: 'Черновик КП - Test opportunity',
   number: buildDraftTechnicalNumber(idempotencyKey),
   status: 'DRAFT',
+  version: 1,
+  contentModelVersion: 'LEGACY_V1',
+  editorRevision: 1,
+  lastEditorOperationId: null,
   sourceType: 'OPPORTUNITY',
   templateCode: SUPPORTED_TEMPLATE_CODE,
   templateVersion: null,
@@ -95,6 +109,12 @@ const makeDraft = (
   resultMetadata: null,
   opportunityId: 'opportunity-id',
   companyId: 'company-id',
+  contactName: null,
+  contextAndGoal: null,
+  validityDays: 14,
+  paymentTerms: null,
+  assumptions: null,
+  nextStep: null,
   amount: 123.45,
   currencyCode: 'RUB',
   generatedAt: null,
@@ -394,12 +414,17 @@ describe('commercial proposal domain', () => {
     expect(result.draft).toMatchObject({
       id: 'draft-id',
       status: 'DRAFT',
+      version: 1,
+      contentModelVersion: 'LEGACY_V1',
+      editorRevision: 1,
+      lastEditorOperationId: null,
       sourceType: 'OPPORTUNITY',
       templateCode: SUPPORTED_TEMPLATE_CODE,
       templateVersion: null,
       language: SUPPORTED_LANGUAGE,
       opportunityId: 'opportunity-id',
       companyId: 'company-id',
+      validityDays: 14,
       amount: 123.45,
       currencyCode: 'RUB',
       generatedAt: null,
@@ -409,6 +434,30 @@ describe('commercial proposal domain', () => {
     expect(result.draft.number).toBe(buildDraftTechnicalNumber(idempotencyKey));
     expect(result.draft.title).toBe('Черновик КП - Test opportunity');
     expect(result.draft.payloadSnapshot).toEqual(makeInput());
+  });
+
+  it('blocks aggregate v2 generation before schema 2.0 exists', async () => {
+    const repository = makeRepository();
+    vi.mocked(repository.getCommercialProposal).mockResolvedValue(
+      makeDraft({ contentModelVersion: 'AGGREGATE_V2' }),
+    );
+    const documentClient = { generate: vi.fn() };
+
+    await expect(
+      generateCommercialProposalDocuments({
+        input: {
+          commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+          idempotencyKey: generationIdempotencyKey,
+        },
+        repository,
+        documentClient,
+      }),
+    ).rejects.toMatchObject({
+      code: 'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED',
+    });
+
+    expect(documentClient.generate).not.toHaveBeenCalled();
+    expect(repository.updateCommercialProposal).not.toHaveBeenCalled();
   });
 
   it('does not invent a currency when the opportunity has none', async () => {
@@ -558,6 +607,321 @@ describe('commercial proposal domain', () => {
       code: 'COMMERCIAL_PROPOSAL_CREATE_FAILED',
     });
     expect(repository.createDraft).toHaveBeenCalledTimes(3);
+  });
+});
+
+const itemClientKey = '123e4567-e89b-42d3-a456-426614174010';
+const stageClientKey = '123e4567-e89b-42d3-a456-426614174011';
+const operationId = '123e4567-e89b-42d3-a456-426614174012';
+const aggregateProposalId = '123e4567-e89b-42d3-a456-426614174013';
+
+const makeAggregateItem = (
+  overrides: Partial<CommercialProposalItem> = {},
+): CommercialProposalItem => ({
+  id: 'item-id',
+  commercialProposalId: aggregateProposalId,
+  clientKey: itemClientKey,
+  position: 1,
+  block: 'Работы',
+  name: 'Discovery',
+  description: null,
+  quantity: 1,
+  unit: 'час',
+  unitPrice: 100,
+  discountPercent: 0,
+  lineAmount: 100,
+  currencyCode: 'RUB',
+  ...overrides,
+});
+
+const makeAggregateStage = (
+  overrides: Partial<CommercialProposalStage> = {},
+): CommercialProposalStage => ({
+  id: 'stage-id',
+  commercialProposalId: aggregateProposalId,
+  clientKey: stageClientKey,
+  position: 1,
+  title: 'Start',
+  result: null,
+  duration: null,
+  description: null,
+  ...overrides,
+});
+
+const makeAggregate = (
+  overrides: Partial<CommercialProposalAggregate> = {},
+): CommercialProposalAggregate => ({
+  proposal: makeDraft({
+    id: aggregateProposalId,
+    editorRevision: 1,
+    contentModelVersion: 'LEGACY_V1',
+    amount: 123.45,
+  }),
+  items: [],
+  stages: [],
+  ...overrides,
+});
+
+const makeAggregateRepository = (
+  initialAggregate = makeAggregate(),
+): CommercialProposalAggregateRepository => {
+  let aggregate = structuredClone(initialAggregate) as CommercialProposalAggregate;
+  const repository: CommercialProposalAggregateRepository = {
+    getCommercialProposalAggregate: vi.fn(async () => aggregate),
+    findItemByParentAndClientKey: vi.fn(async (_proposalId, clientKey) =>
+      aggregate.items.find((item) => item.clientKey === clientKey) ?? null,
+    ),
+    findStageByParentAndClientKey: vi.fn(async (_proposalId, clientKey) =>
+      aggregate.stages.find((stage) => stage.clientKey === clientKey) ?? null,
+    ),
+    upsertItem: vi.fn(async (proposalId, item) => {
+      const persisted = makeAggregateItem({
+        ...item,
+        id: item.id ?? `item-${aggregate.items.length + 1}`,
+        commercialProposalId: proposalId,
+      });
+      aggregate = {
+        ...aggregate,
+        items: [
+          ...aggregate.items.filter((existing) => existing.id !== persisted.id),
+          persisted,
+        ],
+      };
+      return persisted;
+    }),
+    upsertStage: vi.fn(async (proposalId, stage) => {
+      const persisted = makeAggregateStage({
+        ...stage,
+        id: stage.id ?? `stage-${aggregate.stages.length + 1}`,
+        commercialProposalId: proposalId,
+      });
+      aggregate = {
+        ...aggregate,
+        stages: [
+          ...aggregate.stages.filter((existing) => existing.id !== persisted.id),
+          persisted,
+        ],
+      };
+      return persisted;
+    }),
+    deleteItem: vi.fn(async (id) => {
+      aggregate = {
+        ...aggregate,
+        items: aggregate.items.filter((item) => item.id !== id),
+      };
+    }),
+    deleteStage: vi.fn(async (id) => {
+      aggregate = {
+        ...aggregate,
+        stages: aggregate.stages.filter((stage) => stage.id !== id),
+      };
+    }),
+    updateCommercialProposalForEditor: vi.fn(async (_id, patch) => {
+      aggregate = {
+        ...aggregate,
+        proposal: {
+          ...aggregate.proposal,
+          ...patch.header,
+          amount: patch.amount,
+          contentModelVersion: patch.contentModelVersion,
+          editorRevision: patch.editorRevision,
+          lastEditorOperationId: patch.lastEditorOperationId,
+        },
+      };
+    }),
+  };
+
+  return repository;
+};
+
+const saveRequest = {
+  operationId,
+  editorRevision: 1,
+  header: {
+    title: 'Proposal',
+    companyId: null,
+    contactName: null,
+    contextAndGoal: null,
+    currencyCode: 'RUB',
+    validityDays: 14,
+    paymentTerms: null,
+    assumptions: null,
+    nextStep: null,
+  },
+  items: [
+    {
+      clientKey: itemClientKey,
+      block: 'Analysis',
+      name: 'Discovery',
+      description: null,
+      quantity: '2.5',
+      unit: 'hour',
+      unitPrice: '100.00',
+      discountPercent: '10.00',
+    },
+  ],
+  stages: [
+    {
+      clientKey: stageClientKey,
+      title: 'Start',
+      result: '',
+      duration: '',
+      description: null,
+    },
+  ],
+};
+
+describe('commercial proposal aggregate domain', () => {
+  it('calculates money without float drift and rounds half-up', () => {
+    expect(
+      calculateProposalLineAmount({
+        quantity: '1.005',
+        unitPrice: '100.00',
+        discountPercent: '0',
+      }).lineAmount,
+    ).toBe(100.5);
+    expect(
+      calculateProposalLineAmount({
+        quantity: '1',
+        unitPrice: '0.05',
+        discountPercent: '50',
+      }).lineAmount,
+    ).toBe(0.03);
+    expect(() =>
+      calculateProposalLineAmount({
+        quantity: '1.00001',
+        unitPrice: '100.00',
+        discountPercent: '0',
+      }),
+    ).toThrow(ApplicationError);
+  });
+
+  it('recalculates unsaved editor lines without mutations', () => {
+    expect(
+      recalculateCommercialProposal({
+        currencyCode: 'RUB',
+        items: saveRequest.items,
+      }),
+    ).toMatchObject({
+      amount: 225,
+      items: [
+        {
+          clientKey: itemClientKey,
+          position: 1,
+          lineAmount: 225,
+          currencyCode: 'RUB',
+        },
+      ],
+    });
+  });
+
+  it('returns legacy starter suggestion without creating children', () => {
+    const context = buildEditorContext(makeAggregate());
+
+    expect(context.legacySuggestion).toMatchObject({
+      canCreateStarterItem: true,
+      amount: 123.45,
+      currencyCode: 'RUB',
+    });
+    expect(context.items).toHaveLength(0);
+  });
+
+  it('keeps legacy model and amount on header-only save', async () => {
+    const repository = makeAggregateRepository();
+
+    const result = await saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: {
+        ...saveRequest,
+        items: [],
+        stages: [],
+      },
+      repository,
+    });
+
+    expect(result.proposal.contentModelVersion).toBe('LEGACY_V1');
+    expect(result.proposal.amount).toBe(123.45);
+    expect(result.proposal.editorRevision).toBe(2);
+    expect(result.proposal.lastEditorOperationId).toBe(operationId);
+  });
+
+  it('converts to aggregate v2 on first valid item save', async () => {
+    const repository = makeAggregateRepository();
+
+    const result = await saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: saveRequest,
+      repository,
+    });
+
+    expect(result.saved).toBe(true);
+    expect(result.replayed).toBe(false);
+    expect(result.proposal.contentModelVersion).toBe('AGGREGATE_V2');
+    expect(result.proposal.amount).toBe(225);
+    expect(result.items).toHaveLength(1);
+    expect(result.stages).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      clientKey: itemClientKey,
+      position: 1,
+      lineAmount: 225,
+    });
+  });
+
+  it('replays a completed operation without duplicate children or revision increment', async () => {
+    const repository = makeAggregateRepository();
+
+    await saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: saveRequest,
+      repository,
+    });
+    const replay = await saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: { ...saveRequest, editorRevision: 2 },
+      repository,
+    });
+
+    expect(replay.saved).toBe(false);
+    expect(replay.replayed).toBe(true);
+    expect(replay.proposal.editorRevision).toBe(2);
+    expect(replay.items).toHaveLength(1);
+    expect(repository.upsertItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects stale editor revisions', async () => {
+    const repository = makeAggregateRepository();
+
+    await expect(
+      saveCommercialProposalEditor({
+        proposalId: aggregateProposalId,
+        request: { ...saveRequest, editorRevision: 99 },
+        repository,
+      }),
+    ).rejects.toMatchObject({ code: 'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT' });
+  });
+
+  it('rejects foreign child ids', async () => {
+    const repository = makeAggregateRepository(
+      makeAggregate({
+        items: [makeAggregateItem({ id: 'owned-item' })],
+      }),
+    );
+
+    await expect(
+      saveCommercialProposalEditor({
+        proposalId: aggregateProposalId,
+        request: {
+          ...saveRequest,
+          items: [
+            {
+              ...saveRequest.items[0],
+              id: '123e4567-e89b-42d3-a456-426614174014',
+            },
+          ],
+        },
+        repository,
+      }),
+    ).rejects.toMatchObject({ code: 'COMMERCIAL_PROPOSAL_CHILD_FORBIDDEN' });
   });
 });
 

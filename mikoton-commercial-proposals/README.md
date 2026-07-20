@@ -152,6 +152,24 @@ Then run `deploy.bat` again.
 
 See `docs/private-deployment.md` for tarball validation details and output location.
 
+## Prompt 5.1 Aggregate Backend
+
+The backend aggregate foundation adds:
+
+- `CommercialProposalItem` and `CommercialProposalStage` app-owned metadata;
+- model-versioned `CommercialProposal` fields, including `contentModelVersion`;
+- authenticated aggregate routes:
+  - `POST /s/commercial-proposals/:id/editor-context`;
+  - `POST /s/commercial-proposals/:id/save-editor`;
+  - `POST /s/commercial-proposals/:id/recalculate`;
+- deterministic fixed-scale money calculation;
+- replay-safe save with `operationId` and child `clientKey`;
+- ownership validation for child ids;
+- generation guard: `AGGREGATE_V2` cannot use legacy schema `1.0` generation.
+
+Rich editor UI, schema `2.0` generation, template v2, dynamic XLSX rows, and
+CatalogItem remain out of scope for Prompt 5.1.
+
 `test:integration` requires an ephemeral Twenty instance:
 
 ```powershell
