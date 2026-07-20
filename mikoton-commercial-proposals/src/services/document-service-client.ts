@@ -64,7 +64,11 @@ const isSuccessResponse = (
   value.status === 'success' &&
   typeof value.generationId === 'string' &&
   value.templateCode === 'mikoton-commercial-proposal' &&
-  value.templateVersion === '1' &&
+  (value.templateVersion === '1' || value.templateVersion === '2') &&
+  (value.schemaVersion === undefined ||
+    value.schemaVersion === '1.0' ||
+    value.schemaVersion === '2.0') &&
+  (value.snapshotHash === undefined || typeof value.snapshotHash === 'string') &&
   typeof value.generatedAt === 'string' &&
   Array.isArray(value.files) &&
   value.files.every(isGenerationFile);
@@ -83,6 +87,18 @@ const mapServiceErrorCode = (
 
   if (serviceCode === 'PDF_EXPORT_FAILED') {
     return 'PDF_EXPORT_FAILED' as const;
+  }
+
+  if (serviceCode === 'DOCUMENT_SCHEMA_TEMPLATE_MISMATCH') {
+    return 'DOCUMENT_SCHEMA_TEMPLATE_MISMATCH' as const;
+  }
+
+  if (serviceCode === 'SNAPSHOT_HASH_MISMATCH') {
+    return 'SNAPSHOT_HASH_MISMATCH' as const;
+  }
+
+  if (serviceCode === 'GENERATION_IDEMPOTENCY_CONFLICT') {
+    return 'GENERATION_IDEMPOTENCY_CONFLICT' as const;
   }
 
   if (serviceCode === 'PAYLOAD_INVALID' || serviceCode === 'TEMPLATE_INVALID') {
@@ -122,6 +138,7 @@ export class HttpDocumentServiceClient implements DocumentGenerationClient {
   async generate(request: {
     requestId: string;
     idempotencyKey: string;
+    snapshotHash?: string;
     payload: DocumentGenerationPayload;
     requestedFormats: Array<'xlsx' | 'pdf'>;
   }) {
@@ -151,6 +168,7 @@ export class HttpDocumentServiceClient implements DocumentGenerationClient {
   private async tryGenerate(request: {
     requestId: string;
     idempotencyKey: string;
+    snapshotHash?: string;
     payload: DocumentGenerationPayload;
     requestedFormats: Array<'xlsx' | 'pdf'>;
   }) {

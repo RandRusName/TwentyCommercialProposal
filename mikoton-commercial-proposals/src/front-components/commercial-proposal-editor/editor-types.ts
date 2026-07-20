@@ -57,6 +57,9 @@ export type EditorContextResponse = CommercialProposalAggregate & {
     allowed: boolean;
     reason: string | null;
   };
+  warnings?: Array<
+    'OPPORTUNITY_CONTEXT_UNAVAILABLE' | 'COMPANY_CONTEXT_UNAVAILABLE'
+  >;
 };
 
 export type EditorValidation = {

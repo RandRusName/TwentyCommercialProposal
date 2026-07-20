@@ -1,4 +1,7 @@
-import { calculateProposalLineAmount } from 'src/domain/commercial-proposal-money';
+import {
+  calculateProposalLineAmount,
+  sumLineAmounts,
+} from 'src/domain/commercial-proposal-money';
 import type { SaveEditorRequest } from 'src/domain/commercial-proposal-aggregate';
 import { createIdempotencyKey } from 'src/front-components/create-commercial-proposal.helpers';
 import type {
@@ -100,14 +103,23 @@ export const applyCanonicalResponse = (
 });
 
 const validateMoney = (item: EditorItem, index: number, errors: Record<string, string>) => {
-  try {
-    calculateProposalLineAmount({
-      quantity: normalizeDecimalInput(item.quantity),
-      unitPrice: normalizeDecimalInput(item.unitPrice),
-      discountPercent: normalizeDecimalInput(item.discountPercent),
-    });
-  } catch {
-    errors[`items.${index}.money`] = 'Проверьте количество, ставку и скидку';
+  const checks = [
+    ['quantity', item.quantity, 'Количество должно быть больше 0 и содержать не более 4 знаков после запятой'],
+    ['unitPrice', item.unitPrice, 'Ставка должна быть неотрицательной и содержать не более 2 знаков после запятой'],
+    ['discountPercent', item.discountPercent, 'Скидка должна быть от 0 до 100 и содержать не более 2 знаков после запятой'],
+  ] as const;
+
+  for (const [field, value, message] of checks) {
+    try {
+      calculateProposalLineAmount({
+        quantity: field === 'quantity' ? normalizeDecimalInput(value) : '1',
+        unitPrice: field === 'unitPrice' ? normalizeDecimalInput(value) : '0',
+        discountPercent:
+          field === 'discountPercent' ? normalizeDecimalInput(value) : '0',
+      });
+    } catch {
+      errors[`items.${index}.${field}`] = message;
+    }
   }
 };
 
@@ -171,15 +183,15 @@ export const isEditorDirty = (current: EditorState, canonical: EditorState) =>
 
 export const calculatePreview = (state: EditorState) => {
   try {
-    return state.items.reduce(
-      (total, item) =>
-        total +
-        calculateProposalLineAmount({
+    return sumLineAmounts(
+      state.items.map(
+        (item) =>
+          calculateProposalLineAmount({
           quantity: normalizeDecimalInput(item.quantity),
           unitPrice: normalizeDecimalInput(item.unitPrice),
           discountPercent: normalizeDecimalInput(item.discountPercent),
-        }).lineAmount,
-      0,
+          }).lineAmount,
+      ),
     );
   } catch {
     return null;

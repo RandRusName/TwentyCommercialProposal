@@ -1,0 +1,82 @@
+{
+  "templateCode": "mikoton-commercial-proposal",
+  "templateVersion": "2",
+  "workbook": {
+    "fileName": "mikoton-commercial-proposal-v2.xlsx",
+    "sheetName": "КП",
+    "sheetXmlPath": "xl/worksheets/sheet1.xml",
+    "printArea": "КП!$A$1:$I$87",
+    "pageSetup": {
+      "orientation": "landscape",
+      "paperSize": 9,
+      "fitToWidth": 1,
+      "fitToHeight": 1,
+      "repeatRows": "$15:$15"
+    },
+    "requiredParts": [
+      "[Content_Types].xml",
+      "xl/workbook.xml",
+      "xl/_rels/workbook.xml.rels",
+      "xl/worksheets/sheet1.xml"
+    ]
+  },
+  "limits": {
+    "maxWorkItems": 50,
+    "minPlanStages": 1,
+    "maxPlanStages": 10
+  },
+  "contractor": {
+    "name": "Шибеев Роман",
+    "email": "consulting@mikoton.ru"
+  },
+  "defaults": {
+    "validityDays": 14,
+    "customerContactName": "Не указан"
+  },
+  "cells": {
+    "proposalNumberPrefix": "G3",
+    "proposalDate": "I3",
+    "proposalTitle": "A5",
+    "customerCompanyName": "A8",
+    "customerContactName": "A9",
+    "contractorName": "E8",
+    "contractorEmail": "E9",
+    "validityPeriod": "H8",
+    "currencyCode": "H9",
+    "contextAndGoal": "A12",
+    "paymentTerms": "A81",
+    "assumptions": "D81",
+    "nextStep": "A86",
+    "footer": "A87"
+  },
+  "workItems": {
+    "firstRow": 16,
+    "lastTemplateRow": 65,
+    "totalRow": 66,
+    "columns": {
+      "position": "A",
+      "block": "B",
+      "name": "C",
+      "description": "D",
+      "quantity": "E",
+      "unit": "F",
+      "unitPrice": "G",
+      "discountPercent": "H",
+      "lineTotal": "I"
+    },
+    "lineTotalFormula": "E{row}*G{row}*(1-H{row}/100)",
+    "grandTotalCell": "I66",
+    "grandTotalFormula": "SUM(I16:I65)"
+  },
+  "plan": {
+    "firstRow": 69,
+    "lastTemplateRow": 78,
+    "columns": {
+      "position": "A",
+      "title": "B",
+      "result": "D",
+      "duration": "G",
+      "description": "H"
+    }
+  }
+}

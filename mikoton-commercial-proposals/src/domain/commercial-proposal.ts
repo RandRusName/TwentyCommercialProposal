@@ -1,3 +1,9 @@
+import type { CommercialProposalAggregate } from 'src/domain/commercial-proposal-aggregate';
+import {
+  calculateProposalLineAmount,
+  sumLineAmounts,
+} from 'src/domain/commercial-proposal-money';
+
 export const SUPPORTED_TEMPLATE_CODE = 'standard-commercial-proposal';
 export const SUPPORTED_LANGUAGE = 'ru-RU';
 
@@ -35,6 +41,10 @@ export type ApplicationErrorCode =
   | 'COMMERCIAL_PROPOSAL_VALIDATION_FAILED'
   | 'COMMERCIAL_PROPOSAL_SAVE_FAILED'
   | 'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED'
+  | 'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED'
+  | 'DOCUMENT_SCHEMA_TEMPLATE_MISMATCH'
+  | 'SNAPSHOT_HASH_MISMATCH'
+  | 'GENERATION_IDEMPOTENCY_CONFLICT'
   | 'DOCUMENT_SERVICE_UNAVAILABLE'
   | 'DOCUMENT_SERVICE_TIMEOUT'
   | 'DOCUMENT_SERVICE_FORBIDDEN'
@@ -90,13 +100,28 @@ export type CommercialProposalGenerationFile = {
   twentyFileUrl?: string;
 };
 
-export type CommercialProposalResultMetadata = {
+export type CommercialProposalResultMetadataV1 = {
+  schemaVersion?: '1.0';
   generationId: string;
   generationIdempotencyKey: string;
   templateCode: 'mikoton-commercial-proposal';
   templateVersion: '1';
   files: CommercialProposalGenerationFile[];
 };
+
+export type CommercialProposalResultMetadataV2 = {
+  schemaVersion: '2.0';
+  snapshotHash: string;
+  generationId: string;
+  generationIdempotencyKey: string;
+  templateCode: 'mikoton-commercial-proposal';
+  templateVersion: '2';
+  files: CommercialProposalGenerationFile[];
+};
+
+export type CommercialProposalResultMetadata =
+  | CommercialProposalResultMetadataV1
+  | CommercialProposalResultMetadataV2;
 
 export type CommercialProposalDraft = {
   id: string;
@@ -111,7 +136,11 @@ export type CommercialProposalDraft = {
   templateCode: string;
   templateVersion: string | null;
   language: string;
-  payloadSnapshot: DraftPayloadSnapshot | null;
+  payloadSnapshot:
+    | DraftPayloadSnapshot
+    | DocumentGenerationPayloadV1
+    | DocumentGenerationPayloadV2
+    | null;
   resultMetadata: CommercialProposalResultMetadata | Record<string, unknown> | null;
   opportunityId: string;
   companyId: string | null;
@@ -168,6 +197,16 @@ export type CommercialProposalRepository = {
     commercialProposalId: string,
     files: CommercialProposalGenerationFile[],
   ) => Promise<CommercialProposalGenerationFile[]>;
+  attachGeneratedFile?: (
+    commercialProposalId: string,
+    file: CommercialProposalGenerationFile,
+  ) => Promise<CommercialProposalGenerationFile>;
+  getCommercialProposalAggregate?: (
+    commercialProposalId: string,
+  ) => Promise<CommercialProposalAggregate>;
+  getCompanyContext?: (
+    companyId: string,
+  ) => Promise<{ id: string; name: string } | null>;
   isDuplicateConflict?: (error: unknown) => boolean;
 };
 
@@ -181,7 +220,7 @@ export type GenerateCommercialProposalInput = {
   idempotencyKey: string;
 };
 
-export type DocumentGenerationPayload = {
+export type DocumentGenerationPayloadV1 = {
   schemaVersion: '1.0';
   templateCode: 'mikoton-commercial-proposal';
   templateVersion: '1';
@@ -226,11 +265,63 @@ export type DocumentGenerationPayload = {
   };
 };
 
+export type DocumentGenerationPayloadV2 = {
+  schemaVersion: '2.0';
+  templateCode: 'mikoton-commercial-proposal';
+  templateVersion: '2';
+  proposal: {
+    id: string;
+    number: string;
+    title: string;
+    date: string;
+    language: 'ru-RU';
+    currencyCode: string;
+    validityDays: number;
+    amount: number;
+  };
+  customer: {
+    companyId: string | null;
+    companyName: string;
+    contactName: string;
+  };
+  contractor: { name: string; email: string };
+  content: {
+    contextAndGoal: string;
+    workItems: Array<{
+      position: number;
+      block: string;
+      name: string;
+      description: string;
+      quantity: number;
+      unit: string;
+      unitPrice: number;
+      discountPercent: number;
+      lineAmount: number;
+    }>;
+    plan: Array<{
+      position: number;
+      title: string;
+      result: string;
+      duration: string;
+      description: string;
+    }>;
+    paymentTerms: string;
+    assumptions: string;
+    nextStep: string;
+  };
+};
+
+export type DocumentGenerationPayload =
+  | DocumentGenerationPayloadV1
+  | DocumentGenerationPayloadV2;
+
 export type DocumentGenerationResult = {
   status: 'success';
   generationId: string;
   templateCode: 'mikoton-commercial-proposal';
-  templateVersion: '1';
+  templateVersion: '1' | '2';
+  schemaVersion?: '1.0' | '2.0';
+  snapshotHash?: string;
   generatedAt: string;
   files: CommercialProposalGenerationFile[];
 };
@@ -239,6 +330,7 @@ export type DocumentGenerationClient = {
   generate: (request: {
     requestId: string;
     idempotencyKey: string;
+    snapshotHash?: string;
     payload: DocumentGenerationPayload;
     requestedFormats: Array<'xlsx' | 'pdf'>;
   }) => Promise<DocumentGenerationResult>;
@@ -607,6 +699,230 @@ export const buildDocumentGenerationPayload = ({
   };
 };
 
+const canonicalize = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalize(entry)]),
+    );
+  }
+
+  return value;
+};
+
+export const canonicalJson = (value: unknown) =>
+  JSON.stringify(canonicalize(value));
+
+const rotateRight = (value: number, bits: number) =>
+  (value >>> bits) | (value << (32 - bits));
+
+const SHA256_CONSTANTS = [
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+  0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+  0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+  0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+  0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+  0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+  0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+  0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+  0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+];
+
+const sha256 = (value: string) => {
+  const bytes = Array.from(new TextEncoder().encode(value));
+  const bitLength = bytes.length * 8;
+  bytes.push(0x80);
+  while (bytes.length % 64 !== 56) bytes.push(0);
+  for (let shift = 56; shift >= 0; shift -= 8) {
+    bytes.push(shift >= 32 ? 0 : (bitLength >>> shift) & 0xff);
+  }
+
+  const hash = [
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+  ];
+  for (let offset = 0; offset < bytes.length; offset += 64) {
+    const words = new Array<number>(64).fill(0);
+    for (let index = 0; index < 16; index += 1) {
+      const base = offset + index * 4;
+      words[index] =
+        ((bytes[base] ?? 0) << 24) |
+        ((bytes[base + 1] ?? 0) << 16) |
+        ((bytes[base + 2] ?? 0) << 8) |
+        (bytes[base + 3] ?? 0);
+    }
+    for (let index = 16; index < 64; index += 1) {
+      const x = words[index - 15] ?? 0;
+      const y = words[index - 2] ?? 0;
+      const s0 = rotateRight(x, 7) ^ rotateRight(x, 18) ^ (x >>> 3);
+      const s1 = rotateRight(y, 17) ^ rotateRight(y, 19) ^ (y >>> 10);
+      words[index] = ((words[index - 16] ?? 0) + s0 + (words[index - 7] ?? 0) + s1) | 0;
+    }
+    let [a, b, c, d, e, f, g, h] = hash;
+    for (let index = 0; index < 64; index += 1) {
+      const s1 = rotateRight(e!, 6) ^ rotateRight(e!, 11) ^ rotateRight(e!, 25);
+      const choice = (e! & f!) ^ (~e! & g!);
+      const temp1 = (h! + s1 + choice + SHA256_CONSTANTS[index]! + words[index]!) | 0;
+      const s0 = rotateRight(a!, 2) ^ rotateRight(a!, 13) ^ rotateRight(a!, 22);
+      const majority = (a! & b!) ^ (a! & c!) ^ (b! & c!);
+      const temp2 = (s0 + majority) | 0;
+      [h, g, f, e, d, c, b, a] = [g!, f!, e!, (d! + temp1) | 0, c!, b!, a!, (temp1 + temp2) | 0];
+    }
+    [a, b, c, d, e, f, g, h].forEach((entry, index) => {
+      hash[index] = ((hash[index] ?? 0) + entry!) | 0;
+    });
+  }
+  return hash.map((entry) => (entry >>> 0).toString(16).padStart(8, '0')).join('');
+};
+
+export const calculateSnapshotHash = (payload: DocumentGenerationPayload) =>
+  sha256(canonicalJson(payload));
+
+const generationValidationError = (message: string) =>
+  new ApplicationError(
+    'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
+    message,
+  );
+
+export const validateAggregateForGeneration = (
+  aggregate: CommercialProposalAggregate,
+) => {
+  const { proposal, items, stages } = aggregate;
+
+  if (proposal.contentModelVersion !== 'AGGREGATE_V2') {
+    throw generationValidationError('Commercial proposal must use AGGREGATE_V2');
+  }
+  if (proposal.status !== 'DRAFT' && proposal.status !== 'FAILED') {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_INVALID_STATUS',
+      'Документ можно сформировать только из статуса DRAFT или FAILED',
+    );
+  }
+  if (items.length === 0) throw generationValidationError('Добавьте хотя бы одну строку работ');
+  if (stages.length === 0) throw generationValidationError('Добавьте хотя бы один этап работ');
+  if (proposal.currencyCode === null || proposal.currencyCode.trim() === '') {
+    throw generationValidationError('Укажите валюту коммерческого предложения');
+  }
+
+  const unique = (values: string[], label: string) => {
+    if (new Set(values).size !== values.length) {
+      throw generationValidationError(`${label} must be unique`);
+    }
+  };
+  const positions = (values: number[], label: string) => {
+    if (values.some((value, index) => value !== index + 1)) {
+      throw generationValidationError(`${label} positions must be normalized`);
+    }
+  };
+
+  unique(items.map((item) => item.id), 'item ids');
+  unique(items.map((item) => item.clientKey), 'item clientKeys');
+  unique(stages.map((stage) => stage.id), 'stage ids');
+  unique(stages.map((stage) => stage.clientKey), 'stage clientKeys');
+  positions(items.map((item) => item.position), 'item');
+  positions(stages.map((stage) => stage.position), 'stage');
+
+  for (const item of items) {
+    if (item.currencyCode !== proposal.currencyCode) {
+      throw generationValidationError('Валюты строк должны совпадать с валютой КП');
+    }
+    const authoritative = calculateProposalLineAmount({
+      quantity: String(item.quantity),
+      unitPrice: String(item.unitPrice),
+      discountPercent: String(item.discountPercent),
+    }).lineAmount;
+    if (authoritative !== item.lineAmount) {
+      throw generationValidationError(`Некорректный итог строки ${item.position}`);
+    }
+  }
+
+  for (const stage of stages) {
+    if (
+      stage.title.trim() === '' ||
+      stage.result?.trim() === '' ||
+      stage.result === null ||
+      stage.duration?.trim() === '' ||
+      stage.duration === null
+    ) {
+      throw generationValidationError(`Заполните название, результат и срок этапа ${stage.position}`);
+    }
+  }
+
+  const total = sumLineAmounts(items.map((item) => item.lineAmount));
+  if (total <= 0) throw generationValidationError('Итог КП должен быть больше нуля');
+  if (proposal.amount !== total) {
+    throw generationValidationError('Итог КП не совпадает с суммой строк');
+  }
+};
+
+export const buildDocumentGenerationPayloadV2 = ({
+  aggregate,
+  opportunity,
+  company,
+  now = new Date(),
+}: {
+  aggregate: CommercialProposalAggregate;
+  opportunity: OpportunityContext | null;
+  company: { id: string; name: string } | null;
+  now?: Date;
+}): DocumentGenerationPayloadV2 => {
+  validateAggregateForGeneration(aggregate);
+  const proposal = aggregate.proposal;
+
+  return {
+    schemaVersion: '2.0',
+    templateCode: 'mikoton-commercial-proposal',
+    templateVersion: '2',
+    proposal: {
+      id: proposal.id,
+      number: proposal.number,
+      title: proposal.title,
+      date: now.toISOString().slice(0, 10),
+      language: 'ru-RU',
+      currencyCode: proposal.currencyCode as string,
+      validityDays: proposal.validityDays,
+      amount: proposal.amount as number,
+    },
+    customer: {
+      companyId: proposal.companyId,
+      companyName: company?.name ?? opportunity?.company?.name ?? 'Компания не указана',
+      contactName: proposal.contactName ?? 'Не указан',
+    },
+    contractor: { name: 'Шибеев Роман', email: 'consulting@mikoton.ru' },
+    content: {
+      contextAndGoal: proposal.contextAndGoal ?? '',
+      workItems: aggregate.items.map((item) => ({
+        position: item.position,
+        block: item.block,
+        name: item.name,
+        description: item.description ?? '',
+        quantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+        discountPercent: item.discountPercent,
+        lineAmount: item.lineAmount,
+      })),
+      plan: aggregate.stages.map((stage) => ({
+        position: stage.position,
+        title: stage.title,
+        result: stage.result as string,
+        duration: stage.duration as string,
+        description: stage.description ?? '',
+      })),
+      paymentTerms: proposal.paymentTerms ?? '',
+      assumptions: proposal.assumptions ?? '',
+      nextStep: proposal.nextStep ?? '',
+    },
+  };
+};
+
 const hasGenerationResult = (
   metadata: CommercialProposalDraft['resultMetadata'],
   idempotencyKey: string,
@@ -650,13 +966,6 @@ export const generateCommercialProposalDocuments = async ({
 }) => {
   const draft = await repository.getCommercialProposal(input.commercialProposalId);
 
-  if (draft.contentModelVersion === 'AGGREGATE_V2') {
-    throw new ApplicationError(
-      'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED',
-      'Генерация документов для новой модели КП пока недоступна. Сохранённые данные не потеряны.',
-    );
-  }
-
   if (
     draft.status === 'GENERATED' &&
     hasGenerationResult(draft.resultMetadata, input.idempotencyKey)
@@ -675,7 +984,30 @@ export const generateCommercialProposalDocuments = async ({
     );
   }
 
-  const opportunity = await repository.getOpportunityContext(draft.opportunityId);
+  const aggregate =
+    draft.contentModelVersion === 'AGGREGATE_V2'
+      ? await repository.getCommercialProposalAggregate?.(draft.id)
+      : undefined;
+
+  if (draft.contentModelVersion === 'AGGREGATE_V2' && aggregate === undefined) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
+      'Не удалось загрузить сохранённый состав коммерческого предложения',
+    );
+  }
+
+  if (aggregate !== undefined) validateAggregateForGeneration(aggregate);
+
+  const opportunity = await repository
+    .getOpportunityContext(draft.opportunityId)
+    .catch((error) => {
+      if (aggregate === undefined) throw error;
+      return null;
+    });
+  const company =
+    draft.companyId === null
+      ? null
+      : (await repository.getCompanyContext?.(draft.companyId)) ?? null;
   let generationDraft = draft;
   let payload: DocumentGenerationPayload | null = null;
 
@@ -685,18 +1017,42 @@ export const generateCommercialProposalDocuments = async ({
       repository,
       now,
     });
-    const finalDraft = {
+    const finalDraft: CommercialProposalDraft = {
       ...generationDraft,
       number: finalNumber,
-      title: `${finalNumber} - ${opportunity.name}`,
+      title:
+        aggregate === undefined
+          ? `${finalNumber} - ${opportunity?.name ?? draft.title}`
+          : draft.title,
       templateCode: 'mikoton-commercial-proposal',
-      templateVersion: '1',
+      templateVersion: aggregate === undefined ? '1' : '2',
     };
-    payload = buildDocumentGenerationPayload({
-      draft: finalDraft,
-      opportunity,
-      now,
-    });
+    payload =
+      aggregate === undefined
+        ? buildDocumentGenerationPayload({
+            draft: finalDraft,
+            opportunity: opportunity as OpportunityContext,
+            now,
+          })
+        : buildDocumentGenerationPayloadV2({
+            aggregate: {
+              ...aggregate,
+              proposal: finalDraft,
+            },
+            opportunity,
+            company,
+            now,
+          });
+
+    if (aggregate !== undefined) {
+      const latest = await repository.getCommercialProposalAggregate?.(draft.id);
+      if (latest?.proposal.editorRevision !== aggregate.proposal.editorRevision) {
+        throw new ApplicationError(
+          'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT',
+          'Коммерческое предложение изменилось перед началом генерации',
+        );
+      }
+    }
 
     try {
       generationDraft = await repository.updateCommercialProposal(draft.id, {
@@ -704,8 +1060,8 @@ export const generateCommercialProposalDocuments = async ({
         number: finalDraft.number,
         status: 'GENERATING',
         templateCode: 'mikoton-commercial-proposal',
-        templateVersion: '1',
-        payloadSnapshot: payload as unknown as DraftPayloadSnapshot,
+        templateVersion: payload.templateVersion,
+        payloadSnapshot: payload,
         lastError: null,
         generatedAt: null,
       });
@@ -737,30 +1093,86 @@ export const generateCommercialProposalDocuments = async ({
     );
   }
 
+  const snapshotHash = calculateSnapshotHash(payload);
+
   try {
     const result = await documentClient.generate({
       requestId: input.idempotencyKey,
       idempotencyKey: input.idempotencyKey,
+      snapshotHash,
       payload,
       requestedFormats: ['xlsx', 'pdf'],
     });
 
-    const attachedFiles =
-      (await repository.attachGeneratedFiles?.(draft.id, result.files)) ??
-      result.files;
+    if (
+      result.templateVersion !== payload.templateVersion ||
+      (result.schemaVersion !== undefined &&
+        result.schemaVersion !== payload.schemaVersion)
+    ) {
+      throw new ApplicationError(
+        'DOCUMENT_SCHEMA_TEMPLATE_MISMATCH',
+        'Document service returned a mismatched schema/template version',
+      );
+    }
+    if (result.snapshotHash !== undefined && result.snapshotHash !== snapshotHash) {
+      throw new ApplicationError(
+        'SNAPSHOT_HASH_MISMATCH',
+        'Document service returned a different snapshot hash',
+      );
+    }
 
-    const resultMetadata: CommercialProposalResultMetadata = {
+    let attachedFiles =
+      draft.resultMetadata !== null &&
+      typeof draft.resultMetadata === 'object' &&
+      'generationId' in draft.resultMetadata &&
+      draft.resultMetadata.generationId === result.generationId &&
+      'files' in draft.resultMetadata &&
+      Array.isArray(draft.resultMetadata.files)
+        ? (draft.resultMetadata.files as CommercialProposalGenerationFile[])
+        : [];
+
+    let resultMetadata: CommercialProposalResultMetadata = {
+      schemaVersion: payload.schemaVersion,
+      ...(payload.schemaVersion === '2.0' ? { snapshotHash } : {}),
       generationId: result.generationId,
       generationIdempotencyKey: input.idempotencyKey,
       templateCode: result.templateCode,
       templateVersion: result.templateVersion,
       files: attachedFiles,
-    };
+    } as CommercialProposalResultMetadata;
+
+    for (const file of result.files) {
+      const existing = attachedFiles.find(
+        (attached) =>
+          attached.format === file.format &&
+          attached.sha256 === file.sha256 &&
+          attached.twentyFileId !== undefined,
+      );
+      if (existing !== undefined) continue;
+
+      const attached = repository.attachGeneratedFile
+        ? await repository.attachGeneratedFile(draft.id, file)
+        : ((await repository.attachGeneratedFiles?.(draft.id, [file])) ?? [file])[0];
+      if (attached === undefined) {
+        throw new ApplicationError(
+          'DOCUMENT_STORAGE_FAILED',
+          `Generated ${file.format.toUpperCase()} file was not attached`,
+        );
+      }
+      attachedFiles = [
+        ...attachedFiles.filter((entry) => entry.format !== attached.format),
+        attached,
+      ];
+      resultMetadata = { ...resultMetadata, files: attachedFiles };
+      generationDraft = await repository.updateCommercialProposal(draft.id, {
+        resultMetadata,
+      });
+    }
 
     const updated = await repository.updateCommercialProposal(draft.id, {
       status: 'GENERATED',
       templateCode: 'mikoton-commercial-proposal',
-      templateVersion: '1',
+      templateVersion: payload.templateVersion,
       resultMetadata,
       generatedAt: result.generatedAt,
       lastError: null,

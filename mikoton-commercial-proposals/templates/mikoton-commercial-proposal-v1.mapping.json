@@ -51,6 +51,7 @@
       "lineTotal": "I"
     },
     "lineTotalFormula": "E{row}*G{row}*(1-H{row})",
+    "grandTotalCell": "I22",
     "grandTotalFormula": "SUM(I17:I21)"
   },
   "plan": {

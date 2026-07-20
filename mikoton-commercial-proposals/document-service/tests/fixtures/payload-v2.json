@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "2.0",
+  "templateCode": "mikoton-commercial-proposal",
+  "templateVersion": "2",
+  "proposal": {
+    "id": "e82f2712-cf74-416e-9cdc-89356f3d6d60",
+    "number": "КП-008 от 20.07.2026",
+    "title": "Внедрение CRM и автоматизация продаж",
+    "date": "2026-07-20",
+    "language": "ru-RU",
+    "currencyCode": "RUB",
+    "validityDays": 14,
+    "amount": 130500
+  },
+  "customer": {
+    "companyId": "33333333-3333-4333-8333-333333333333",
+    "companyName": "ООО Тестовый заказчик",
+    "contactName": "Иван Иванов"
+  },
+  "contractor": {
+    "name": "Шибеев Роман",
+    "email": "consulting@mikoton.ru"
+  },
+  "content": {
+    "contextAndGoal": "Настроить единый процесс обработки обращений и управляемую воронку продаж.",
+    "workItems": [
+      { "position": 1, "block": "Анализ", "name": "Интервью", "description": "Сбор и фиксация требований", "quantity": 6, "unit": "час", "unitPrice": 5000, "discountPercent": 0, "lineAmount": 30000 },
+      { "position": 2, "block": "Проектирование", "name": "Модель данных", "description": "Описание объектов и связей", "quantity": 8, "unit": "час", "unitPrice": 5500, "discountPercent": 0, "lineAmount": 44000 },
+      { "position": 3, "block": "Настройка", "name": "Воронка продаж", "description": "Этапы, представления и права", "quantity": 10, "unit": "час", "unitPrice": 6000, "discountPercent": 10, "lineAmount": 54000 },
+      { "position": 4, "block": "Запуск", "name": "Обучение", "description": "Рабочая сессия для команды", "quantity": 1, "unit": "сессия", "unitPrice": 2500, "discountPercent": 0, "lineAmount": 2500 }
+    ],
+    "plan": [
+      { "position": 1, "title": "Диагностика", "result": "Согласованные требования", "duration": "2 дня", "description": "Интервью и анализ" },
+      { "position": 2, "title": "Настройка", "result": "Рабочий контур CRM", "duration": "5 дней", "description": "Конфигурация и проверка" },
+      { "position": 3, "title": "Запуск", "result": "Обученная команда", "duration": "1 день", "description": "Передача результата" }
+    ],
+    "paymentTerms": "50% аванс, 50% после приёмки.",
+    "assumptions": "Доступы и ответственные лица предоставляются заказчиком.",
+    "nextStep": "Согласовать дату установочной встречи."
+  }
+}

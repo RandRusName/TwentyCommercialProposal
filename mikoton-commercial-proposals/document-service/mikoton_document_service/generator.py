@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -78,6 +79,15 @@ class DocumentStorage(Protocol):
     def delete(self, *, storage_key: str) -> None:
         ...
 
+    def exists(self, *, storage_key: str) -> bool:
+        ...
+
+    def get_bytes(self, *, storage_key: str) -> bytes:
+        ...
+
+    def put_bytes(self, *, data: bytes, storage_key: str, content_type: str) -> str:
+        ...
+
     def is_ready(self) -> bool:
         ...
 
@@ -107,6 +117,23 @@ class LocalDocumentStorage:
         root = self.root.resolve()
         if root in target.parents or target == root:
             target.unlink(missing_ok=True)
+
+    def exists(self, *, storage_key: str) -> bool:
+        target = (self.root / storage_key).resolve()
+        return self.root.resolve() in target.parents and target.is_file()
+
+    def get_bytes(self, *, storage_key: str) -> bytes:
+        if not self.exists(storage_key=storage_key):
+            raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", "Stored document is missing")
+        return (self.root / storage_key).read_bytes()
+
+    def put_bytes(self, *, data: bytes, storage_key: str, content_type: str) -> str:
+        destination = (self.root / storage_key).resolve()
+        if self.root.resolve() not in destination.parents:
+            raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", "Invalid storage key")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+        return storage_key
 
     def is_ready(self) -> bool:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -183,6 +210,31 @@ class S3DocumentStorage:
 
     def delete(self, *, storage_key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=storage_key)
+
+    def exists(self, *, storage_key: str) -> bool:
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=storage_key)
+            return True
+        except Exception:
+            return False
+
+    def get_bytes(self, *, storage_key: str) -> bytes:
+        try:
+            return self.client.get_object(Bucket=self.bucket, Key=storage_key)["Body"].read()
+        except Exception as exc:
+            raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", "Stored document is missing") from exc
+
+    def put_bytes(self, *, data: bytes, storage_key: str, content_type: str) -> str:
+        try:
+            self.client.put_object(
+                Bucket=self.bucket,
+                Key=storage_key,
+                Body=data,
+                ContentType=content_type,
+            )
+            return storage_key
+        except Exception as exc:
+            raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", "Storage upload failed") from exc
 
     def is_ready(self) -> bool:
         try:
@@ -276,6 +328,36 @@ def _remove_macro_sheet_markup(sheet: ET.Element) -> None:
             sheet.remove(node)
 
 
+def _set_print_area(
+    workbook_xml: bytes,
+    sheet_name: str,
+    print_area: str,
+    repeat_rows: str | None = None,
+) -> bytes:
+    workbook = ET.fromstring(workbook_xml)
+    defined_names = workbook.find(_cell_tag("definedNames"))
+    if defined_names is None:
+        defined_names = ET.SubElement(workbook, _cell_tag("definedNames"))
+    for node in list(defined_names):
+        if node.attrib.get("name") in {"_xlnm.Print_Area", "_xlnm.Print_Titles"}:
+            defined_names.remove(node)
+    defined_name = ET.SubElement(
+        defined_names,
+        _cell_tag("definedName"),
+        {"name": "_xlnm.Print_Area", "localSheetId": "0"},
+    )
+    area = print_area.split("!", 1)[-1]
+    defined_name.text = f"'{sheet_name}'!{area}"
+    if repeat_rows:
+        titles = ET.SubElement(
+            defined_names,
+            _cell_tag("definedName"),
+            {"name": "_xlnm.Print_Titles", "localSheetId": "0"},
+        )
+        titles.text = f"'{sheet_name}'!{repeat_rows}"
+    return ET.tostring(workbook, encoding="utf-8", xml_declaration=True)
+
+
 def _excel_serial(value: str) -> int:
     parsed = date.fromisoformat(value)
     epoch = date(1899, 12, 30)
@@ -299,7 +381,10 @@ def _plural_days(days: int) -> str:
 def _as_number(value: Any, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise DocumentGenerationError("PAYLOAD_INVALID", f"{field} must be a number")
-    return float(value)
+    result = float(value)
+    if not math.isfinite(result):
+        raise DocumentGenerationError("PAYLOAD_INVALID", f"{field} must be finite")
+    return result
 
 
 def _as_text(value: Any, field: str, allow_empty: bool = False) -> str:
@@ -311,12 +396,18 @@ def _as_text(value: Any, field: str, allow_empty: bool = False) -> str:
 
 
 def validate_payload(payload: dict[str, Any], mapping: dict[str, Any]) -> None:
-    if payload.get("schemaVersion") != "1.0":
-        raise DocumentGenerationError("PAYLOAD_INVALID", "schemaVersion must be 1.0")
+    schema_version = str(payload.get("schemaVersion"))
+    template_version = str(payload.get("templateVersion"))
+    expected_schema = "1.0" if template_version == "1" else "2.0" if template_version == "2" else None
+    if expected_schema is None or schema_version != expected_schema:
+        raise DocumentGenerationError(
+            "DOCUMENT_SCHEMA_TEMPLATE_MISMATCH",
+            "schemaVersion and templateVersion do not match",
+        )
     if payload.get("templateCode") != TEMPLATE_CODE:
         raise DocumentGenerationError("TEMPLATE_NOT_FOUND", "Unsupported templateCode")
-    if str(payload.get("templateVersion")) != TEMPLATE_VERSION:
-        raise DocumentGenerationError("TEMPLATE_NOT_FOUND", "Unsupported templateVersion")
+    if template_version != str(mapping.get("templateVersion")):
+        raise DocumentGenerationError("DOCUMENT_SCHEMA_TEMPLATE_MISMATCH", "Mapping version does not match payload")
 
     proposal = payload.get("proposal")
     customer = payload.get("customer")
@@ -326,6 +417,10 @@ def validate_payload(payload: dict[str, Any], mapping: dict[str, Any]) -> None:
 
     for key in ("id", "number", "title", "date", "language", "currencyCode"):
         _as_text(proposal.get(key), f"proposal.{key}")
+    if schema_version == "2.0":
+        total = _as_number(proposal.get("amount"), "proposal.amount")
+        if total <= 0:
+            raise DocumentGenerationError("PAYLOAD_INVALID", "proposal.amount must be greater than zero")
 
     work_items = content.get("workItems")
     plan = content.get("plan")
@@ -334,19 +429,29 @@ def validate_payload(payload: dict[str, Any], mapping: dict[str, Any]) -> None:
     if len(work_items) > int(mapping["limits"]["maxWorkItems"]):
         raise DocumentGenerationError(
             "PAYLOAD_INVALID",
-            f"Шаблон версии 1 поддерживает не более {mapping['limits']['maxWorkItems']} позиций работ.",
+            f"Template version {template_version} supports at most {mapping['limits']['maxWorkItems']} work items",
         )
     if not isinstance(plan, list) or not (int(mapping["limits"]["minPlanStages"]) <= len(plan) <= int(mapping["limits"]["maxPlanStages"])):
-        raise DocumentGenerationError("PAYLOAD_INVALID", "content.plan must contain 1 to 3 stages")
+        raise DocumentGenerationError("PAYLOAD_INVALID", "content.plan is outside template limits")
 
     for index, item in enumerate(work_items, start=1):
         if not isinstance(item, dict):
             raise DocumentGenerationError("PAYLOAD_INVALID", f"content.workItems[{index}] must be an object")
         _as_number(item.get("quantity"), f"content.workItems[{index}].quantity")
-        _as_number(item.get("rate"), f"content.workItems[{index}].rate")
-        _as_number(item.get("discount"), f"content.workItems[{index}].discount")
-        for key in ("block", "description", "unit"):
+        price_key = "rate" if schema_version == "1.0" else "unitPrice"
+        discount_key = "discount" if schema_version == "1.0" else "discountPercent"
+        _as_number(item.get(price_key), f"content.workItems[{index}].{price_key}")
+        _as_number(item.get(discount_key), f"content.workItems[{index}].{discount_key}")
+        if schema_version == "2.0":
+            _as_number(item.get("lineAmount"), f"content.workItems[{index}].lineAmount")
+        for key in (("block", "description", "unit") if schema_version == "1.0" else ("block", "name", "unit")):
             _as_text(item.get(key), f"content.workItems[{index}].{key}")
+
+    for index, stage in enumerate(plan, start=1):
+        if not isinstance(stage, dict):
+            raise DocumentGenerationError("PAYLOAD_INVALID", f"content.plan[{index}] must be an object")
+        for key in ("title", "result", "duration"):
+            _as_text(stage.get(key), f"content.plan[{index}].{key}")
 
 
 def _find_row(sheet: ET.Element, row_index: int) -> ET.Element:
@@ -418,6 +523,44 @@ def _set_formula(sheet: ET.Element, ref: str, formula: str, cached_value: int | 
     v_node.text = str(int(cached_value)) if float(cached_value).is_integer() else f"{cached_value:.2f}"
 
 
+def _set_row_hidden(sheet: ET.Element, row_index: int, hidden: bool) -> None:
+    row = _find_row(sheet, row_index)
+    if hidden:
+        row.attrib["hidden"] = "1"
+    else:
+        row.attrib.pop("hidden", None)
+
+
+def _apply_page_setup(sheet: ET.Element, page_setup: dict[str, Any] | None) -> None:
+    if not page_setup:
+        return
+    sheet_pr = sheet.find(_cell_tag("sheetPr"))
+    if sheet_pr is None:
+        sheet_pr = ET.Element(_cell_tag("sheetPr"))
+        sheet.insert(0, sheet_pr)
+    page_setup_pr = sheet_pr.find(_cell_tag("pageSetUpPr"))
+    if page_setup_pr is None:
+        page_setup_pr = ET.SubElement(sheet_pr, _cell_tag("pageSetUpPr"))
+    page_setup_pr.attrib["fitToPage"] = "1"
+
+    margins = sheet.find(_cell_tag("pageMargins"))
+    if margins is None:
+        margins = ET.SubElement(sheet, _cell_tag("pageMargins"))
+    margins.attrib.update({
+        "left": "0.25", "right": "0.25", "top": "0.4", "bottom": "0.4",
+        "header": "0.15", "footer": "0.15",
+    })
+    setup = sheet.find(_cell_tag("pageSetup"))
+    if setup is None:
+        setup = ET.SubElement(sheet, _cell_tag("pageSetup"))
+    setup.attrib.update({
+        "orientation": str(page_setup.get("orientation", "landscape")),
+        "fitToWidth": str(page_setup.get("fitToWidth", 1)),
+        "fitToHeight": str(page_setup.get("fitToHeight", 0)),
+        "paperSize": str(page_setup.get("paperSize", 9)),
+    })
+
+
 def _apply_workbook_mapping(sheet: ET.Element, payload: dict[str, Any], mapping: dict[str, Any]) -> None:
     proposal = payload["proposal"]
     customer = payload["customer"]
@@ -444,43 +587,70 @@ def _apply_workbook_mapping(sheet: ET.Element, payload: dict[str, Any], mapping:
 
     work = mapping["workItems"]
     work_items = content["workItems"]
+    schema_v2 = payload["schemaVersion"] == "2.0"
     for offset in range(int(work["lastTemplateRow"]) - int(work["firstRow"]) + 1):
         row = int(work["firstRow"]) + offset
         item = work_items[offset] if offset < len(work_items) else None
+        _set_row_hidden(sheet, row, item is None)
         if item is None:
-            for column in ("position", "block", "description", "quantity", "unit", "rate", "discount"):
+            empty_columns = (
+                ("position", "block", "name", "description", "quantity", "unit", "unitPrice", "discountPercent")
+                if schema_v2
+                else ("position", "block", "description", "quantity", "unit", "rate", "discount")
+            )
+            for column in empty_columns:
                 ref = f"{work['columns'][column]}{row}"
-                if column in ("quantity", "rate", "discount"):
+                if column in ("quantity", "rate", "discount", "unitPrice", "discountPercent"):
                     _set_number(sheet, ref, 0)
                 else:
                     _set_text(sheet, ref, "")
-            _set_formula(sheet, f"I{row}", f"E{row}*G{row}*(1-H{row})", 0)
+            total_ref = f"{work['columns']['lineTotal']}{row}"
+            _set_formula(sheet, total_ref, work["lineTotalFormula"].format(row=row), 0)
             continue
         quantity = _as_number(item["quantity"], "quantity")
-        rate = _as_number(item["rate"], "rate")
-        discount = _as_number(item["discount"], "discount")
-        line_total = quantity * rate * (1 - discount)
-        _set_number(sheet, f"B{row}", int(item.get("position") or offset + 1))
-        _set_text(sheet, f"C{row}", item["block"])
-        _set_text(sheet, f"D{row}", item["description"])
-        _set_number(sheet, f"E{row}", quantity)
-        _set_text(sheet, f"F{row}", item["unit"])
-        _set_number(sheet, f"G{row}", rate)
-        _set_number(sheet, f"H{row}", discount)
-        _set_formula(sheet, f"I{row}", f"E{row}*G{row}*(1-H{row})", line_total)
+        price_key = "unitPrice" if schema_v2 else "rate"
+        discount_key = "discountPercent" if schema_v2 else "discount"
+        rate = _as_number(item[price_key], price_key)
+        discount = _as_number(item[discount_key], discount_key)
+        line_total = _as_number(item["lineAmount"], "lineAmount") if schema_v2 else quantity * rate * (1 - discount)
+        values = {
+            "position": int(item.get("position") or offset + 1),
+            "block": item["block"],
+            "description": item.get("description") or "",
+            "quantity": quantity,
+            "unit": item["unit"],
+            price_key: rate,
+            discount_key: discount,
+        }
+        if schema_v2:
+            values["name"] = item["name"]
+        for key, value in values.items():
+            ref = f"{work['columns'][key]}{row}"
+            if isinstance(value, (int, float)):
+                _set_number(sheet, ref, value)
+            else:
+                _set_text(sheet, ref, value)
+        total_ref = f"{work['columns']['lineTotal']}{row}"
+        _set_formula(sheet, total_ref, work["lineTotalFormula"].format(row=row), line_total)
 
-    total = sum(_as_number(item["quantity"], "quantity") * _as_number(item["rate"], "rate") * (1 - _as_number(item["discount"], "discount")) for item in work_items)
-    _set_formula(sheet, "I22", work["grandTotalFormula"], total)
+    total = (
+        _as_number(proposal["amount"], "proposal.amount")
+        if schema_v2
+        else sum(_as_number(item["quantity"], "quantity") * _as_number(item["rate"], "rate") * (1 - _as_number(item["discount"], "discount")) for item in work_items)
+    )
+    _set_formula(sheet, work["grandTotalCell"], work["grandTotalFormula"], total)
 
     plan = mapping["plan"]
     stages = content["plan"]
     for offset in range(int(plan["lastTemplateRow"]) - int(plan["firstRow"]) + 1):
         row = int(plan["firstRow"]) + offset
         stage = stages[offset] if offset < len(stages) else None
-        _set_text(sheet, f"B{row}", "" if stage is None else str(stage.get("position") or offset + 1))
-        _set_text(sheet, f"C{row}", "" if stage is None else _as_text(stage.get("title"), "stage.title"))
-        _set_text(sheet, f"D{row}", "" if stage is None else _as_text(stage.get("result"), "stage.result"))
-        _set_text(sheet, f"G{row}", "" if stage is None else _as_text(stage.get("duration"), "stage.duration"))
+        _set_row_hidden(sheet, row, stage is None)
+        for key in ("position", "title", "result", "duration", "description"):
+            if key not in plan["columns"]:
+                continue
+            value = "" if stage is None else stage.get(key, "")
+            _set_text(sheet, f"{plan['columns'][key]}{row}", str(value or ""))
 
 
 def generate_xlsx(payload: dict[str, Any], template_path: Path, mapping_path: Path, output_dir: Path) -> GeneratedLocalFile:
@@ -495,13 +665,15 @@ def generate_xlsx(payload: dict[str, Any], template_path: Path, mapping_path: Pa
 
     with zipfile.ZipFile(template_path, "r") as source_zip:
         names = set(source_zip.namelist())
-        missing = [name for name in REQUIRED_XLSX_TEMPLATE_PARTS if name not in names]
+        required_parts = tuple(mapping["workbook"].get("requiredParts", REQUIRED_XLSX_TEMPLATE_PARTS))
+        missing = [name for name in required_parts if name not in names]
         if missing:
             raise DocumentGenerationError("TEMPLATE_INVALID", f"Template is missing required parts: {', '.join(missing)}")
 
         sheet_path = mapping["workbook"]["sheetXmlPath"]
         sheet = ET.fromstring(source_zip.read(sheet_path))
         _apply_workbook_mapping(sheet, payload, mapping)
+        _apply_page_setup(sheet, mapping["workbook"].get("pageSetup"))
         _remove_macro_sheet_markup(sheet)
         updated_sheet = ET.tostring(sheet, encoding="utf-8", xml_declaration=True)
 
@@ -512,6 +684,13 @@ def generate_xlsx(payload: dict[str, Any], template_path: Path, mapping_path: Pa
 
                 if item.filename == sheet_path:
                     data = updated_sheet
+                elif item.filename == "xl/workbook.xml":
+                    data = _set_print_area(
+                        source_zip.read(item.filename),
+                        mapping["workbook"]["sheetName"],
+                        mapping["workbook"]["printArea"],
+                        mapping["workbook"].get("pageSetup", {}).get("repeatRows"),
+                    )
                 elif item.filename == "[Content_Types].xml":
                     data = _remove_macro_content_types(source_zip.read(item.filename))
                 elif item.filename.endswith(".rels"):
@@ -619,8 +798,37 @@ def _store_file(
 
 
 def _generation_id(payload: dict[str, Any], idempotency_key: str) -> str:
-    seed = f"{payload['proposal']['id']}:{idempotency_key}:{TEMPLATE_VERSION}"
+    seed = f"{payload['proposal']['id']}:{idempotency_key}:{payload['templateVersion']}"
     return hashlib.sha256(seed.encode()).hexdigest()[:32]
+
+
+def _snapshot_hash(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _refresh_manifest_urls(
+    manifest: dict[str, Any], storage: DocumentStorage, ttl_seconds: int
+) -> dict[str, Any]:
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", "Generation manifest is invalid")
+    refreshed = []
+    for file in files:
+        storage_key = file.get("storageKey") if isinstance(file, dict) else None
+        if not isinstance(storage_key, str) or not storage.exists(storage_key=storage_key):
+            raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", "Generated file referenced by manifest is missing")
+        url, expires_at = storage.get_download_url(
+            storage_key=storage_key, expires_in_seconds=ttl_seconds
+        )
+        refreshed.append(
+            {
+                **file,
+                "downloadUrl": url,
+                "downloadUrlExpiresAt": expires_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            }
+        )
+    return {**manifest, "status": "success", "files": refreshed}
 
 
 def generate_documents(
@@ -631,14 +839,40 @@ def generate_documents(
     *,
     storage: DocumentStorage | None = None,
     idempotency_key: str | None = None,
+    snapshot_hash: str | None = None,
     libreoffice_binary: str = "libreoffice",
     timeout_seconds: int = 60,
     signed_url_ttl_seconds: int = DEFAULT_SIGNED_URL_TTL_SECONDS,
 ) -> dict[str, Any]:
+    mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+    validate_payload(payload, mapping)
+    actual_snapshot_hash = _snapshot_hash(payload)
+    if snapshot_hash is not None and snapshot_hash != actual_snapshot_hash:
+        raise DocumentGenerationError("SNAPSHOT_HASH_MISMATCH", "snapshotHash does not match payload")
     generation_key = idempotency_key or f"{payload['proposal']['id']}:{payload['proposal']['number']}"
     generation_id = _generation_id(payload, generation_key)
     generation_dir = output_dir / generation_id
     generation_dir.mkdir(parents=True, exist_ok=True)
+    document_storage = storage or LocalDocumentStorage(generation_dir / "storage", "")
+    manifest_key = "/".join(
+        [
+            "commercial-proposals",
+            _sanitize_storage_segment(payload["proposal"]["id"]),
+            _sanitize_storage_segment(generation_id),
+            "manifest.json",
+        ]
+    )
+
+    if document_storage.exists(storage_key=manifest_key):
+        try:
+            manifest = json.loads(document_storage.get_bytes(storage_key=manifest_key).decode("utf-8"))
+        except Exception as exc:
+            raise DocumentGenerationError("DOCUMENT_STORAGE_FAILED", "Generation manifest is unreadable") from exc
+        if manifest.get("idempotencyKey") != generation_key:
+            raise DocumentGenerationError("GENERATION_IDEMPOTENCY_CONFLICT", "Generation identity is inconsistent")
+        if manifest.get("snapshotHash") != actual_snapshot_hash:
+            raise DocumentGenerationError("GENERATION_IDEMPOTENCY_CONFLICT", "Idempotency key was used with another snapshot")
+        return _refresh_manifest_urls(manifest, document_storage, signed_url_ttl_seconds)
 
     xlsx = generate_xlsx(payload, template_path, mapping_path, generation_dir)
     pdf = generate_pdf_from_xlsx(
@@ -647,7 +881,6 @@ def generate_documents(
         libreoffice_binary=libreoffice_binary,
         timeout_seconds=timeout_seconds,
     )
-    document_storage = storage or LocalDocumentStorage(generation_dir / "storage", "")
     stored_files = [
         _store_file(
             file=xlsx,
@@ -665,11 +898,14 @@ def generate_documents(
         ),
     ]
 
-    return {
+    result = {
         "status": "success",
         "generationId": generation_id,
         "templateCode": TEMPLATE_CODE,
-        "templateVersion": TEMPLATE_VERSION,
+        "templateVersion": str(payload["templateVersion"]),
+        "schemaVersion": str(payload["schemaVersion"]),
+        "snapshotHash": actual_snapshot_hash,
+        "idempotencyKey": generation_key,
         "generatedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "files": [
             {
@@ -686,6 +922,12 @@ def generate_documents(
             for file in stored_files
         ],
     }
+    document_storage.put_bytes(
+        data=json.dumps(result, ensure_ascii=False, sort_keys=True).encode("utf-8"),
+        storage_key=manifest_key,
+        content_type="application/json",
+    )
+    return result
 
 
 def storage_from_environment() -> DocumentStorage:
@@ -733,10 +975,48 @@ def config_from_environment(project_root: Path) -> GeneratorConfig:
     )
 
 
+def resolve_template_paths(
+    payload: dict[str, Any], project_root: Path
+) -> tuple[Path, Path]:
+    version = str(payload.get("templateVersion"))
+    schema = str(payload.get("schemaVersion"))
+    registry = {
+        ("1.0", "1"): (
+            "DOCUMENT_TEMPLATE_V1_PATH",
+            project_root / "templates" / "mikoton-commercial-proposal-v1.xlsm",
+            "DOCUMENT_MAPPING_V1_PATH",
+            project_root / "templates" / "mikoton-commercial-proposal-v1.mapping.json",
+        ),
+        ("2.0", "2"): (
+            "DOCUMENT_TEMPLATE_V2_PATH",
+            project_root / "templates" / "mikoton-commercial-proposal-v2.xlsx",
+            "DOCUMENT_MAPPING_V2_PATH",
+            project_root / "templates" / "mikoton-commercial-proposal-v2.mapping.json",
+        ),
+    }
+    entry = registry.get((schema, version))
+    if entry is None:
+        raise DocumentGenerationError(
+            "DOCUMENT_SCHEMA_TEMPLATE_MISMATCH",
+            "Unsupported schema/template pair",
+        )
+    template_env, template_default, mapping_env, mapping_default = entry
+    return (
+        Path(os.environ.get(template_env, str(template_default))),
+        Path(os.environ.get(mapping_env, str(mapping_default))),
+    )
+
+
 def readiness(config: GeneratorConfig) -> dict[str, Any]:
+    project_root = Path(__file__).resolve().parents[2]
+    v2_template, v2_mapping = resolve_template_paths(
+        {"schemaVersion": "2.0", "templateVersion": "2"}, project_root
+    )
     checks = {
         "template": config.template_path.exists(),
         "mapping": config.mapping_path.exists(),
+        "templateV2": v2_template.exists(),
+        "mappingV2": v2_mapping.exists(),
         "tempWritable": False,
         "storage": False,
         "pdfEngine": False,

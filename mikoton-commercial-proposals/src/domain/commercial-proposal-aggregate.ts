@@ -241,6 +241,23 @@ const requireString = (value: unknown, fieldName: string) => {
 const optionalString = (value: unknown) =>
   typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 
+const assertPlainObjectEntries: (
+  values: unknown[],
+  fieldName: string,
+) => asserts values is Record<string, unknown>[] = (
+  values: unknown[],
+  fieldName: string,
+) => {
+  values.forEach((value, index) => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_VALIDATION_FAILED',
+        `${fieldName}[${index}] must be an object`,
+      );
+    }
+  });
+};
+
 const normalizeHeader = (value: unknown): CommercialProposalHeader => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new ApplicationError(
@@ -288,6 +305,9 @@ export const normalizeSaveEditorRequest = (
       'items and stages must be arrays',
     );
   }
+
+  assertPlainObjectEntries(body.items, 'items');
+  assertPlainObjectEntries(body.stages, 'stages');
 
   const editorRevision = body.editorRevision;
 
@@ -337,6 +357,9 @@ export const normalizeRecalculateRequest = (
       'items must be an array',
     );
   }
+
+
+  assertPlainObjectEntries(body.items, 'items');
 
   return {
     currencyCode: optionalString(body.currencyCode),
@@ -623,19 +646,17 @@ export const buildEditorContext = (
       currencyCode: string | null;
     } | null;
     company: { id: string; name: string } | null;
+    warnings?: Array<
+      'OPPORTUNITY_CONTEXT_UNAVAILABLE' | 'COMPANY_CONTEXT_UNAVAILABLE'
+    >;
   },
 ) => ({
   ...aggregate,
   opportunity: displayContext?.opportunity ?? null,
   company: displayContext?.company ?? null,
+  warnings: displayContext?.warnings ?? [],
   isEditable: EDITABLE_STATUSES.has(aggregate.proposal.status),
-  generationAvailability:
-    aggregate.proposal.contentModelVersion === 'AGGREGATE_V2'
-      ? {
-          allowed: false,
-          reason: 'AGGREGATE_V2_NOT_SUPPORTED_UNTIL_PROMPT_5_3',
-        }
-      : { allowed: true, reason: null },
+  generationAvailability: { allowed: true, reason: null },
   legacySuggestion:
     aggregate.proposal.contentModelVersion === 'LEGACY_V1' &&
     aggregate.items.length === 0 &&

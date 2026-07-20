@@ -299,8 +299,10 @@ describe('commercial proposal domain', () => {
 
     expect(result.generated).toBe(true);
     expect(documentClient.generate).toHaveBeenCalledOnce();
-    expect(repository.attachGeneratedFiles).toHaveBeenCalledWith('draft-id', [
+    expect(repository.attachGeneratedFiles).toHaveBeenNthCalledWith(1, 'draft-id', [
       expect.objectContaining({ format: 'xlsx' }),
+    ]);
+    expect(repository.attachGeneratedFiles).toHaveBeenNthCalledWith(2, 'draft-id', [
       expect.objectContaining({ format: 'pdf' }),
     ]);
     expect(documentClient.generate).toHaveBeenCalledWith(
@@ -321,8 +323,7 @@ describe('commercial proposal domain', () => {
         title: 'КП-001 от 12.07.2026 - Test opportunity',
       }),
     );
-    expect(repository.updateCommercialProposal).toHaveBeenNthCalledWith(
-      2,
+    expect(repository.updateCommercialProposal).toHaveBeenCalledWith(
       'draft-id',
       expect.objectContaining({
         status: 'GENERATED',
@@ -436,7 +437,7 @@ describe('commercial proposal domain', () => {
     expect(result.draft.payloadSnapshot).toEqual(makeInput());
   });
 
-  it('blocks aggregate v2 generation before schema 2.0 exists', async () => {
+  it('fails safely when aggregate children cannot be loaded', async () => {
     const repository = makeRepository();
     vi.mocked(repository.getCommercialProposal).mockResolvedValue(
       makeDraft({ contentModelVersion: 'AGGREGATE_V2' }),
@@ -453,7 +454,7 @@ describe('commercial proposal domain', () => {
         documentClient,
       }),
     ).rejects.toMatchObject({
-      code: 'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED',
+      code: 'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
     });
 
     expect(documentClient.generate).not.toHaveBeenCalled();

@@ -948,74 +948,81 @@ export class TwentyRecordRepository
     files: CommercialProposalGenerationFile[],
   ): Promise<CommercialProposalGenerationFile[]> {
     return Promise.all(
-      files.map(async (file) => {
-        const response = await fetch(file.downloadUrl);
-
-        if (!response.ok) {
-          throw new ApplicationError(
-            'DOCUMENT_STORAGE_FAILED',
-            `Generated ${file.format.toUpperCase()} file could not be downloaded`,
-          );
-        }
-
-        const contentType = response.headers.get('content-type') ?? '';
-
-        if (
-          contentType !== '' &&
-          contentType !== 'application/octet-stream' &&
-          !contentType.toLowerCase().includes(file.contentType.toLowerCase())
-        ) {
-          throw new ApplicationError(
-            'DOCUMENT_STORAGE_FAILED',
-            `Generated ${file.format.toUpperCase()} content type does not match metadata`,
-          );
-        }
-
-        const buffer = Buffer.from(await response.arrayBuffer());
-        assertGeneratedFileBuffer(file, buffer);
-
-        const uploadedFile = await uploadGeneratedFileToTwenty(
-          buffer,
-          file.fileName,
-          file.contentType,
-        );
-
-        try {
-          await this.client.mutation({
-            createAttachment: {
-              __args: {
-                data: {
-                  name: file.fileName,
-                  targetCommercialProposalId: commercialProposalId,
-                  file: [
-                    {
-                      fileId: uploadedFile.id,
-                      label: file.fileName,
-                    },
-                  ],
-                  fullPath: uploadedFile.path,
-                  fileCategory: getAttachmentFileCategory(file),
-                },
-              },
-              id: true,
-            },
-          });
-        } catch (error) {
-          throw new ApplicationError(
-            'DOCUMENT_STORAGE_FAILED',
-            'Generated file attachment to Twenty failed',
-            error,
-          );
-        }
-
-        return {
-          ...file,
-          twentyFileId: uploadedFile.id,
-          twentyFileUrl: uploadedFile.url,
-          downloadUrl: uploadedFile.url,
-        };
-      }),
+      files.map((file) =>
+        this.attachGeneratedFile(commercialProposalId, file),
+      ),
     );
+  }
+
+  async attachGeneratedFile(
+    commercialProposalId: string,
+    file: CommercialProposalGenerationFile,
+  ): Promise<CommercialProposalGenerationFile> {
+    const response = await fetch(file.downloadUrl);
+
+    if (!response.ok) {
+      throw new ApplicationError(
+        'DOCUMENT_STORAGE_FAILED',
+        `Generated ${file.format.toUpperCase()} file could not be downloaded`,
+      );
+    }
+
+    const contentType = response.headers.get('content-type') ?? '';
+
+    if (
+      contentType !== '' &&
+      contentType !== 'application/octet-stream' &&
+      !contentType.toLowerCase().includes(file.contentType.toLowerCase())
+    ) {
+      throw new ApplicationError(
+        'DOCUMENT_STORAGE_FAILED',
+        `Generated ${file.format.toUpperCase()} content type does not match metadata`,
+      );
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    assertGeneratedFileBuffer(file, buffer);
+
+    const uploadedFile = await uploadGeneratedFileToTwenty(
+      buffer,
+      file.fileName,
+      file.contentType,
+    );
+
+    try {
+      await this.client.mutation({
+        createAttachment: {
+          __args: {
+            data: {
+              name: file.fileName,
+              targetCommercialProposalId: commercialProposalId,
+              file: [
+                {
+                  fileId: uploadedFile.id,
+                  label: file.fileName,
+                },
+              ],
+              fullPath: uploadedFile.path,
+              fileCategory: getAttachmentFileCategory(file),
+            },
+          },
+          id: true,
+        },
+      });
+    } catch (error) {
+      throw new ApplicationError(
+        'DOCUMENT_STORAGE_FAILED',
+        'Generated file attachment to Twenty failed',
+        error,
+      );
+    }
+
+    return {
+      ...file,
+      twentyFileId: uploadedFile.id,
+      twentyFileUrl: uploadedFile.url,
+      downloadUrl: uploadedFile.url,
+    };
   }
 
   isDuplicateConflict(error: unknown) {

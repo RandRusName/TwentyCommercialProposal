@@ -105,27 +105,26 @@ const GenerateCommercialProposal = () => {
   const commercialProposalId =
     selectedRecordIds.length === 1 ? selectedRecordIds[0] : null;
   const [isGenerating, setIsGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(() => {
-    try {
-      createIdempotencyKey();
-      return null;
-    } catch {
-      return IDEMPOTENCY_SETUP_ERROR;
-    }
-  });
-  const [idempotencyKey] = useState<string | null>(() => {
-    try {
-      return createIdempotencyKey();
-    } catch {
-      return null;
-    }
-  });
+  const [error, setError] = useState<string | null>(null);
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [result, setResult] = useState<GenerateResponse | null>(null);
   const [editorContext, setEditorContext] =
     useState<EditorContextResponse | null>(null);
   const [isLoadingContext, setIsLoadingContext] = useState(true);
 
   useEffect(() => {
+    setEditorContext(null);
+    setResult(null);
+    setError(null);
+    setIsGenerating(false);
+    setIsLoadingContext(true);
+    try {
+      setIdempotencyKey(createIdempotencyKey());
+    } catch {
+      setIdempotencyKey(null);
+      setError(IDEMPOTENCY_SETUP_ERROR);
+    }
+
     if (commercialProposalId === null) {
       setIsLoadingContext(false);
       return;
@@ -229,7 +228,7 @@ const GenerateCommercialProposal = () => {
       <h2 style={styles.title}>Сформировать документ</h2>
       <p style={styles.muted}>
         Будут сформированы XLSX и PDF через внешний document-service.
-        Шаблон версии 1 поддерживает не более 5 позиций работ.
+        Для сохранённого состава КП используется шаблон версии 2.
       </p>
 
       <div style={styles.box}>
@@ -237,6 +236,16 @@ const GenerateCommercialProposal = () => {
         <br />
         {commercialProposalId ?? 'Выберите ровно одну запись'}
       </div>
+
+      {editorContext !== null && (
+        <div style={styles.box}>
+          <strong>{editorContext.proposal.title}</strong><br />
+          Модель: {editorContext.proposal.contentModelVersion}<br />
+          Позиций: {editorContext.items.length}<br />
+          Этапов: {editorContext.stages.length}<br />
+          Итог: {editorContext.proposal.amount ?? 0} {editorContext.proposal.currencyCode ?? ''}
+        </div>
+      )}
 
       {error !== null && <div style={styles.error}>{error}</div>}
 

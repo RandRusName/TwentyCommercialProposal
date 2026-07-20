@@ -11,6 +11,10 @@ services:
       DOCUMENT_SERVICE_SECRET: ${DOCUMENT_SERVICE_SECRET:?DOCUMENT_SERVICE_SECRET is required}
       DOCUMENT_STORAGE_TYPE: s3-compatible
       DOCUMENT_TEMP_PATH: /tmp/mikoton-document-service
+      DOCUMENT_TEMPLATE_V1_PATH: /app/templates/mikoton-commercial-proposal-v1.xlsm
+      DOCUMENT_MAPPING_V1_PATH: /app/templates/mikoton-commercial-proposal-v1.mapping.json
+      DOCUMENT_TEMPLATE_V2_PATH: /app/templates/mikoton-commercial-proposal-v2.xlsx
+      DOCUMENT_MAPPING_V2_PATH: /app/templates/mikoton-commercial-proposal-v2.mapping.json
       DOCUMENT_SIGNED_URL_TTL_SECONDS: 900
       LIBREOFFICE_BINARY: libreoffice
       PDF_ENGINE: libreoffice

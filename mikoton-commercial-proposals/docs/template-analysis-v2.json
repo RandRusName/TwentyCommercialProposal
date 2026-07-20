@@ -1,0 +1,13 @@
+{
+  "file": "templates/mikoton-commercial-proposal-v2.xlsx",
+  "format": "XLSX",
+  "macroEnabled": false,
+  "sheets": ["КП"],
+  "usedRange": "A1:I87",
+  "printArea": "КП!$A$1:$I$87",
+  "capacity": { "workItems": 50, "stages": 10 },
+  "formulaRanges": { "lineAmounts": "I16:I65", "grandTotal": "I66" },
+  "pageSetup": { "orientation": "landscape", "fitToWidth": 1, "fitToHeight": 1, "repeatRows": "$15:$15" },
+  "authoring": "@oai/artifact-tool 2.8.6+",
+  "verified": { "artifactRender": true, "libreOfficeExport": true }
+}

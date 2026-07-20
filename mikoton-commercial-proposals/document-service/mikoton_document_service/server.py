@@ -11,6 +11,7 @@ from .generator import (
     config_from_environment,
     generate_documents,
     readiness,
+    resolve_template_paths,
 )
 
 
@@ -79,15 +80,17 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(idempotency_key, str) or idempotency_key.strip() == "":
                 raise DocumentGenerationError("PAYLOAD_INVALID", "idempotencyKey is required")
             config = config_from_environment(PROJECT_ROOT)
+            template_path, mapping_path = resolve_template_paths(payload, PROJECT_ROOT)
             if config.pdf_engine != "libreoffice":
                 raise DocumentGenerationError("PDF_EXPORT_FAILED", "Configured PDF engine is not supported")
             result = generate_documents(
                 payload,
-                config.template_path,
-                config.mapping_path,
+                template_path,
+                mapping_path,
                 config.temp_dir,
                 storage=config.storage,
                 idempotency_key=idempotency_key,
+                snapshot_hash=request.get("snapshotHash"),
                 libreoffice_binary=config.libreoffice_binary,
                 timeout_seconds=config.timeout_seconds,
                 signed_url_ttl_seconds=config.signed_url_ttl_seconds,
@@ -117,4 +120,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,5 +1,9 @@
 # Document Generation
 
+Aggregate proposals use macro-free XLSX template v2 and schema `2.0`. It supports 50 items and 10 stages, keeps percentage formulas and server-calculated cached totals, and is exported to PDF by LibreOffice. Legacy proposals keep the v1 path.
+
+Twenty attachment is checkpointed after each format. Retry matches `generationId + format + sha256` and attaches only a missing format.
+
 Phase 4 uses an external document-service. Twenty App logic functions do not edit Excel files directly and never run VBA.
 
 Flow:

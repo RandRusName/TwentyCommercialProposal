@@ -89,6 +89,8 @@ const EditCommercialProposal = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [starterSuggestionDismissed, setStarterSuggestionDismissed] =
+    useState(false);
   const pendingSave = useRef<SaveEditorRequest | null>(null);
 
   const load = useCallback(async () => {
@@ -109,6 +111,7 @@ const EditCommercialProposal = () => {
       setState(next);
       setConflict(false);
       setNotice(null);
+      setStarterSuggestionDismissed(false);
       pendingSave.current = null;
     } catch (caught) {
       setError(safeEditorError(caught));
@@ -148,21 +151,20 @@ const EditCommercialProposal = () => {
         `/commercial-proposals/${encodeURIComponent(state.proposalId)}/save-editor`,
         { ...request },
       );
-      const mergedContext: EditorContextResponse = {
+      const canonicalResponse: EditorContextResponse = {
         ...context,
         proposal: response.proposal,
         items: response.items,
         stages: response.stages,
         isEditable: response.proposal.status === 'DRAFT' || response.proposal.status === 'FAILED',
-        generationAvailability: response.proposal.contentModelVersion === 'AGGREGATE_V2'
-          ? { allowed: false, reason: 'AGGREGATE_V2_NOT_SUPPORTED_UNTIL_PROMPT_5_3' }
-          : { allowed: true, reason: null },
+        generationAvailability: { allowed: true, reason: null },
       };
-      const next = applyCanonicalResponse(mergedContext);
-      setContext(mergedContext);
+      const next = applyCanonicalResponse(canonicalResponse);
+      setContext(canonicalResponse);
       setCanonical(next);
       setState(next);
       pendingSave.current = null;
+      await load();
       setNotice(response.replayed ? 'Сохранённая операция подтверждена' : 'Изменения сохранены');
       await enqueueSnackbar({ message: 'Коммерческое предложение сохранено', variant: 'success' });
     } catch (caught) {
@@ -219,7 +221,7 @@ const EditCommercialProposal = () => {
       {error !== null && <div style={{ ...styles.error, marginTop: '12px' }}>{error}{conflict && <div style={{ marginTop: '8px' }}><button type="button" style={styles.button} onClick={() => void load()}>Загрузить актуальную версию</button><span style={{ marginLeft: '8px' }}>Локальные изменения остаются на экране до перезагрузки.</span></div>}</div>}
       {dirty && !validation.valid && <div style={{ ...styles.error, marginTop: '12px' }}>Исправьте отмеченные поля перед сохранением.</div>}
       {notice !== null && <div style={{ ...styles.success, marginTop: '12px' }}>{notice}</div>}
-      {state.contentModelVersion === 'AGGREGATE_V2' && <div style={{ ...styles.banner, marginTop: '12px' }}>Состав работ сохранён. Формирование XLSX/PDF для расширенного КП будет доступно после подключения шаблона v2.</div>}
+      {(context.warnings?.length ?? 0) > 0 && <div style={{ ...styles.banner, marginTop: '12px' }}>Часть справочного контекста Opportunity/Company сейчас недоступна. Состав КП загружен полностью.</div>}
 
       <section style={styles.section}><h3 style={styles.sectionTitle}>Контекст сделки</h3><div style={styles.grid}><div><span style={styles.label}>Opportunity</span><div>{context.opportunity?.name ?? 'Не указана'}</div></div><div><span style={styles.label}>Прогноз сделки</span><div>{formatMoney(context.opportunity?.amount ?? null, context.opportunity?.currencyCode ?? null)}</div></div><div><span style={styles.label}>Компания</span><div>{context.company?.name ?? 'Компания не указана'}</div></div></div></section>
 
@@ -230,7 +232,7 @@ const EditCommercialProposal = () => {
         <Field label="Срок действия, дней" type="number" value={String(state.header.validityDays)} disabled={!editable} onChange={(value) => setHeader('validityDays', Number(value))} error={validation.errors.validityDays} />
       </div><div style={{ marginTop: '10px' }}><Field label="Контекст и цель" value={state.header.contextAndGoal ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('contextAndGoal', value)} /></div></section>
 
-      {context.legacySuggestion.canCreateStarterItem && state.items.length === 0 && <div style={{ ...styles.banner, marginTop: '16px' }}>У этого КП ещё нет состава работ. Можно создать стартовую строку из текущей суммы сделки.<div style={{ marginTop: '8px' }}><button type="button" style={styles.button} disabled={!editable} onClick={() => edit((current) => ({ ...current, items: [createStarterItem(context.legacySuggestion)] }))}>Создать стартовую строку</button><button type="button" style={{ ...styles.button, marginLeft: '8px' }} disabled={!editable} onClick={() => setNotice('Пустая таблица сохранена. Добавьте строки вручную.')}>Начать с пустой таблицы</button></div></div>}
+      {context.legacySuggestion.canCreateStarterItem && state.items.length === 0 && !starterSuggestionDismissed && <div style={{ ...styles.banner, marginTop: '16px' }}>У этого КП ещё нет состава работ. Можно создать стартовую строку из текущей суммы сделки.<div style={{ marginTop: '8px' }}><button type="button" style={styles.button} disabled={!editable} onClick={() => edit((current) => ({ ...current, items: [createStarterItem(context.legacySuggestion)] }))}>Создать стартовую строку</button><button type="button" style={{ ...styles.button, marginLeft: '8px' }} disabled={!editable} onClick={() => { setStarterSuggestionDismissed(true); setNotice('Добавьте первую строку вручную.'); }}>Начать с пустой таблицы</button></div></div>}
 
       <section style={styles.section}><div style={styles.header}><h3 style={styles.sectionTitle}>Состав работ</h3>{editable && <button type="button" style={styles.button} onClick={() => edit((current) => ({ ...current, items: [...current.items, createEmptyItem()] }))}>Добавить строку</button>}</div><div style={styles.tableWrap}><table style={styles.table}><thead><tr>{['№','Блок','Наименование','Описание','Количество','Ед.','Ставка','Скидка, %','Сумма','Действия'].map((label) => <th key={label} style={styles.cell}>{label}</th>)}</tr></thead><tbody>{state.items.map((item, index) => <tr key={item.clientKey}><td style={styles.cell}>{index + 1}</td>{(['block','name','description','quantity','unit','unitPrice','discountPercent'] as const).map((key) => <td key={key} style={styles.cell}><input aria-label={`${key} ${index + 1}`} style={{ ...styles.input, width: key === 'description' ? '190px' : '100px' }} disabled={!editable} value={item[key]} onChange={(event) => updateItem(index, { [key]: event.target.value })} />{validation.errors[`items.${index}.${key}`] !== undefined && <div style={{ color: '#dc2626' }}>{validation.errors[`items.${index}.${key}`]}</div>}</td>)}<td style={styles.cell}>{formatMoney(calculatePreview({ ...state, items: [item] }), state.header.currencyCode)}</td><td style={styles.cell}><div style={styles.actions}>{editable && <><button type="button" title="Дублировать" aria-label="Дублировать строку" style={styles.button} onClick={() => edit((current) => ({ ...current, items: [...current.items.slice(0, index + 1), duplicateItem(item), ...current.items.slice(index + 1)] }))}>+</button><button type="button" title="Вверх" aria-label="Переместить строку вверх" style={styles.button} onClick={() => edit((current) => ({ ...current, items: moveEntry(current.items, index, -1) }))}>↑</button><button type="button" title="Вниз" aria-label="Переместить строку вниз" style={styles.button} onClick={() => edit((current) => ({ ...current, items: moveEntry(current.items, index, 1) }))}>↓</button><button type="button" title="Удалить" aria-label="Удалить строку" style={styles.button} onClick={() => edit((current) => ({ ...current, items: removeEntry(current.items, index) }))}>×</button></>}</div></td></tr>)}</tbody></table></div></section>
 

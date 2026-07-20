@@ -1,5 +1,9 @@
 # Known Limitations
 
+- Template v2 supports at most 50 work items and 10 stages; larger proposals are rejected, never truncated.
+- Generation uses a best-effort editor revision recheck because Twenty v2.20.0 exposes no App-level multi-object transaction/CAS primitive.
+- LibreOffice PDF output requires a manual visual check after material template changes.
+
 - GitHub CI was not observed green in this session because changes were not
   pushed and no workflow URL was available.
 - Ephemeral integration tests require a temporary Twenty instance and were not

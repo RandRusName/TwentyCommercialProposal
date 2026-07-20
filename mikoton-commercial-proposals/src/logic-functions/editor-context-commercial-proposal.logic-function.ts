@@ -24,24 +24,36 @@ const handler = async (event: RoutePayload) => {
     const aggregate =
       await repository.getCommercialProposalAggregate(commercialProposalId);
     assertAggregateIntegrity(aggregate);
-    const opportunity = await repository.getOpportunityContext(
-      aggregate.proposal.opportunityId,
-    );
+    const warnings: Array<
+      'OPPORTUNITY_CONTEXT_UNAVAILABLE' | 'COMPANY_CONTEXT_UNAVAILABLE'
+    > = [];
+    const opportunity = await repository
+      .getOpportunityContext(aggregate.proposal.opportunityId)
+      .catch(() => {
+        warnings.push('OPPORTUNITY_CONTEXT_UNAVAILABLE');
+        return null;
+      });
     const company =
       aggregate.proposal.companyId === null
         ? null
-        : await repository.getCompanyContext(aggregate.proposal.companyId);
+        : await repository
+            .getCompanyContext(aggregate.proposal.companyId)
+            .catch(() => {
+              warnings.push('COMPANY_CONTEXT_UNAVAILABLE');
+              return null;
+            });
 
     return json({
       status: 'success',
       ...buildEditorContext(aggregate, {
-        opportunity: {
+        opportunity: opportunity === null ? null : {
           id: opportunity.id,
           name: opportunity.name,
           amount: opportunity.amount,
           currencyCode: opportunity.currencyCode,
         },
         company,
+        warnings,
       }),
     });
   } catch (error) {

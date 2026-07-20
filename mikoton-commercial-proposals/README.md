@@ -1,5 +1,7 @@
 # Mikoton Commercial Proposals
 
+Persisted `AGGREGATE_V2` proposals can be generated with schema `2.0` into macro-free XLSX and LibreOffice PDF files. Template v2 supports 50 work items and 10 stages; legacy records retain schema/template v1.
+
 Twenty App for creating a `CommercialProposal` draft from a selected
 Opportunity in Twenty CRM.
 

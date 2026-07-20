@@ -26,6 +26,8 @@ from mikoton_document_service.generator import (
 
 TEMPLATE_PATH = PROJECT_ROOT / "templates" / "mikoton-commercial-proposal-v1.xlsm"
 MAPPING_PATH = PROJECT_ROOT / "templates" / "mikoton-commercial-proposal-v1.mapping.json"
+TEMPLATE_V2_PATH = PROJECT_ROOT / "templates" / "mikoton-commercial-proposal-v2.xlsx"
+MAPPING_V2_PATH = PROJECT_ROOT / "templates" / "mikoton-commercial-proposal-v2.mapping.json"
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 
@@ -89,6 +91,39 @@ def fixture_payload() -> dict:
     }
 
 
+def fixture_payload_v2() -> dict:
+    payload = fixture_payload()
+    payload["schemaVersion"] = "2.0"
+    payload["templateVersion"] = "2"
+    payload["proposal"]["amount"] = 37350
+    payload["content"]["workItems"] = [
+        {
+            "position": 1,
+            "block": "Анализ",
+            "name": "Интервью",
+            "description": "Сбор требований",
+            "quantity": 2,
+            "unit": "час",
+            "unitPrice": 5500,
+            "discountPercent": 15,
+            "lineAmount": 9350,
+        },
+        {
+            "position": 2,
+            "block": "Разработка",
+            "name": "Интеграция",
+            "description": "Реализация коннектора",
+            "quantity": 4,
+            "unit": "час",
+            "unitPrice": 7000,
+            "discountPercent": 0,
+            "lineAmount": 28000,
+        },
+    ]
+    payload["content"]["plan"][0]["description"] = "Рабочая встреча"
+    return payload
+
+
 def cell(root: ET.Element, ref: str) -> ET.Element:
     for candidate in root.findall(".//m:c", NS):
         if candidate.attrib.get("r") == ref:
@@ -101,6 +136,67 @@ def text_value(cell_node: ET.Element) -> str:
 
 
 class GeneratorTest(unittest.TestCase):
+    def test_v2_generates_macro_free_xlsx_with_separate_name_and_description(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = generate_xlsx(
+                fixture_payload_v2(), TEMPLATE_V2_PATH, MAPPING_V2_PATH, Path(tmp)
+            )
+            with zipfile.ZipFile(output.path) as package:
+                names = set(package.namelist())
+                self.assertNotIn("xl/vbaProject.bin", names)
+                sheet = ET.fromstring(package.read("xl/worksheets/sheet1.xml"))
+                self.assertEqual(text_value(cell(sheet, "C16")), "Интервью")
+                self.assertEqual(text_value(cell(sheet, "D16")), "Сбор требований")
+                self.assertEqual(cell(sheet, "I16").find("m:f", NS).text, "E16*G16*(1-H16/100)")
+                self.assertEqual(cell(sheet, "I66").find("m:f", NS).text, "SUM(I16:I65)")
+
+    def test_v2_manifest_reuses_same_generation_without_second_pdf_export(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            storage = LocalDocumentStorage(tmp_path / "storage", "https://documents.example.test")
+            calls = 0
+
+            def fake_libreoffice(command: list[str], **kwargs: object) -> CompletedProcess[str]:
+                nonlocal calls
+                calls += 1
+                outdir = Path(command[command.index("--outdir") + 1])
+                source = Path(command[-1])
+                (outdir / f"{source.stem}.pdf").write_bytes(b"%PDF-1.4\n% v2\n")
+                return CompletedProcess(command, 0, stdout="converted", stderr="")
+
+            with patch("mikoton_document_service.generator.subprocess.run", side_effect=fake_libreoffice):
+                first = generate_documents(
+                    fixture_payload_v2(), TEMPLATE_V2_PATH, MAPPING_V2_PATH, tmp_path,
+                    storage=storage, idempotency_key="123e4567-e89b-42d3-a456-426614174099",
+                )
+                second = generate_documents(
+                    fixture_payload_v2(), TEMPLATE_V2_PATH, MAPPING_V2_PATH, tmp_path,
+                    storage=storage, idempotency_key="123e4567-e89b-42d3-a456-426614174099",
+                    snapshot_hash=first["snapshotHash"],
+                )
+
+            self.assertEqual(calls, 1)
+            self.assertEqual(first["generationId"], second["generationId"])
+            self.assertEqual(
+                [file["storageKey"] for file in first["files"]],
+                [file["storageKey"] for file in second["files"]],
+            )
+
+    def test_v2_rejects_schema_mismatch_and_non_finite_values(self) -> None:
+        mismatch = fixture_payload_v2()
+        mismatch["templateVersion"] = "1"
+        mapping = json.loads(MAPPING_V2_PATH.read_text(encoding="utf-8"))
+        from mikoton_document_service.generator import validate_payload
+
+        with self.assertRaises(DocumentGenerationError) as mismatch_error:
+            validate_payload(mismatch, mapping)
+        self.assertEqual(mismatch_error.exception.code, "DOCUMENT_SCHEMA_TEMPLATE_MISMATCH")
+
+        invalid = fixture_payload_v2()
+        invalid["content"]["workItems"][0]["quantity"] = float("nan")
+        with self.assertRaises(DocumentGenerationError) as invalid_error:
+            validate_payload(invalid, mapping)
+        self.assertEqual(invalid_error.exception.code, "PAYLOAD_INVALID")
     def test_generates_xlsx_pdf_and_removes_macro_parts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

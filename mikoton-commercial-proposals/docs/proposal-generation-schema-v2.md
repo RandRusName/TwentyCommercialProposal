@@ -1,5 +1,13 @@
 # Commercial Proposal Generation Schema v2
 
+## Implemented contract
+
+`AGGREGATE_V2` dispatches to schema `2.0` and template `2`; `LEGACY_V1` stays on schema `1.0` and template `1`. Mismatches return `DOCUMENT_SCHEMA_TEMPLATE_MISMATCH`.
+
+The v2 snapshot is built from the canonical persisted aggregate in normalized position order. Canonical JSON is recursively key-sorted and hashed with SHA-256. Validation runs before number, status or snapshot mutation and checks child identity/order, complete stages, currency, authoritative line totals and aggregate total.
+
+Document-service persists `manifest.json` below the generation storage prefix. The same idempotency key/hash reuses files and refreshes URLs; the same key with another hash returns `GENERATION_IDEMPOTENCY_CONFLICT`.
+
 ## Goal
 
 Schema `2.0` generates documents from saved `CommercialProposal` aggregate data. It must never synthesize work items from Opportunity name or Opportunity amount.
