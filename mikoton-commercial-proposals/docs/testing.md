@@ -86,16 +86,18 @@ In `target` mode, setup does not sync metadata and never uninstalls the app.
 The test creates `[SMOKE]` business records and performs best-effort cleanup of
 those records only.
 
-Observed on 2026-07-13:
+Observed on 2026-07-20 after private install of App `0.1.36`:
 
-- Windows `yarn.cmd test:target-smoke` could not start because optional native
-  `rolldown` Windows bindings were absent.
-- WSL `corepack yarn test:target-smoke` started and could create GraphQL smoke
-  records, but authenticated app routes returned HTTP `403` with an empty body.
-- This indicates the target API key works for GraphQL but is not sufficient for
-  `/s/...` app routes with `isAuthRequired: true`.
-- Target app-route smoke remains not passed until it is run with a real
-  authenticated Twenty user session or another supported route-auth mechanism.
+- WSL `corepack yarn test:target-smoke` passed, 1 file / 7 tests.
+- The test exercised authenticated draft, context, editor, save, recalculate and
+  generation-guard routes on the target Twenty.
+- The aggregate scenario saved three items and two stages, recalculated the
+  canonical total, replayed the same operation without duplicates, rejected a
+  stale revision and rejected a fabricated foreign child id.
+- Browser smoke used the front-component application access token and confirmed
+  editable, conflict, reload, generation-blocked and GENERATED read-only states.
+- The isolated target smoke business records were cleaned up. The App was not
+  uninstalled and metadata was not modified by the test.
 
 ## CI
 
@@ -148,8 +150,7 @@ Local evidence on 2026-07-20:
 
 - WSL `corepack yarn lint`: passed, 0 warnings/errors.
 - WSL `corepack yarn typecheck`: passed.
-- WSL `corepack yarn test:unit`: passed, 3 files / 79 tests before final
-  deployment validation.
+- WSL `corepack yarn test:unit`: passed, 3 files / 82 tests.
 - WSL `python3 -m unittest discover -s document-service/tests -v`: passed,
   4 tests.
 - WSL `scripts/build-wsl.sh`: passed; editor bundle included and tarball
@@ -160,3 +161,15 @@ canonical persisted totals, final revision re-read, partial-failure replay,
 minimal recalculate payload, backend error-code preservation, immutable editor
 helpers, comma decimals, validation, dirty state, stable save operation ids and
 canonical response application.
+
+Target evidence for Prompt 5.2:
+
+- `deploy.bat`: published and installed `0.1.36`.
+- tarball SHA-256:
+  `44d18091b691395213fc64882e967cef148b2d3e15390be4ece1b79aeae8b8d4`.
+- Twenty Settings -> Applications: current `0.1.36`, latest `0.1.36`.
+- repeated metadata plan: no changes.
+- WSL target smoke: 7 tests passed.
+- browser UI smoke: editable save/reload, conflict with retained local edits,
+  aggregate generation guard, legacy generation regression and GENERATED
+  read-only mode passed.
