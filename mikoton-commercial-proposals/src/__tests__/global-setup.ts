@@ -4,6 +4,8 @@ import * as path from 'path';
 
 import { appDevOnce, appUninstall } from 'twenty-sdk/cli';
 
+import { APPLICATION_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
+
 type TestInstanceMode = 'ephemeral' | 'target';
 type GuardedOperation = 'uninstall' | 'sync';
 
@@ -85,6 +87,92 @@ function writeConfig(apiUrl: string, apiKey: string) {
   fs.writeFileSync(path.join(CONFIG_DIR, 'config.test.json'), payload);
 }
 
+type MetadataResponse<T> = {
+  data?: T;
+  errors?: Array<{ message: string }>;
+};
+
+async function metadataRequest<T>(
+  apiUrl: string,
+  apiKey: string,
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<T> {
+  const response = await fetch(`${apiUrl}/metadata`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  const payload = (await response.json()) as MetadataResponse<T>;
+
+  if (!response.ok || payload.data === undefined || payload.errors?.length) {
+    throw new Error(
+      payload.errors?.map(({ message }) => message).join('; ') ??
+        `Metadata request failed with ${response.status}`,
+    );
+  }
+
+  return payload.data;
+}
+
+async function configureEphemeralApplicationVariables(
+  apiUrl: string,
+  apiKey: string,
+) {
+  const documentServiceUrl = process.env.CI_DOCUMENT_SERVICE_URL;
+  const documentServiceSecret = process.env.CI_DOCUMENT_SERVICE_SECRET;
+  const internalApiUrl = process.env.TWENTY_APP_INTERNAL_API_URL;
+
+  if (!documentServiceUrl || !documentServiceSecret || !internalApiUrl) {
+    throw new Error(
+      'CI document service and internal Twenty URL are required in ephemeral mode',
+    );
+  }
+
+  const application = await metadataRequest<{
+    findOneApplication: { id: string } | null;
+  }>(
+    apiUrl,
+    apiKey,
+    `query FindApplication($universalIdentifier: UUID!) {
+      findOneApplication(
+        universalIdentifier: $universalIdentifier
+      ) { id }
+    }`,
+    { universalIdentifier: APPLICATION_UNIVERSAL_IDENTIFIER },
+  );
+  const applicationId = application.findOneApplication?.id;
+
+  if (!applicationId) {
+    throw new Error('Synced application was not found');
+  }
+
+  const values: Record<string, string> = {
+    TWENTY_API_URL: internalApiUrl,
+    DOCUMENT_SERVICE_URL: documentServiceUrl,
+    DOCUMENT_SERVICE_SECRET: documentServiceSecret,
+    TWENTY_FILE_UPLOAD_API_KEY: apiKey,
+  };
+
+  for (const [key, value] of Object.entries(values)) {
+    await metadataRequest<{ updateOneApplicationVariable: boolean }>(
+      apiUrl,
+      apiKey,
+      `mutation UpdateVariable($key: String!, $value: String!, $applicationId: UUID!) {
+        updateOneApplicationVariable(
+          key: $key
+          value: $value
+          applicationId: $applicationId
+        )
+      }`,
+      { key, value, applicationId },
+    );
+  }
+}
+
 export async function setup() {
   const { apiUrl, apiKey, mode } = getEnv();
   testInstanceMode = mode;
@@ -112,6 +200,8 @@ export async function setup() {
       `Dev sync failed: ${result.error?.message ?? 'Unknown error'}`,
     );
   }
+
+  await configureEphemeralApplicationVariables(apiUrl, apiKey);
 }
 
 export async function teardown() {

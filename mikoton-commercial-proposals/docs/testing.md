@@ -112,14 +112,17 @@ Root workflow: `.github/workflows/ci.yml`.
 CI uses:
 
 - `TWENTY_VERSION: v2.20.0`;
-- `twentyhq/twenty/.github/actions/spawn-twenty-app-dev-test@twenty/v2.20.0`;
+- the exact `twentycrm/twenty-app-dev:v2.20.0` image with
+  `LOGIC_FUNCTION_TYPE=LOCAL`, because the upstream spawn action does not enable
+  logic-function execution;
+- an isolated Docker network with the App document-service and private MinIO;
+- workspace-scoped ephemeral App variables configured through the Twenty
+  metadata API after sync; no target URL, target key or production secret is
+  used by GitHub;
 - Node from `mikoton-commercial-proposals/.nvmrc`;
 - `yarn install --immutable`;
 - lint, typecheck, unit tests, real integration tests, app build and tarball
   validation.
-
-CI could not be observed as green from this local session because no commit was
-pushed and no GitHub workflow run URL was produced.
 
 ## Prompt 5.1 Aggregate Backend Tests
 

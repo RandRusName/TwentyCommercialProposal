@@ -27,11 +27,81 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Spawn Twenty test instance
+      - name: Start ephemeral Twenty and document service
         id: twenty
-        uses: twentyhq/twenty/.github/actions/spawn-twenty-app-dev-test@twenty/v2.20.0
-        with:
-          twenty-version: ${{ env.TWENTY_VERSION }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          document_secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$document_secret"
+          echo "CI_DOCUMENT_SERVICE_SECRET=$document_secret" >> "$GITHUB_ENV"
+          echo "server-url=http://localhost:2021" >> "$GITHUB_OUTPUT"
+          echo "api-key=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyMDIwMjAyMC0xYzI1LTRkMDItYmYyNS02YWVjY2Y3ZWE0MTkiLCJ0eXBlIjoiQVBJX0tFWSIsIndvcmtzcGFjZUlkIjoiMjAyMDIwMjAtMWMyNS00ZDAyLWJmMjUtNmFlY2NmN2VhNDE5IiwiaWF0IjoxNzM1Njg5NjAwLCJleHAiOjQ4OTE0NDk2MDAsImp0aSI6IjIwMjAyMDIwLWY0MDEtNGQ4YS1hNzMxLTY0ZDAwN2MyN2JhZCJ9.bfQjfyN0NEtTCLE_xPyNcwonDzlSXFoP8kdCQTdnuDc" >> "$GITHUB_OUTPUT"
+
+          docker network create twenty-app-ci
+          docker run -d \
+            --name minio \
+            --network twenty-app-ci \
+            -e MINIO_ROOT_USER=ci-minio \
+            -e MINIO_ROOT_PASSWORD=ci-minio-password \
+            minio/minio:latest server /data
+          docker run --rm \
+            --network twenty-app-ci \
+            --entrypoint /bin/sh \
+            minio/mc:latest \
+            -c 'until mc alias set ci http://minio:9000 ci-minio ci-minio-password; do sleep 2; done; mc mb --ignore-existing ci/commercial-proposals; mc anonymous set none ci/commercial-proposals'
+
+          docker build \
+            -f document-service/Dockerfile \
+            -t mikoton-document-service:ci \
+            .
+          docker run -d \
+            --name document-service \
+            --network twenty-app-ci \
+            -e DOCUMENT_SERVICE_SECRET="$document_secret" \
+            -e DOCUMENT_STORAGE_TYPE=s3-compatible \
+            -e MINIO_ENDPOINT=http://minio:9000 \
+            -e MINIO_ACCESS_KEY=ci-minio \
+            -e MINIO_SECRET_KEY=ci-minio-password \
+            -e MINIO_BUCKET=commercial-proposals \
+            -e MINIO_SECURE=false \
+            -e MINIO_PUBLIC_BASE_URL=http://minio:9000 \
+            mikoton-document-service:ci
+
+          docker run -d \
+            --name twenty-app-dev-test \
+            --network twenty-app-ci \
+            -p 2021:2021 \
+            -e NODE_PORT=2021 \
+            -e SERVER_URL=http://localhost:2021 \
+            -e LOGIC_FUNCTION_TYPE=LOCAL \
+            -e MARKETPLACE_CATALOG_SYNC_CRON_ENABLED=false \
+            -e API_RATE_LIMITING_SHORT_LIMIT=100000 \
+            -e API_RATE_LIMITING_LONG_LIMIT=100000 \
+            twentycrm/twenty-app-dev:${TWENTY_VERSION}
+
+          timeout=180
+          elapsed=0
+          until curl -fsS http://localhost:2021/healthz >/dev/null 2>&1; do
+            if [ "$elapsed" -ge "$timeout" ]; then
+              docker logs twenty-app-dev-test 2>&1 | tail -80
+              exit 1
+            fi
+            sleep 3
+            elapsed=$((elapsed + 3))
+          done
+
+          elapsed=0
+          until docker exec document-service \
+            curl -fsS http://127.0.0.1:8010/readyz >/dev/null 2>&1; do
+            if [ "$elapsed" -ge "$timeout" ]; then
+              docker logs document-service 2>&1 | tail -80
+              exit 1
+            fi
+            sleep 3
+            elapsed=$((elapsed + 3))
+          done
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -59,6 +129,8 @@ jobs:
           TWENTY_TEST_INSTANCE_MODE: ephemeral
           TWENTY_API_URL: ${{ steps.twenty.outputs.server-url }}
           TWENTY_API_KEY: ${{ steps.twenty.outputs.api-key }}
+          TWENTY_APP_INTERNAL_API_URL: http://twenty-app-dev-test:2021
+          CI_DOCUMENT_SERVICE_URL: http://document-service:8010
 
       - name: Build app
         run: yarn twenty dev:build .
