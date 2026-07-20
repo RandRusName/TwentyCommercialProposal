@@ -128,10 +128,16 @@ Added unit coverage:
 - foreign child id ownership rejection;
 - `AGGREGATE_V2` generation guard before schema `2.0`.
 
-Local Prompt 5.1 evidence on 2026-07-20:
+Prompt 5.1 evidence on 2026-07-20:
 
-- `yarn.cmd install --immutable`: passed with existing peer warning for `twenty-ui`.
-- `yarn.cmd typecheck`: passed.
-- `yarn.cmd test:unit`: passed, 2 files / 58 tests.
-
-Target metadata plan, deploy, and smoke are not yet executed for Prompt 5.1.
+- WSL `corepack yarn lint`: passed.
+- WSL `corepack yarn typecheck`: passed.
+- WSL `corepack yarn test:unit`: passed, 2 files / 58 tests.
+- WSL `python3 -m unittest discover -s document-service/tests -v`: passed, 4 tests.
+- WSL `scripts/build-wsl.sh`: passed, tarball manifest validation OK.
+- `deploy.bat`: passed, private published and installed version `0.1.34`.
+- `corepack yarn twenty plan -r mikoton-target .`: passed after deploy with no changes.
+- WSL `corepack yarn test:target-smoke`: passed, 6 tests.
+- Additional target aggregate smoke passed: editor context, recalculate, save-editor,
+  `LEGACY_V1 -> AGGREGATE_V2`, replayed same `operationId`, and generation
+  guard `COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED`.

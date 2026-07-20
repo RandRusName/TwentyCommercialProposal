@@ -1,8 +1,8 @@
 # Phase 5.1 Smoke Test Report
 
-Status: not executed on target yet.
+Status: passed on target.
 
-Date prepared: 2026-07-20
+Date: 2026-07-20
 
 ## Scope
 
@@ -19,33 +19,44 @@ Prompt 5.1 adds backend aggregate metadata and routes:
 | Check | Result | Evidence |
 |---|---|---|
 | Platform spike | Completed | `docs/prompt-5-1-platform-spike.md` |
-| Dependency restore | Passed | `yarn.cmd install --immutable` |
-| Typecheck | Passed | `yarn.cmd typecheck` |
-| Unit tests | Passed | `yarn.cmd test:unit`, 2 files / 58 tests |
+| Lint | Passed | WSL `corepack yarn lint` |
+| Typecheck | Passed | WSL `corepack yarn typecheck` |
+| Unit tests | Passed | WSL `corepack yarn test:unit`, 2 files / 58 tests |
+| Document-service regression tests | Passed | WSL `python3 -m unittest discover -s document-service/tests -v`, 4 tests |
+| Tarball build | Passed | `scripts/build-wsl.sh`, manifest validation OK |
 
-## Target Smoke Checklist
+## Target Deployment
 
-Not executed yet. Required steps:
+| Check | Result | Evidence |
+|---|---|---|
+| Remote | Passed | `mikoton-target -> http://192.168.100.11:3000`, API key auth valid |
+| Twenty version | Passed | `v2.20.0` |
+| Initial metadata plan | Passed | 29 add, 5 change, 0 destroy |
+| Install/upgrade | Passed | `deploy.bat`, private publish + install |
+| Published version | Passed | `0.1.34` |
+| Tarball | Passed | `release-artifacts/mikoton-commercial-proposals-0.1.34.tgz` |
+| SHA-256 | Passed | `0e147f402c8b06f66d6bfe2196ec5a5874d8f34bb5170012d336fae8ba4da7de` |
+| Repeated metadata plan | Passed | No changes; metadata matches manifest |
 
-1. Run metadata plan on `mikoton-target`.
-2. Confirm additive app-owned metadata only.
-3. Publish/install upgraded app.
-4. Open `LEGACY_V1` DRAFT.
-5. Save header only through `save-editor`.
-6. Verify `contentModelVersion = LEGACY_V1`, amount unchanged, revision incremented.
-7. Save 2 items and 2 stages.
-8. Verify conversion to `AGGREGATE_V2`, normalized positions, calculated amount.
-9. Replay same `operationId`.
-10. Verify no duplicate children and no second revision increment.
-11. Submit foreign/fabricated child id.
-12. Verify `COMMERCIAL_PROPOSAL_CHILD_FORBIDDEN`.
-13. Attempt generation.
-14. Verify `COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED` and no status/number/snapshot/file mutation.
-15. Verify existing `LEGACY_V1` schema `1.0` generation still works.
+## Target Smoke Results
 
-## Limitations Until Target Smoke
+| Check | Result | Evidence |
+|---|---|---|
+| Phase 3 backend regression | Passed | WSL `corepack yarn test:target-smoke`, 6 tests |
+| Context route with Company | Passed | `companyId` GraphQL input is required on target; nested `company.connect` returns `company: null` |
+| Editor context route | Passed | `POST /s/commercial-proposals/{id}/editor-context` |
+| Recalculate route | Passed | `POST /s/commercial-proposals/{id}/recalculate`, total `30000` |
+| Aggregate save | Passed | `POST /s/commercial-proposals/{id}/save-editor` |
+| Conversion | Passed | `LEGACY_V1 -> AGGREGATE_V2` after saving 2 valid items |
+| Items/stages | Passed | 2 items and 2 stages persisted and returned |
+| Amount recalculation | Passed | `CommercialProposal.amount = 30000` |
+| Replay-safe save | Passed | Repeated same `operationId` returned `replayed: true`, revision stayed `2` |
+| Generation guard | Passed | `POST /s/commercial-proposals/generate` returned HTTP `422` with `COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED` |
+| Cleanup | Passed | Smoke Company, Opportunity, and CommercialProposal records removed |
 
-- Target metadata apply/install is not yet confirmed for Prompt 5.1.
-- Target route path-parameter behavior is typed by SDK but not yet smoke-tested on target.
-- Query/mutation names for child objects must be confirmed against target runtime.
-- The final readiness status must remain `NOT READY FOR PROMPT 5.2` until target smoke passes.
+## Remaining Limitations
+
+- No rich editor UI exists yet; Prompt 5.2 owns the front component.
+- `AGGREGATE_V2` generation is intentionally blocked until Prompt 5.3.
+- Optimistic concurrency is best-effort because SDK/Core API v2.20.0 did not expose CAS, transactions, or affected-row conditional updates.
+- Child `clientKey` replay safety is application-level parent lookup/upsert, not a confirmed compound database unique constraint.

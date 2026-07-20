@@ -136,7 +136,7 @@ const createOpportunity = async (companyId: string) => {
           data: {
             name: $name
             amount: { amountMicros: 123450000, currencyCode: "RUB" }
-            company: { connect: { id: $companyId } }
+            companyId: $companyId
           }
         ) {
           id
@@ -175,13 +175,13 @@ const createOpportunityWithoutCompany = async () => {
 
 const findCommercialProposalsByKey = async () => {
   const response = await graphql<{
-    findManyCommercialProposals: {
+    commercialProposals: {
       edges: Array<{ node: CommercialProposalNode }>;
     };
   }>(
     `
       query FindCommercialProposals($idempotencyKey: String!) {
-        findManyCommercialProposals(
+        commercialProposals(
           filter: { idempotencyKey: { eq: $idempotencyKey } }
         ) {
           edges {
@@ -211,7 +211,7 @@ const findCommercialProposalsByKey = async () => {
     { idempotencyKey },
   );
 
-  return response.findManyCommercialProposals.edges.map((edge) => edge.node);
+  return response.commercialProposals.edges.map((edge) => edge.node);
 };
 
 const deleteRecord = async (operationName: string, id: string | null) => {
