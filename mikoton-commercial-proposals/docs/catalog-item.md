@@ -31,3 +31,13 @@ New and migrated records use `price`, Twenty's native `CURRENCY` value
 convert micros by dividing by `1_000_000`. The old `defaultPrice` and
 `currencyCode` fields remain as a non-editable fallback so existing catalog
 records keep working until they are backfilled through the official API.
+
+Existing records can be migrated without direct database access:
+
+```bash
+node scripts/backfill-catalog-native-price.mjs
+node scripts/backfill-catalog-native-price.mjs --apply
+```
+
+The first command is a dry run. The apply mode skips records that already have
+a native price, updates only `CatalogItem.price`, and verifies every result.

@@ -19,10 +19,11 @@
   generated files in a collapsed section. Native Timeline, Tasks, Notes, and
   manual Files management are not part of the default CommercialProposal card;
   generated files remain attached in Twenty and downloadable from the editor.
-- Localization currently covers App navigation metadata, catalog object names,
-  the central editor, and the catalog picker for `en` and `ru-RU`. Twenty's
-  administrative field settings may still show source metadata labels where
-  SDK 2.20 does not expose a separate translated field-label catalog entry.
+- Front components inherit the Twenty execution locale and ship matching `en`
+  and `ru-RU` catalogs. Twenty SDK 2.20 does not provide runtime-localized App
+  metadata for navigation, object and view labels. Those static labels are
+  Russian for the current target; switching Twenty to English localizes the App
+  editor but does not translate those host-owned metadata surfaces.
 - Generated Excel files are ordinary `.xlsx` files without VBA or macros. This is intentional after the macro-enabled workbook proved unreliable.
 - Target `FAILED -> retry -> GENERATED` recovery was exercised after a missing customer contact caused a safe generation failure. The UI now blocks generation until the schema-v2 contact requirement is satisfied.
 - The aggregate editor uses explicit save. The SDK does not expose a supported navigation blocker, so unsaved changes are indicated but closing cannot be intercepted reliably.

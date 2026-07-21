@@ -39,6 +39,11 @@ Implemented in this phase:
   - command/front component/route for generation;
   - XLSX/PDF attachment to the CommercialProposal and a collapsible document
     section on its business card.
+- native Twenty `CURRENCY` price field for catalog items, with a safe API
+  backfill utility for existing legacy prices;
+- `en`/`ru-RU` front-component localization inherited from the Twenty execution
+  locale. App metadata labels are Russian on the current target because SDK
+  2.20 does not localize navigation/object/view metadata at runtime.
 
 Not implemented in this phase:
 
