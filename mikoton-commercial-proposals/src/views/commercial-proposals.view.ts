@@ -28,7 +28,7 @@ import {
 
 export default defineView({
   universalIdentifier: COMMERCIAL_PROPOSAL_VIEW_ALL_UNIVERSAL_IDENTIFIER,
-  name: 'All Commercial Proposals',
+  name: 'Все коммерческие предложения',
   objectUniversalIdentifier: COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
   type: ViewType.TABLE,
   key: ViewKey.INDEX,

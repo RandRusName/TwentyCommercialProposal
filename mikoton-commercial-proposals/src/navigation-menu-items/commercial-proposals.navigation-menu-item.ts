@@ -13,7 +13,7 @@ export default defineNavigationMenuItem({
   universalIdentifier:
     COMMERCIAL_PROPOSAL_NAVIGATION_MENU_ITEM_UNIVERSAL_IDENTIFIER,
   type: NavigationMenuItemType.OBJECT,
-  name: 'Commercial Proposals',
+  name: 'Коммерческие предложения',
   icon: 'IconFileDescription',
   position: 30,
   targetObjectUniversalIdentifier:

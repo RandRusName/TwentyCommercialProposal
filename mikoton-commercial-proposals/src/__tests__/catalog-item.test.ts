@@ -71,7 +71,7 @@ describe('catalog item metadata', () => {
     expect(catalogFields.find((field) => field.name === 'proposalItems'))
       .toMatchObject({ isNullable: true });
     expect(viewFields).toHaveLength(8);
-    expect(viewFields.find((field) => field.universalIdentifier === universalIdentifiers.CATALOG_ITEM_VIEW_FIELD_PRICE_UNIVERSAL_IDENTIFIER))
+    expect(viewFields.find((field) => field.universalIdentifier === universalIdentifiers.CATALOG_ITEM_VIEW_FIELD_NATIVE_PRICE_UNIVERSAL_IDENTIFIER))
       .toMatchObject({
         fieldMetadataUniversalIdentifier:
           universalIdentifiers.CATALOG_ITEM_FIELD_PRICE_UNIVERSAL_IDENTIFIER,

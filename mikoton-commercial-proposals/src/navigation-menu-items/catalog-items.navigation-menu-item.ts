@@ -9,7 +9,7 @@ import {
 export default defineNavigationMenuItem({
   universalIdentifier: CATALOG_ITEM_NAVIGATION_MENU_ITEM_UNIVERSAL_IDENTIFIER,
   type: NavigationMenuItemType.OBJECT,
-  name: 'Work and Services Catalog',
+  name: 'Каталог работ и услуг',
   icon: 'IconLibrary',
   position: 31,
   targetObjectUniversalIdentifier: CATALOG_ITEM_OBJECT_UNIVERSAL_IDENTIFIER,

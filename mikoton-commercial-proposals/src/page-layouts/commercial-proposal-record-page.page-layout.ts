@@ -22,7 +22,7 @@ export default definePageLayout({
     {
       universalIdentifier:
         COMMERCIAL_PROPOSAL_RECORD_PAGE_HOME_TAB_UNIVERSAL_IDENTIFIER,
-      title: 'Commercial proposal',
+      title: 'Коммерческое предложение',
       position: 10,
       icon: 'IconFileInvoice',
       // A single canvas tab renders full-width in Twenty 2.20. Generated files
@@ -32,7 +32,7 @@ export default definePageLayout({
         {
           universalIdentifier:
             COMMERCIAL_PROPOSAL_RECORD_PAGE_HOME_WIDGET_UNIVERSAL_IDENTIFIER,
-          title: 'Commercial proposal',
+          title: 'Коммерческое предложение',
           type: 'FRONT_COMPONENT',
           gridPosition: {
             row: 0,

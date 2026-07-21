@@ -71,7 +71,7 @@ describe('commercial proposal business UX metadata', () => {
     ).toMatchObject({
       universalIdentifier:
         universalIdentifiers.COMMERCIAL_PROPOSAL_RECORD_PAGE_HOME_TAB_UNIVERSAL_IDENTIFIER,
-      title: 'Commercial proposal',
+      title: 'Коммерческое предложение',
       layoutMode: PageLayoutTabLayoutMode.CANVAS,
     });
     expect(layout.tabs.flatMap((tab) => tab.widgets ?? []).map((widget) => widget.type))
