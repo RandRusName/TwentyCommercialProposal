@@ -37,7 +37,8 @@ Implemented in this phase:
   - declarative versioned mappings;
   - external document-service with persistent idempotency manifests;
   - command/front component/route for generation;
-  - XLSX/PDF attachment to the CommercialProposal `Files` tab.
+  - XLSX/PDF attachment to the CommercialProposal and a collapsible document
+    section on its business card.
 
 Not implemented in this phase:
 
@@ -171,7 +172,7 @@ The aggregate editor flow includes:
 - canonical total calculation from re-read persisted children;
 - best-effort final revision re-check;
 - strict generation dispatch: `AGGREGATE_V2` uses schema `2.0` and template `2`;
-- app-owned central CommercialProposal record page with Home editor plus native Timeline, Tasks, Notes and Files tabs;
+- app-owned full-width CommercialProposal record page with a single editor tab;
 - `Открыть карточку КП` command for a single CommercialProposal;
 - explicit-save editor for header, work items, stages and terms;
 - local preview plus authoritative server recalculation;
@@ -185,6 +186,17 @@ at least one valid item; that conversion is explicit and irreversible.
 The app-owned record page deliberately has no generic `FIELDS` widget. Technical
 JSON, idempotency and revision fields therefore stay out of the standard
 business card while remaining available to administrators in Settings.
+
+Generated XLSX/PDF files are still attached to the CommercialProposal record,
+but the business card shows them in a collapsed `Documents` section by default.
+Twenty SDK 2.20 has no supported API for collapsing the host's native pinned
+Timeline/Tasks/Notes/Files area, so the app uses a single full-width tab instead.
+
+The App ships `en` and `ru-RU` locale catalogs. Navigation metadata and the
+central editor use the locale inherited from the current Twenty user. The work
+catalog uses a native `CURRENCY` field, matching Twenty's amount/currency editor;
+legacy numeric price and text currency fields remain read-only compatibility
+data for records created before this migration.
 
 Schema `2.0` generation is enabled for persisted `AGGREGATE_V2` records. Template
 v2 supports 50 work items and 10 stages and produces macro-free XLSX plus PDF.

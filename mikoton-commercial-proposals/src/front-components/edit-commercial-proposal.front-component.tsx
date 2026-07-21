@@ -12,6 +12,7 @@ import {
   useColorScheme,
   useRecordId,
   useSelectedRecordIds,
+  useTranslate,
 } from 'twenty-sdk/front-component';
 import { Status } from 'twenty-ui/data-display';
 import { Callout, Loader } from 'twenty-ui/feedback';
@@ -21,6 +22,7 @@ import {
   IconCopy,
   IconDeviceFloppy,
   IconFileExport,
+  IconPaperclip,
   IconPlus,
   IconRefresh,
   IconTrash,
@@ -48,6 +50,7 @@ import {
   duplicateItem,
   duplicateStage,
   formatMoney,
+  getGeneratedDocumentFiles,
   getProposalDisplayNumber,
   isAggregateReadyForGeneration,
   isEditorDirty,
@@ -71,9 +74,9 @@ import {
   isApplicationError,
 } from 'src/front-components/utils/call-app-route';
 
-const safeEditorError = (error: unknown) => {
+const safeEditorError = (error: unknown, fallback: string) => {
   if (error instanceof AppRouteError) return error.message;
-  return 'Не удалось выполнить операцию редактора. Обновите данные и повторите попытку.';
+  return fallback;
 };
 
 type GenerateResponse = {
@@ -118,6 +121,7 @@ const Field = ({ label, value, onChange, disabled, multiline = false, type = 'te
 };
 
 const EditCommercialProposal = () => {
+  const { t } = useTranslate();
   const selectedRecordIds = useSelectedRecordIds();
   const recordPageRecordId = useRecordId();
   const styles = getEditorStyles(useColorScheme());
@@ -135,6 +139,7 @@ const EditCommercialProposal = () => {
   const [conflict, setConflict] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [documentsOpen, setDocumentsOpen] = useState(false);
   const [starterSuggestionDismissed, setStarterSuggestionDismissed] =
     useState(false);
   const pendingSave = useRef<SaveEditorRequest | null>(null);
@@ -159,13 +164,14 @@ const EditCommercialProposal = () => {
       setConflict(false);
       setNotice(null);
       setStarterSuggestionDismissed(false);
+      setDocumentsOpen(false);
       pendingSave.current = null;
     } catch (caught) {
-      setError(safeEditorError(caught));
+      setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.')));
     } finally {
       setLoading(false);
     }
-  }, [proposalId]);
+  }, [proposalId, t]);
 
   useEffect(() => void load(), [load]);
 
@@ -176,6 +182,10 @@ const EditCommercialProposal = () => {
     [state],
   );
   const preview = useMemo(() => (state === null ? null : calculatePreview(state)), [state]);
+  const generatedFiles = useMemo(
+    () => getGeneratedDocumentFiles(context?.proposal.resultMetadata ?? null),
+    [context?.proposal.resultMetadata],
+  );
   const aggregateReadyForGeneration =
     state !== null &&
     isAggregateReadyForGeneration(state, validation, preview);
@@ -223,18 +233,18 @@ const EditCommercialProposal = () => {
       setState(next);
       pendingSave.current = null;
       await load();
-      setNotice(response.replayed ? 'Сохранённая операция подтверждена' : 'Изменения сохранены');
-      await enqueueSnackbar({ message: 'Коммерческое предложение сохранено', variant: 'success' });
+      setNotice(response.replayed ? t('Saved operation confirmed') : t('Changes saved'));
+      await enqueueSnackbar({ message: t('Commercial proposal saved'), variant: 'success' });
     } catch (caught) {
       if (isApplicationError(caught, 'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT')) {
         setConflict(true);
-        setError('КП было изменено в другой вкладке или операции.');
+        setError(t('The proposal was changed in another tab or operation.'));
       } else if (isApplicationError(caught, 'COMMERCIAL_PROPOSAL_INVALID_STATUS')) {
-        setError('Статус КП изменился. Загрузите актуальную версию.');
+        setError(t('The proposal status changed. Load the latest version.'));
       } else if (isApplicationError(caught, 'COMMERCIAL_PROPOSAL_DATA_INTEGRITY_ERROR')) {
-        setError('Состав КП содержит конфликтующие технические записи. Требуется проверка данных.');
+        setError(t('The proposal contains conflicting technical records. Data review is required.'));
       } else {
-        setError(safeEditorError(caught));
+        setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.')));
       }
     } finally {
       setSaving(false);
@@ -252,9 +262,9 @@ const EditCommercialProposal = () => {
           items: state.items.map(({ clientKey, quantity, unitPrice, discountPercent }) => ({ clientKey, quantity, unitPrice, discountPercent })),
         },
       );
-      setNotice(`Серверный итог: ${formatMoney(result.amount, result.currencyCode)}`);
+      setNotice(t('Server total: {amount}', { amount: formatMoney(result.amount, result.currencyCode) }));
     } catch (caught) {
-      setError(safeEditorError(caught));
+      setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.')));
     }
   };
 
@@ -276,15 +286,16 @@ const EditCommercialProposal = () => {
       );
       generationOperationId.current = null;
       await load();
+      setDocumentsOpen(true);
       setNotice(
-        `Документы сформированы: ${response.result.files.map((file) => file.fileName).join(', ')}`,
+        t('Documents generated: {files}', { files: response.result.files.map((file) => file.fileName).join(', ') }),
       );
       await enqueueSnackbar({
-        message: 'XLSX и PDF сформированы и приложены к КП',
+        message: t('XLSX and PDF were generated and attached to the proposal'),
         variant: 'success',
       });
     } catch (caught) {
-      setError(safeEditorError(caught));
+      setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.')));
     } finally {
       setGenerating(false);
     }
@@ -295,8 +306,8 @@ const EditCommercialProposal = () => {
       <div style={styles.root}>
         <Callout
           variant="neutral"
-          title="Коммерческое предложение не выбрано"
-          description="Откройте ровно одну запись Commercial Proposal."
+          title={t('Commercial proposal is not selected')}
+          description={t('Open exactly one commercial proposal record.')}
         />
       </div>
     );
@@ -313,8 +324,8 @@ const EditCommercialProposal = () => {
       <div style={styles.root}>
         <Callout
           variant="error"
-          title="Не удалось загрузить КП"
-          description={error ?? 'Обновите страницу и повторите попытку.'}
+          title={t('Unable to load the proposal')}
+          description={error ?? t('Refresh the page and try again.')}
         />
       </div>
     );
@@ -330,11 +341,11 @@ const EditCommercialProposal = () => {
     if (catalogItems.length === 0) return;
     const currencyCode = catalogItems[0]?.currencyCode ?? null;
     if (catalogItems.some((item) => item.currencyCode !== currencyCode)) {
-      setError('Все выбранные позиции должны иметь одну валюту.');
+      setError(t('All selected items must use one currency.'));
       return;
     }
     if (state.header.currencyCode !== null && state.header.currencyCode !== currencyCode) {
-      setError('Валюта позиции каталога не совпадает с валютой КП.');
+      setError(t('The catalog item currency does not match the proposal currency.'));
       return;
     }
     edit((current) => ({
@@ -368,7 +379,7 @@ const EditCommercialProposal = () => {
           {(state.status === 'DRAFT' || state.status === 'FAILED') && (
             <Button
               Icon={IconFileExport}
-              title={generating ? 'Формирование...' : 'Сформировать документы'}
+              title={generating ? t('Generating...') : t('Generate documents')}
               variant="primary"
               accent="blue"
               size="small"
@@ -382,13 +393,13 @@ const EditCommercialProposal = () => {
 
       {error !== null && (
         <div style={{ marginTop: '12px' }}>
-          <Callout variant="error" title="Операция не выполнена" description={error} />
+          <Callout variant="error" title={t('Operation failed')} description={error} />
           {conflict && (
             <div style={{ ...styles.header, marginTop: '8px' }}>
-              <span style={styles.muted}>Локальные изменения останутся на экране до перезагрузки.</span>
+              <span style={styles.muted}>{t('Local changes remain on screen until reload.')}</span>
               <Button
                 Icon={IconRefresh}
-                title="Загрузить актуальную версию"
+                title={t('Load latest version')}
                 variant="secondary"
                 size="small"
                 onClick={() => void load()}
@@ -401,22 +412,22 @@ const EditCommercialProposal = () => {
         <div style={{ marginTop: '12px' }}>
           <Callout
             variant="warning"
-            title="Черновик заполнен не полностью"
-            description="Исправьте отмеченные поля перед сохранением."
+            title={t('Draft is incomplete')}
+            description={t('Fix the highlighted fields before saving.')}
           />
         </div>
       )}
       {notice !== null && (
         <div style={{ marginTop: '12px' }}>
-          <Callout variant="success" title="Готово" description={notice} />
+          <Callout variant="success" title={t('Done')} description={notice} />
         </div>
       )}
       {(context.warnings?.length ?? 0) > 0 && (
         <div style={{ marginTop: '12px' }}>
           <Callout
             variant="warning"
-            title="Контекст сделки доступен частично"
-            description="Opportunity или Company сейчас недоступны. Сохранённый состав КП загружен полностью."
+            title={t('Opportunity context is partially available')}
+            description={t('Opportunity or Company is currently unavailable. The saved proposal content is fully loaded.')}
           />
         </div>
       )}
@@ -424,32 +435,68 @@ const EditCommercialProposal = () => {
         <div style={{ marginTop: '12px' }}>
           <Callout
             variant="neutral"
-            title="КП доступно только для чтения"
-            description="Редактирование разрешено только в статусах DRAFT и FAILED."
+            title={t('Proposal is read-only')}
+            description={t('Editing is available only in DRAFT and FAILED statuses.')}
           />
         </div>
       )}
 
-      <section style={styles.section}><h3 style={styles.sectionTitle}>Контекст сделки</h3><div style={styles.grid}><div><span style={styles.label}>Opportunity</span><div>{context.opportunity?.name ?? 'Не указана'}</div></div><div><span style={styles.label}>Прогноз сделки</span><div>{formatMoney(context.opportunity?.amount ?? null, context.opportunity?.currencyCode ?? null)}</div></div><div><span style={styles.label}>Компания</span><div>{context.company?.name ?? 'Компания не указана'}</div></div></div></section>
+      <section style={styles.section}>
+        <div style={styles.header}>
+          <div>
+            <h3 style={styles.sectionTitle}>{t('Documents')}</h3>
+            <div style={styles.muted}>
+              {generatedFiles.length === 0
+                ? t('No generated files yet')
+                : t('Attached files: {count}', { count: generatedFiles.length })}
+            </div>
+          </div>
+          <Button
+            Icon={IconPaperclip}
+            title={documentsOpen ? t('Hide files') : t('Show files')}
+            variant="tertiary"
+            size="small"
+            disabled={generatedFiles.length === 0}
+            onClick={() => setDocumentsOpen((value) => !value)}
+          />
+        </div>
+        {documentsOpen && generatedFiles.length > 0 && (
+          <div style={{ display: 'grid', gap: '8px', marginTop: '10px' }}>
+            {generatedFiles.map((file) => (
+              <a
+                key={`${file.format}-${file.sha256}`}
+                href={file.twentyFileUrl ?? file.downloadUrl}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: 'inherit', textDecoration: 'underline' }}
+              >
+                {file.fileName}
+              </a>
+            ))}
+          </div>
+        )}
+      </section>
 
-      <section style={styles.section}><h3 style={styles.sectionTitle}>Общие данные</h3><div style={styles.grid}>
-        <Field label="Заголовок" value={state.header.title} disabled={!editable} onChange={(value) => setHeader('title', value)} error={validation.errors.title} />
-        <Field label="Контакт" value={state.header.contactName ?? ''} disabled={!editable} onChange={(value) => setHeader('contactName', value)} />
-        <Field label="Валюта" value={state.header.currencyCode ?? ''} disabled={!editable} onChange={(value) => setHeader('currencyCode', value.toUpperCase())} error={validation.errors.currencyCode} />
-        <Field label="Срок действия, дней" type="number" value={String(state.header.validityDays)} disabled={!editable} onChange={(value) => setHeader('validityDays', Number(value))} error={validation.errors.validityDays} />
-      </div><div style={{ marginTop: '10px' }}><Field label="Контекст и цель" value={state.header.contextAndGoal ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('contextAndGoal', value)} /></div></section>
+      <section style={styles.section}><h3 style={styles.sectionTitle}>{t('Opportunity context')}</h3><div style={styles.grid}><div><span style={styles.label}>{t('Opportunity')}</span><div>{context.opportunity?.name ?? t('Not specified')}</div></div><div><span style={styles.label}>{t('Opportunity forecast')}</span><div>{formatMoney(context.opportunity?.amount ?? null, context.opportunity?.currencyCode ?? null)}</div></div><div><span style={styles.label}>{t('Company')}</span><div>{context.company?.name ?? t('Company not specified')}</div></div></div></section>
+
+      <section style={styles.section}><h3 style={styles.sectionTitle}>{t('General information')}</h3><div style={styles.grid}>
+        <Field label={t('Title')} value={state.header.title} disabled={!editable} onChange={(value) => setHeader('title', value)} error={validation.errors.title} />
+        <Field label={t('Contact')} value={state.header.contactName ?? ''} disabled={!editable} onChange={(value) => setHeader('contactName', value)} />
+        <Field label={t('Currency')} value={state.header.currencyCode ?? ''} disabled={!editable} onChange={(value) => setHeader('currencyCode', value.toUpperCase())} error={validation.errors.currencyCode} />
+        <Field label={t('Validity period, days')} type="number" value={String(state.header.validityDays)} disabled={!editable} onChange={(value) => setHeader('validityDays', Number(value))} error={validation.errors.validityDays} />
+      </div><div style={{ marginTop: '10px' }}><Field label={t('Context and goal')} value={state.header.contextAndGoal ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('contextAndGoal', value)} /></div></section>
 
       {context.legacySuggestion.canCreateStarterItem && state.items.length === 0 && !starterSuggestionDismissed && (
         <div style={{ marginTop: '16px' }}>
           <Callout
             variant="warning"
-            title="КП создано в старом формате"
-            description="Сохранение хотя бы одной позиции необратимо переведёт его на новую модель. Прежняя сумма сохранится, пока состав работ остаётся пустым."
+            title={t('Proposal uses the legacy format')}
+            description={t('Saving at least one item permanently converts it to the new model. The previous amount is retained while the work list remains empty.')}
           />
           <div style={{ ...styles.actions, marginTop: '8px' }}>
             <Button
               Icon={IconPlus}
-              title="Создать стартовую строку"
+              title={t('Create starter row')}
               variant="secondary"
               size="small"
               disabled={!editable}
@@ -461,13 +508,13 @@ const EditCommercialProposal = () => {
               }
             />
             <Button
-              title="Начать с пустой таблицы"
+              title={t('Start with empty table')}
               variant="tertiary"
               size="small"
               disabled={!editable}
               onClick={() => {
                 setStarterSuggestionDismissed(true);
-                setNotice('Добавьте первую строку вручную.');
+                setNotice(t('Add the first row manually.'));
               }}
             />
           </div>
@@ -478,11 +525,11 @@ const EditCommercialProposal = () => {
         <div style={{ marginTop: '12px' }}>
           <Callout
             variant="info"
-            title="Документы пока нельзя сформировать"
+            title={t('Documents cannot be generated yet')}
               description={
                 state.header.contactName?.trim()
-                  ? 'Добавьте минимум одну корректную позицию и один этап с результатом и сроком, сохраните изменения и убедитесь, что итог больше нуля.'
-                  : 'Укажите контакт заказчика, затем добавьте позицию и этап с результатом и сроком.'
+                  ? t('Add at least one valid item and one stage with a result and duration, save changes, and ensure the total is greater than zero.')
+                  : t('Specify the customer contact, then add an item and a stage with a result and duration.')
               }
           />
         </div>
@@ -490,19 +537,19 @@ const EditCommercialProposal = () => {
 
       <section style={styles.section}>
         <div style={styles.header}>
-          <h3 style={styles.sectionTitle}>Состав работ</h3>
+          <h3 style={styles.sectionTitle}>{t('Work items')}</h3>
           {editable && (
             <div style={styles.actions}>
               <Button
                 Icon={IconPlus}
-                title="Добавить из каталога"
+                title={t('Add from catalog')}
                 variant="secondary"
                 size="small"
                 onClick={() => setCatalogOpen((value) => !value)}
               />
               <Button
                 Icon={IconPlus}
-                title="Добавить строку"
+                title={t('Add row')}
                 variant="secondary"
                 size="small"
                 onClick={() =>
@@ -526,7 +573,7 @@ const EditCommercialProposal = () => {
           <table style={styles.table}>
             <thead>
               <tr>
-                {['№', 'Источник', 'Блок', 'Наименование', 'Описание', 'Количество', 'Ед.', 'Ставка', 'Скидка, %', 'Сумма', 'Действия'].map((label) => (
+                {[t('No.'), t('Source'), t('Block'), t('Name'), t('Description'), t('Quantity'), t('Unit'), t('Rate'), t('Discount, %'), t('Amount'), t('Actions')].map((label) => (
                   <th key={label} style={styles.cell}>{label}</th>
                 ))}
               </tr>
@@ -535,7 +582,7 @@ const EditCommercialProposal = () => {
               {state.items.map((item, index) => (
                 <tr key={item.clientKey}>
                   <td style={styles.cell}>{index + 1}</td>
-                  <td style={styles.cell}>{item.catalogItemId === null ? 'Вручную' : 'Каталог'}</td>
+                  <td style={styles.cell}>{item.catalogItemId === null ? t('Manual') : t('Catalog')}</td>
                   {(['block', 'name', 'description', 'quantity', 'unit', 'unitPrice', 'discountPercent'] as const).map((key) => (
                     <td key={key} style={styles.cell}>
                       <input
@@ -571,13 +618,13 @@ const EditCommercialProposal = () => {
       <section style={styles.section}>
         <div style={styles.header}>
           <div>
-            <h3 style={styles.sectionTitle}>План работ</h3>
-            <div style={styles.muted}>Результат и срок понадобятся перед формированием документа.</div>
+            <h3 style={styles.sectionTitle}>{t('Work plan')}</h3>
+            <div style={styles.muted}>{t('Result and duration are required before document generation.')}</div>
           </div>
           {editable && (
             <Button
               Icon={IconPlus}
-              title="Добавить этап"
+              title={t('Add stage')}
               variant="secondary"
               size="small"
               onClick={() => edit((current) => ({ ...current, stages: [...current.stages, createEmptyStage()] }))}
@@ -586,10 +633,10 @@ const EditCommercialProposal = () => {
         </div>
         {state.stages.map((stage, index) => (
           <div key={stage.clientKey} style={{ ...styles.grid, marginBottom: '12px' }}>
-            <Field label={`Этап ${index + 1}`} value={stage.title} disabled={!editable} onChange={(value) => updateStage(index, { title: value })} error={validation.errors[`stages.${index}.title`]} />
-            <Field label="Результат" value={stage.result} disabled={!editable} onChange={(value) => updateStage(index, { result: value })} />
-            <Field label="Срок" value={stage.duration} disabled={!editable} onChange={(value) => updateStage(index, { duration: value })} />
-            <Field label="Описание" value={stage.description} disabled={!editable} onChange={(value) => updateStage(index, { description: value })} />
+            <Field label={t('Stage {number}', { number: index + 1 })} value={stage.title} disabled={!editable} onChange={(value) => updateStage(index, { title: value })} error={validation.errors[`stages.${index}.title`]} />
+            <Field label={t('Result')} value={stage.result} disabled={!editable} onChange={(value) => updateStage(index, { result: value })} />
+            <Field label={t('Duration')} value={stage.duration} disabled={!editable} onChange={(value) => updateStage(index, { duration: value })} />
+            <Field label={t('Description')} value={stage.description} disabled={!editable} onChange={(value) => updateStage(index, { description: value })} />
             {editable && (
               <div style={styles.actions}>
                 <IconButton Icon={IconCopy} variant="tertiary" size="small" ariaLabel="Дублировать этап" onClick={() => edit((current) => ({ ...current, stages: [...current.stages.slice(0, index + 1), duplicateStage(stage), ...current.stages.slice(index + 1)] }))} />
@@ -602,24 +649,24 @@ const EditCommercialProposal = () => {
         ))}
       </section>
 
-      <section style={styles.section}><h3 style={styles.sectionTitle}>Условия</h3><div style={styles.grid}><Field label="Условия оплаты" value={state.header.paymentTerms ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('paymentTerms', value)} /><Field label="Допущения" value={state.header.assumptions ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('assumptions', value)} /><Field label="Следующий шаг" value={state.header.nextStep ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('nextStep', value)} /></div></section>
+      <section style={styles.section}><h3 style={styles.sectionTitle}>{t('Terms')}</h3><div style={styles.grid}><Field label={t('Payment terms')} value={state.header.paymentTerms ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('paymentTerms', value)} /><Field label={t('Assumptions')} value={state.header.assumptions ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('assumptions', value)} /><Field label={t('Next step')} value={state.header.nextStep ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('nextStep', value)} /></div></section>
 
-      <section style={styles.section}><h3 style={styles.sectionTitle}>Итог</h3><strong>{formatMoney(preview, state.header.currencyCode)}</strong><div style={styles.muted}>Предварительный итог. После сохранения сервер возвращает каноническую сумму.</div></section>
+      <section style={styles.section}><h3 style={styles.sectionTitle}>{t('Total')}</h3><strong>{formatMoney(preview, state.header.currencyCode)}</strong><div style={styles.muted}>{t('Preview total. The server returns the canonical amount after saving.')}</div></section>
 
       <div style={styles.sticky}>
-        <div style={styles.muted}>{dirty ? 'Есть несохранённые изменения' : 'Все изменения сохранены'}</div>
+        <div style={styles.muted}>{dirty ? t('There are unsaved changes') : t('All changes are saved')}</div>
         {context.isEditable && (
           <div style={styles.actions}>
-            <Button Icon={IconRefresh} title="Пересчитать" variant="tertiary" size="small" disabled={saving || generating} onClick={() => void recalculate()} />
+            <Button Icon={IconRefresh} title={t('Recalculate')} variant="tertiary" size="small" disabled={saving || generating} onClick={() => void recalculate()} />
             <Button
-              title={confirmReset ? 'Подтвердить сброс' : 'Сбросить изменения'}
+              title={confirmReset ? t('Confirm reset') : t('Reset changes')}
               variant="secondary"
               size="small"
               disabled={!dirty || saving || generating}
               onClick={() => {
                 if (!confirmReset) {
                   setConfirmReset(true);
-                  setNotice('Нажмите «Подтвердить сброс» для удаления локальных изменений.');
+                  setNotice(t('Select Confirm reset to discard local changes.'));
                   return;
                 }
                 if (canonical !== null) setState(structuredClone(canonical));
@@ -630,7 +677,7 @@ const EditCommercialProposal = () => {
             />
             <Button
               Icon={IconDeviceFloppy}
-              title={saving ? 'Сохранение...' : 'Сохранить'}
+              title={saving ? t('Saving...') : t('Save')}
               variant="primary"
               accent="blue"
               size="small"

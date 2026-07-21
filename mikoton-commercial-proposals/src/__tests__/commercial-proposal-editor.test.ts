@@ -19,6 +19,7 @@ import {
   createEmptyStage,
   duplicateItem,
   duplicateStage,
+  getGeneratedDocumentFiles,
   getProposalDisplayNumber,
   isAggregateReadyForGeneration,
   isEditorDirty,
@@ -43,6 +44,31 @@ const itemKey = '123e4567-e89b-42d3-a456-426614174102';
 const stageKey = '123e4567-e89b-42d3-a456-426614174103';
 const itemId = '123e4567-e89b-42d3-a456-426614174104';
 const stageId = '123e4567-e89b-42d3-a456-426614174105';
+
+describe('generated document visibility', () => {
+  it('returns only downloadable XLSX and PDF entries', () => {
+    expect(getGeneratedDocumentFiles({
+      generationId: 'generation',
+      generationIdempotencyKey: operationId,
+      templateCode: 'mikoton-commercial-proposal',
+      templateVersion: '2',
+      schemaVersion: '2.0',
+      snapshotHash: 'hash',
+      files: [
+        {
+          format: 'xlsx',
+          fileName: 'proposal.xlsx',
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          size: 10,
+          sha256: 'xlsx-hash',
+          downloadUrl: 'https://example.test/proposal.xlsx',
+        },
+        { format: 'docx', fileName: 'ignored.docx', downloadUrl: 'https://example.test/ignored.docx' },
+      ],
+    } as unknown as CommercialProposalDraft['resultMetadata'])).toHaveLength(1);
+    expect(getGeneratedDocumentFiles(null)).toEqual([]);
+  });
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

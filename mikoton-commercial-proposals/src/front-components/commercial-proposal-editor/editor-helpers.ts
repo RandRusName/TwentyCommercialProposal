@@ -3,6 +3,10 @@ import {
   sumLineAmounts,
 } from 'src/domain/commercial-proposal-money';
 import type { SaveEditorRequest } from 'src/domain/commercial-proposal-aggregate';
+import type {
+  CommercialProposalDraft,
+  CommercialProposalGenerationFile,
+} from 'src/domain/commercial-proposal';
 import { createIdempotencyKey } from 'src/front-components/create-commercial-proposal.helpers';
 import type {
   EditorContextResponse,
@@ -15,6 +19,31 @@ import type {
 
 export const normalizeDecimalInput = (value: string) =>
   value.trim().replace(',', '.');
+
+export const getGeneratedDocumentFiles = (
+  metadata: CommercialProposalDraft['resultMetadata'],
+): CommercialProposalGenerationFile[] => {
+  if (
+    metadata === null ||
+    typeof metadata !== 'object' ||
+    !('files' in metadata) ||
+    !Array.isArray(metadata.files)
+  ) {
+    return [];
+  }
+
+  return metadata.files.filter(
+    (file): file is CommercialProposalGenerationFile =>
+      typeof file === 'object' &&
+      file !== null &&
+      'format' in file &&
+      (file.format === 'xlsx' || file.format === 'pdf') &&
+      'fileName' in file &&
+      typeof file.fileName === 'string' &&
+      'downloadUrl' in file &&
+      typeof file.downloadUrl === 'string',
+  );
+};
 
 export const createEmptyItem = (): EditorItem => ({
   catalogItemId: null,

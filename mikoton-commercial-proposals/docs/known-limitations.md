@@ -14,7 +14,15 @@
 - The app-owned record page hides technical fields from the normal business card by omitting the generic `FIELDS` widget. SDK 2.20 has no declarative global `isHidden`, so administrators can still find these fields in Settings.
 - Twenty Server 2.20 creates a new page layout before its tabs during app installation. An explicit default tab cannot reference a tab from the same new manifest, so Home is the first active tab by position and acts as the effective default.
 - Twenty Server 2.20 does not apply an in-place App upgrade from `VERTICAL_LIST` to `CANVAS` for an existing page-layout tab, and `twenty plan` does not detect that property drift. The current app resolves this with rotated app-owned Home tab/widget identifiers; future layout-mode changes require the same plan-reviewed replacement strategy.
-- The native Timeline tab can display technical field changes as audit events. The normal Home business card still omits JSON, idempotency, revision and model-version fields.
+- Twenty SDK 2.20 cannot collapse the host's pinned auxiliary record-page panel.
+  The App therefore defines a single full-width business tab and renders
+  generated files in a collapsed section. Native Timeline, Tasks, Notes, and
+  manual Files management are not part of the default CommercialProposal card;
+  generated files remain attached in Twenty and downloadable from the editor.
+- Localization currently covers App navigation metadata, catalog object names,
+  the central editor, and the catalog picker for `en` and `ru-RU`. Twenty's
+  administrative field settings may still show source metadata labels where
+  SDK 2.20 does not expose a separate translated field-label catalog entry.
 - Generated Excel files are ordinary `.xlsx` files without VBA or macros. This is intentional after the macro-enabled workbook proved unreliable.
 - Target `FAILED -> retry -> GENERATED` recovery was exercised after a missing customer contact caused a safe generation failure. The UI now blocks generation until the schema-v2 contact requirement is satisfied.
 - The aggregate editor uses explicit save. The SDK does not expose a supported navigation blocker, so unsaved changes are indicated but closing cannot be intercepted reliably.

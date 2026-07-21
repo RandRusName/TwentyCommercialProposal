@@ -86,7 +86,14 @@ export const normalizeCatalogSearchRequest = (
   };
 };
 
-type CatalogRecord = Omit<CatalogItemDto, 'isSelectable' | 'validationMessage'>;
+type NativeCurrencyValue = {
+  amountMicros?: number | null;
+  currencyCode?: string | null;
+};
+
+type CatalogRecord = Omit<CatalogItemDto, 'isSelectable' | 'validationMessage'> & {
+  price?: NativeCurrencyValue | null;
+};
 
 const getCatalogItemValidationMessage = (record: Partial<CatalogRecord>) => {
   if (typeof record.name !== 'string' || record.name.trim() === '') return 'Не указано название';
@@ -103,9 +110,25 @@ const mapCatalogItem = (
   requestedCurrency: string | null,
 ): CatalogItemDto => {
   const isActive = record.isActive === true;
-  const currencyCode = record.currencyCode ?? '';
+  const nativeAmountMicros = record.price?.amountMicros;
+  const nativeCurrencyCode = record.price?.currencyCode?.trim().toUpperCase();
+  const hasNativePrice =
+    typeof nativeAmountMicros === 'number' &&
+    Number.isFinite(nativeAmountMicros) &&
+    typeof nativeCurrencyCode === 'string' &&
+    /^[A-Z]{3}$/.test(nativeCurrencyCode);
+  const currencyCode = hasNativePrice
+    ? nativeCurrencyCode
+    : (record.currencyCode ?? '');
+  const defaultPrice = hasNativePrice
+    ? nativeAmountMicros / 1_000_000
+    : (record.defaultPrice ?? 0);
   const currencyMatches = requestedCurrency === null || currencyCode === requestedCurrency;
-  const validationMessage = getCatalogItemValidationMessage(record);
+  const validationMessage = getCatalogItemValidationMessage({
+    ...record,
+    defaultPrice,
+    currencyCode,
+  });
   return {
     id: record.id,
     name: record.name ?? '',
@@ -114,7 +137,7 @@ const mapCatalogItem = (
     defaultBlock: record.defaultBlock ?? 'Работы',
     description: record.description ?? null,
     defaultUnit: record.defaultUnit ?? 'час',
-    defaultPrice: record.defaultPrice ?? 0,
+    defaultPrice,
     currencyCode,
     isActive,
     sortOrder: record.sortOrder ?? 100,
@@ -146,6 +169,10 @@ export class CatalogItemRepository {
               defaultBlock: true,
               description: true,
               defaultUnit: true,
+              price: {
+                amountMicros: true,
+                currencyCode: true,
+              },
               defaultPrice: true,
               currencyCode: true,
               isActive: true,

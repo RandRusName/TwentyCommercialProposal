@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { FieldType } from 'twenty-sdk/define';
 
 import * as universalIdentifiers from 'src/constants/universal-identifiers';
 import { createEditorItemFromCatalogItem } from 'src/front-components/commercial-proposal-editor/editor-helpers';
@@ -50,8 +51,13 @@ describe('catalog item metadata', () => {
       isUIEditable: true,
     });
     const fields = Object.fromEntries(metadata.fields.map((field) => [field.name, field]));
-    expect(fields.defaultPrice).toMatchObject({ isNullable: false, defaultValue: 0 });
-    expect(fields.currencyCode).toMatchObject({ isNullable: false, defaultValue: "'RUB'" });
+    expect(fields.price).toMatchObject({
+      type: FieldType.CURRENCY,
+      isNullable: true,
+      defaultValue: null,
+    });
+    expect(fields.defaultPrice).toMatchObject({ isNullable: false, defaultValue: 0, isUIEditable: false });
+    expect(fields.currencyCode).toMatchObject({ isNullable: false, defaultValue: "'RUB'", isUIEditable: false });
     expect(fields.isActive).toMatchObject({ isNullable: false, defaultValue: true });
     expect(fields.sortOrder).toMatchObject({ isNullable: false, defaultValue: 100 });
   });
@@ -64,7 +70,12 @@ describe('catalog item metadata', () => {
       .toMatchObject({ isNullable: true });
     expect(catalogFields.find((field) => field.name === 'proposalItems'))
       .toMatchObject({ isNullable: true });
-    expect(viewFields).toHaveLength(9);
+    expect(viewFields).toHaveLength(8);
+    expect(viewFields.find((field) => field.universalIdentifier === universalIdentifiers.CATALOG_ITEM_VIEW_FIELD_PRICE_UNIVERSAL_IDENTIFIER))
+      .toMatchObject({
+        fieldMetadataUniversalIdentifier:
+          universalIdentifiers.CATALOG_ITEM_FIELD_PRICE_UNIVERSAL_IDENTIFIER,
+      });
   });
 });
 
@@ -121,6 +132,30 @@ describe('catalog item search', () => {
       id: 'bad',
       isSelectable: false,
       validationMessage: 'Некорректная цена',
+    });
+  });
+
+  it('prefers the native currency field and converts micros to decimals', async () => {
+    const client = {
+      query: vi.fn(async () => ({
+        catalogItems: {
+          edges: [{
+            node: {
+              ...catalogItem({ defaultPrice: 1, currencyCode: 'USD' }),
+              price: { amountMicros: 5_500_000_000, currencyCode: 'RUB' },
+            },
+          }],
+        },
+      })),
+    };
+    const result = await new CatalogItemRepository(client as never).search(
+      normalizeCatalogSearchRequest({ currencyCode: 'RUB' }),
+    );
+
+    expect(result.items[0]).toMatchObject({
+      defaultPrice: 5500,
+      currencyCode: 'RUB',
+      isSelectable: true,
     });
   });
 });

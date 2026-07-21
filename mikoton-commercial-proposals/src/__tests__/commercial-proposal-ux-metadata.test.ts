@@ -65,16 +65,17 @@ describe('commercial proposal business UX metadata', () => {
     expect(layout.objectUniversalIdentifier).toBe(
       universalIdentifiers.COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
     );
+    expect(layout.tabs).toHaveLength(1);
     expect(
       [...layout.tabs].sort((left, right) => left.position - right.position)[0],
     ).toMatchObject({
       universalIdentifier:
         universalIdentifiers.COMMERCIAL_PROPOSAL_RECORD_PAGE_HOME_TAB_UNIVERSAL_IDENTIFIER,
-      title: 'Home',
+      title: 'Commercial proposal',
       layoutMode: PageLayoutTabLayoutMode.CANVAS,
     });
     expect(layout.tabs.flatMap((tab) => tab.widgets ?? []).map((widget) => widget.type))
-      .toEqual(['FRONT_COMPONENT', 'TIMELINE', 'TASKS', 'NOTES', 'FILES']);
+      .toEqual(['FRONT_COMPONENT']);
     expect(layout.tabs[0]?.widgets?.[0]?.gridPosition).toEqual({
       row: 0,
       column: 0,
