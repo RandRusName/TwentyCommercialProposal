@@ -10,6 +10,7 @@ import { defineFrontComponent } from 'twenty-sdk/define';
 import {
   enqueueSnackbar,
   useColorScheme,
+  useRecordId,
   useSelectedRecordIds,
 } from 'twenty-sdk/front-component';
 import { Status } from 'twenty-ui/data-display';
@@ -117,8 +118,11 @@ const Field = ({ label, value, onChange, disabled, multiline = false, type = 'te
 
 const EditCommercialProposal = () => {
   const selectedRecordIds = useSelectedRecordIds();
+  const recordPageRecordId = useRecordId();
   const styles = getEditorStyles(useColorScheme());
-  const proposalId = selectedRecordIds.length === 1 ? selectedRecordIds[0] : null;
+  const proposalId =
+    recordPageRecordId ??
+    (selectedRecordIds.length === 1 ? selectedRecordIds[0] : null);
   const [context, setContext] = useState<EditorContextResponse | null>(null);
   const [canonical, setCanonical] = useState<EditorState | null>(null);
   const [state, setState] = useState<EditorState | null>(null);
