@@ -77,7 +77,12 @@ Date: 2026-07-21
 
 ## CI
 
-GitHub workflow evidence is added after the release commits are pushed and the run completes. The workflow uses Twenty `v2.20.0`, runs TypeScript and Python tests, integration tests against an ephemeral Twenty, app build and private tarball validation. It does not contact the internal target.
+- Workflow run: https://github.com/RandRusName/TwentyCommercialProposal/actions/runs/29817744537
+- Validated commit: `d6bedcd98d3c1972f6d228f57ca608b866496e3d`.
+- Result: passed on rerun attempt 2 after configuring the required repository secret `TWENTY_EPHEMERAL_API_KEY`.
+- Passed steps: ephemeral Twenty/document-service startup, dependency install, lint, typecheck, unit tests, Python document-service tests, integration tests, app build, private tarball build and tarball validation.
+- Twenty test image version: `v2.20.0`.
+- The workflow did not contact the internal target and did not use its API key.
 
 ## Cleanup And Safety
 
