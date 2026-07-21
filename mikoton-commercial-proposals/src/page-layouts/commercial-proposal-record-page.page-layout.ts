@@ -41,6 +41,12 @@ export default definePageLayout({
             COMMERCIAL_PROPOSAL_RECORD_PAGE_HOME_WIDGET_UNIVERSAL_IDENTIFIER,
           title: 'Commercial Proposal',
           type: 'FRONT_COMPONENT',
+          gridPosition: {
+            row: 0,
+            column: 0,
+            rowSpan: 12,
+            columnSpan: 12,
+          },
           objectUniversalIdentifier:
             COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
           configuration: {

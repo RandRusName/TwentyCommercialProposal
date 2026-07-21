@@ -53,7 +53,11 @@ describe('commercial proposal business UX metadata', () => {
         title: string;
         position: number;
         layoutMode: string;
-        widgets?: Array<{ type: string; configuration: Record<string, unknown> }>;
+        widgets?: Array<{
+          type: string;
+          gridPosition?: Record<string, number>;
+          configuration: Record<string, unknown>;
+        }>;
       }>;
     }>).config;
 
@@ -71,6 +75,12 @@ describe('commercial proposal business UX metadata', () => {
     });
     expect(layout.tabs.flatMap((tab) => tab.widgets ?? []).map((widget) => widget.type))
       .toEqual(['FRONT_COMPONENT', 'TIMELINE', 'TASKS', 'NOTES', 'FILES']);
+    expect(layout.tabs[0]?.widgets?.[0]?.gridPosition).toEqual({
+      row: 0,
+      column: 0,
+      rowSpan: 12,
+      columnSpan: 12,
+    });
     expect(layout.tabs.flatMap((tab) => tab.widgets ?? []).some((widget) => widget.type === 'FIELDS'))
       .toBe(false);
   });
