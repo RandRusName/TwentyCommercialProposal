@@ -575,7 +575,7 @@ export const createCommercialProposalDraft = async ({
   };
 
   for (let attempt = 0; attempt < NUMBER_RETRY_LIMIT; attempt += 1) {
-    const number = buildDraftTechnicalNumber(input.idempotencyKey);
+    const number = 'Черновик';
     const title = `Черновик КП - ${opportunity.name}`;
 
     try {
@@ -584,7 +584,7 @@ export const createCommercialProposalDraft = async ({
         number,
         status: 'DRAFT',
         version: 1,
-        contentModelVersion: 'LEGACY_V1',
+        contentModelVersion: 'AGGREGATE_V2',
         editorRevision: 1,
         lastEditorOperationId: null,
         sourceType: 'OPPORTUNITY',
@@ -601,7 +601,7 @@ export const createCommercialProposalDraft = async ({
         paymentTerms: null,
         assumptions: null,
         nextStep: null,
-        amount: opportunity.amount,
+        amount: 0,
         currencyCode: opportunity.currencyCode,
         generatedAt: null,
         idempotencyKey: input.idempotencyKey,
@@ -1100,7 +1100,7 @@ export const generateCommercialProposalDocuments = async ({
 
       generationDraft = {
         ...generationDraft,
-        number: buildDraftTechnicalNumber(generationDraft.idempotencyKey),
+        number: draft.number,
       };
     }
   }

@@ -77,6 +77,7 @@ export default defineObject({
       defaultValue: "''",
       isNullable: false,
       isUnique: false,
+      isUIEditable: false,
     },
     {
       universalIdentifier:
@@ -87,6 +88,7 @@ export default defineObject({
       description: 'Commercial proposal lifecycle status',
       defaultValue: "'DRAFT'",
       isNullable: false,
+      isUIEditable: false,
       options: [
         { position: 0, label: 'Draft', value: 'DRAFT', color: 'gray' },
         {
@@ -112,6 +114,7 @@ export default defineObject({
       description: 'Business version of the commercial proposal',
       defaultValue: 1,
       isNullable: false,
+      isUIEditable: false,
       universalSettings: {
         decimals: 0,
       },
@@ -124,8 +127,9 @@ export default defineObject({
       label: 'Content model version',
       description:
         'Stored content model: legacy synthetic model or aggregate item/stage model',
-      defaultValue: "'LEGACY_V1'",
+      defaultValue: "'AGGREGATE_V2'",
       isNullable: false,
+      isUIEditable: false,
       options: [
         {
           position: 0,
@@ -150,6 +154,7 @@ export default defineObject({
       description: 'Best-effort optimistic concurrency revision for editor saves',
       defaultValue: 1,
       isNullable: false,
+      isUIEditable: false,
       universalSettings: {
         decimals: 0,
       },
@@ -163,6 +168,7 @@ export default defineObject({
       description: 'Last completed aggregate editor save operation id',
       isNullable: true,
       defaultValue: null,
+      isUIEditable: false,
     },
     {
       universalIdentifier:
@@ -173,6 +179,7 @@ export default defineObject({
       description: 'Object type that initiated the commercial proposal',
       defaultValue: "'OPPORTUNITY'",
       isNullable: false,
+      isUIEditable: false,
       options: [
         { position: 0, label: 'Opportunity', value: 'OPPORTUNITY', color: 'blue' },
       ],
@@ -186,6 +193,7 @@ export default defineObject({
       description: 'Commercial proposal template code requested by the client',
       defaultValue: "''",
       isNullable: false,
+      isUIEditable: false,
     },
     {
       universalIdentifier:
@@ -196,6 +204,7 @@ export default defineObject({
       description: 'Resolved template version, filled by document generation',
       isNullable: true,
       defaultValue: null,
+      isUIEditable: false,
     },
     {
       universalIdentifier:
@@ -206,6 +215,7 @@ export default defineObject({
       description: 'BCP-47 language tag requested for the commercial proposal',
       defaultValue: "'ru-RU'",
       isNullable: false,
+      isUIEditable: false,
     },
     {
       universalIdentifier:
@@ -291,6 +301,7 @@ export default defineObject({
       description: 'Minimal server-side snapshot of accepted draft input',
       isNullable: true,
       defaultValue: null,
+      isUIEditable: false,
     },
     {
       universalIdentifier:
@@ -301,6 +312,7 @@ export default defineObject({
       description: 'Future document generation result metadata',
       isNullable: true,
       defaultValue: null,
+      isUIEditable: false,
     },
     {
       universalIdentifier:
@@ -311,6 +323,7 @@ export default defineObject({
       description: 'Amount snapshot from the opportunity',
       defaultValue: 0,
       isNullable: true,
+      isUIEditable: false,
       universalSettings: {
         decimals: 2,
       },
@@ -333,6 +346,7 @@ export default defineObject({
       label: 'Opportunity',
       description: 'Source opportunity for this proposal',
       isNullable: false,
+      isUIEditable: false,
       relationTargetObjectMetadataUniversalIdentifier:
         STANDARD_OBJECT.opportunity.universalIdentifier,
       relationTargetFieldMetadataUniversalIdentifier:
@@ -350,6 +364,7 @@ export default defineObject({
       label: 'Company',
       description: 'Company linked through the source opportunity',
       isNullable: true,
+      isUIEditable: false,
       relationTargetObjectMetadataUniversalIdentifier:
         STANDARD_OBJECT.company.universalIdentifier,
       relationTargetFieldMetadataUniversalIdentifier:
@@ -400,6 +415,7 @@ export default defineObject({
       description: 'Time when document generation completed successfully',
       isNullable: true,
       defaultValue: null,
+      isUIEditable: false,
     },
     {
       universalIdentifier:
@@ -409,6 +425,7 @@ export default defineObject({
       label: 'Files',
       description: 'Generated XLSX/PDF proposal files',
       isNullable: true,
+      isUIEditable: false,
       universalSettings: {
         maxNumberOfValues: 10,
       },
@@ -422,6 +439,7 @@ export default defineObject({
       description: 'Client-generated key preventing duplicate draft creation',
       defaultValue: "''",
       isNullable: false,
+      isUIEditable: false,
     },
     {
       universalIdentifier:
@@ -432,6 +450,7 @@ export default defineObject({
       description: 'Last app-level processing error',
       isNullable: true,
       defaultValue: null,
+      isUIEditable: false,
       universalSettings: {
         displayedMaxRows: 3,
       },

@@ -416,7 +416,7 @@ describe('commercial proposal domain', () => {
       id: 'draft-id',
       status: 'DRAFT',
       version: 1,
-      contentModelVersion: 'LEGACY_V1',
+      contentModelVersion: 'AGGREGATE_V2',
       editorRevision: 1,
       lastEditorOperationId: null,
       sourceType: 'OPPORTUNITY',
@@ -426,13 +426,13 @@ describe('commercial proposal domain', () => {
       opportunityId: 'opportunity-id',
       companyId: 'company-id',
       validityDays: 14,
-      amount: 123.45,
+      amount: 0,
       currencyCode: 'RUB',
       generatedAt: null,
       idempotencyKey,
       lastError: null,
     });
-    expect(result.draft.number).toBe(buildDraftTechnicalNumber(idempotencyKey));
+    expect(result.draft.number).toBe('Черновик');
     expect(result.draft.title).toBe('Черновик КП - Test opportunity');
     expect(result.draft.payloadSnapshot).toEqual(makeInput());
   });
@@ -897,6 +897,34 @@ describe('commercial proposal aggregate domain', () => {
     expect(result.proposal.amount).toBe(123.45);
     expect(result.proposal.editorRevision).toBe(2);
     expect(result.proposal.lastEditorOperationId).toBe(operationId);
+  });
+
+  it('allows an empty aggregate v2 draft and keeps its amount at zero', async () => {
+    const repository = makeAggregateRepository(
+      makeAggregate({
+        proposal: makeDraft({
+          id: aggregateProposalId,
+          editorRevision: 1,
+          contentModelVersion: 'AGGREGATE_V2',
+          amount: 999,
+        }),
+      }),
+    );
+
+    const result = await saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: {
+        ...saveRequest,
+        items: [],
+        stages: [],
+      },
+      repository,
+    });
+
+    expect(result.proposal.contentModelVersion).toBe('AGGREGATE_V2');
+    expect(result.proposal.amount).toBe(0);
+    expect(result.items).toHaveLength(0);
+    expect(result.stages).toHaveLength(0);
   });
 
   it('converts to aggregate v2 on first valid item save', async () => {

@@ -35,7 +35,7 @@ Metadata contract:
 name: contentModelVersion
 type: SELECT
 isNullable: false
-defaultValue: LEGACY_V1
+defaultValue: AGGREGATE_V2
 editable by user: false
 values: LEGACY_V1, AGGREGATE_V2
 ```
@@ -44,7 +44,7 @@ Meaning:
 
 | Value | Migration meaning |
 |---|---|
-| `LEGACY_V1` | Existing or new proposal still compatible with current schema `1.0`; `amount` may be legacy snapshot. |
+| `LEGACY_V1` | Existing proposal still compatible with schema `1.0`; `amount` may be legacy snapshot. |
 | `AGGREGATE_V2` | Proposal has saved child items; items/stages are source of truth; schema `2.0` required for generation. |
 
 ## Status-by-Status Behavior
@@ -97,13 +97,20 @@ If ignored:
 
 ## New Records
 
-Before Prompt 5.3:
+After schema/template v2 became production-capable, new drafts are created as:
 
-- new drafts are created as `LEGACY_V1`;
-- they convert to `AGGREGATE_V2` only after aggregate save with items;
-- `AGGREGATE_V2` generation is blocked until Prompt 5.3.
+```text
+contentModelVersion = AGGREGATE_V2
+number = Черновик
+amount = 0
+items = []
+stages = []
+templateVersion = null
+```
 
-After Prompt 5.3, a separate decision can decide whether new drafts start directly as `AGGREGATE_V2`. Do not make that automatic in Prompt 5.1.
+They can be saved while incomplete. Generation requires at least one valid item,
+at least one complete stage and a positive total. No synthetic item is created
+from Opportunity title/amount.
 
 ## Legacy Amount
 

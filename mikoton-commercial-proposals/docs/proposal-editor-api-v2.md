@@ -46,10 +46,10 @@ Prompt 5.1 must not use raw DB access or modify Twenty core to obtain CAS.
   "proposal": {
     "id": "uuid",
     "title": "Commercial proposal",
-    "number": "DRAFT-...",
+    "number": "Черновик",
     "status": "DRAFT",
     "version": 1,
-    "contentModelVersion": "LEGACY_V1",
+    "contentModelVersion": "AGGREGATE_V2",
     "editorRevision": 3,
     "lastEditorOperationId": null,
     "contactName": null,
@@ -59,7 +59,7 @@ Prompt 5.1 must not use raw DB access or modify Twenty core to obtain CAS.
     "paymentTerms": null,
     "assumptions": null,
     "nextStep": null,
-    "amount": 120000
+    "amount": 0
   },
   "opportunity": {
     "id": "uuid",
@@ -74,9 +74,9 @@ Prompt 5.1 must not use raw DB access or modify Twenty core to obtain CAS.
   "items": [],
   "stages": [],
   "legacySuggestion": {
-    "canCreateStarterItem": true,
-    "amount": 120000,
-    "currencyCode": "RUB"
+    "canCreateStarterItem": false,
+    "amount": null,
+    "currencyCode": null
   },
   "isEditable": true,
   "generationAvailability": {
@@ -86,7 +86,13 @@ Prompt 5.1 must not use raw DB access or modify Twenty core to obtain CAS.
 }
 ```
 
-For `LEGACY_V1`, `amount` may be historical/forecast snapshot. UI must label it accordingly and not present it as calculated total until conversion.
+This is the default response for a newly created proposal. Opportunity amount is
+display context only. For an existing `LEGACY_V1` record, `amount` may be a
+historical snapshot and `legacySuggestion.canCreateStarterItem` may be true.
+
+Empty `AGGREGATE_V2` drafts are valid editor state and persist with `amount = 0`.
+Generation validation still requires valid items, complete stages and a positive
+total.
 
 ## Save Editor Request
 

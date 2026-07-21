@@ -1,9 +1,9 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { defineFrontComponent } from 'twenty-sdk/define';
 import {
+  AppPath,
   enqueueSnackbar,
-  openSidePanelPage,
-  SidePanelPages,
+  navigate,
   useColorScheme,
   useSelectedRecordIds,
 } from 'twenty-sdk/front-component';
@@ -215,11 +215,9 @@ const GenerateCommercialProposal = () => {
       return;
     }
 
-    await openSidePanelPage({
-      page: SidePanelPages.ViewRecord,
+    await navigate(AppPath.RecordShowPage, {
       objectNameSingular: 'commercialProposal',
-      recordId: result.commercialProposal.id,
-      resetNavigationStack: true,
+      objectRecordId: result.commercialProposal.id,
     });
   };
 

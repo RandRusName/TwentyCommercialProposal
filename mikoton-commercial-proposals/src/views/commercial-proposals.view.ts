@@ -35,7 +35,7 @@ export default defineView({
   icon: 'IconFileDescription',
   position: 0,
   visibility: ViewVisibility.WORKSPACE,
-  openRecordIn: ViewOpenRecordIn.SIDE_PANEL,
+  openRecordIn: ViewOpenRecordIn.RECORD_PAGE,
   fields: [
     {
       universalIdentifier:

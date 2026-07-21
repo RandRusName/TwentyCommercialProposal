@@ -25,7 +25,7 @@ Implemented in this phase:
 - Opportunity command menu item;
 - front component for single-opportunity draft creation;
 - authenticated logic functions for context loading and draft creation;
-- technical draft numbering and final generation numbering in
+- business-safe draft label `Черновик` and final generation numbering in
   `КП-### от DD.MM.YYYY` format;
 - required `idempotencyKey` with unique metadata index and conflict recovery;
 - structured application errors;
@@ -44,7 +44,6 @@ Not implemented in this phase:
 - DOCX generation;
 - public Marketplace distribution;
 - Company entry point;
-- record-page widget;
 - CPQ features.
 
 ## Local Checks
@@ -172,10 +171,20 @@ The aggregate editor flow includes:
 - canonical total calculation from re-read persisted children;
 - best-effort final revision re-check;
 - strict generation dispatch: `AGGREGATE_V2` uses schema `2.0` and template `2`;
-- `Редактировать КП` command for a single CommercialProposal;
+- app-owned central CommercialProposal record page with Home editor plus native Timeline, Tasks, Notes and Files tabs;
+- `Открыть карточку КП` command for a single CommercialProposal;
 - explicit-save editor for header, work items, stages and terms;
 - local preview plus authoritative server recalculation;
 - dirty/reset, conflict and read-only states.
+
+New drafts start as an empty `AGGREGATE_V2` aggregate with `amount = 0` and
+`number = "Черновик"`. Opportunity amount is shown only as `Прогноз сделки`.
+Existing `LEGACY_V1` drafts keep their historical amount until the user saves
+at least one valid item; that conversion is explicit and irreversible.
+
+The app-owned record page deliberately has no generic `FIELDS` widget. Technical
+JSON, idempotency and revision fields therefore stay out of the standard
+business card while remaining available to administrators in Settings.
 
 Schema `2.0` generation is enabled for persisted `AGGREGATE_V2` records. Template
 v2 supports 50 work items and 10 stages and produces macro-free XLSX plus PDF.

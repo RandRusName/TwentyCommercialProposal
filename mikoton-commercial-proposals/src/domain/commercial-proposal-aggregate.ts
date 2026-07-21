@@ -522,19 +522,11 @@ const buildNormalizedSave = (
       ? 'AGGREGATE_V2'
       : aggregate.proposal.contentModelVersion;
 
-  if (
-    aggregate.proposal.contentModelVersion === 'AGGREGATE_V2' &&
-    normalizedItems.length === 0
-  ) {
-    throw new ApplicationError(
-      'COMMERCIAL_PROPOSAL_VALIDATION_FAILED',
-      'Aggregate commercial proposal must contain at least one item',
-    );
-  }
-
   const amount =
     normalizedItems.length === 0
-      ? aggregate.proposal.amount ?? 0
+      ? aggregate.proposal.contentModelVersion === 'AGGREGATE_V2'
+        ? 0
+        : aggregate.proposal.amount ?? 0
       : sumLineAmounts(normalizedItems.map((item) => item.lineAmount));
 
   return {
@@ -820,7 +812,9 @@ export const saveCommercialProposalEditor = async ({
 
   const canonicalAmount =
     canonical.items.length === 0
-      ? aggregate.proposal.amount ?? 0
+      ? normalized.nextContentModelVersion === 'AGGREGATE_V2'
+        ? 0
+        : aggregate.proposal.amount ?? 0
       : sumLineAmounts(canonical.items.map((item) => item.lineAmount));
 
   await repository.updateCommercialProposalForEditor(proposalId, {

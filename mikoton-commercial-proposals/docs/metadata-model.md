@@ -17,7 +17,7 @@
 ## Fields
 
 - `title` (`TEXT`, required): record label.
-- `number` (`TEXT`, required): draft records use a technical `DRAFT-<idempotencyKey>` value; generated proposals use `КП-### от DD.MM.YYYY`.
+- `number` (`TEXT`, required, UI read-only): new draft records use `Черновик`; generated proposals use `КП-### от DD.MM.YYYY`. Old `DRAFT-<idempotencyKey>` values are rendered as `Черновик` by the app UI.
 - `status` (`SELECT`, required): `DRAFT`, `GENERATING`, `GENERATED`, `SENT`, `ACCEPTED`, `REJECTED`, `FAILED`, `CANCELLED`.
 - `sourceType` (`SELECT`, required): currently only `OPPORTUNITY`.
 - `templateCode` (`TEXT`, required): accepted request template code.
@@ -25,7 +25,7 @@
 - `language` (`TEXT`, required): accepted request language, currently `ru-RU`.
 - `payloadSnapshot` (`RAW_JSON`, nullable): immutable source/template/generation snapshot.
 - `resultMetadata` (`RAW_JSON`, nullable): document generation result data, including XLSX/PDF storage metadata and Twenty file ids.
-- `amount` (`NUMBER`, nullable): decimal snapshot from Opportunity amount.
+- `amount` (`NUMBER`, nullable, UI read-only): new `AGGREGATE_V2` drafts start at `0`; after item saves it is the server-calculated aggregate. Only legacy records may retain an Opportunity snapshot.
 - `currencyCode` (`TEXT`, nullable): currency code snapshot from Opportunity.
 - `opportunity` (`RELATION`, required): many-to-one to standard Opportunity.
 - `company` (`RELATION`, nullable): many-to-one to standard Company.
@@ -53,7 +53,6 @@ These are app-owned metadata fields; Twenty core is not modified.
 
 BTREE indexes are declared for:
 
-- `number`, unique;
 - `status`;
 - `opportunity`;
 - `company`;
@@ -61,7 +60,7 @@ BTREE indexes are declared for:
 
 The unique `idempotencyKey` index is the concurrency guard for draft creation. The logic function still performs best-effort pre-read and read-after-conflict recovery so repeated sequential and parallel requests return the existing draft where possible.
 
-The unique `number` index protects both technical draft numbers and final customer-facing numbers. Final numbers use a yearly `001..999` sequence and the Moscow date of document generation, for example `КП-005 от 17.07.2026`. Generation retries a small number of times if a concurrent update hits the unique number index. Existing legacy `CP-YYYYMMDD-HHmmss-XXXX` records are not rewritten automatically.
+New drafts share the business label `Черновик`, so `number` is intentionally non-unique. Final numbers use a server-side yearly `001..999` sequence and the Moscow date of document generation, for example `КП-005 от 17.07.2026`. Existing legacy numbers are not rewritten automatically. SDK 2.20 cannot express a partial unique index for generated records only; final allocation therefore uses max-read/retry and is a best-effort concurrency guarantee.
 
 Generated XLSX/PDF files are uploaded to Twenty and attached to the CommercialProposal through standard Attachment records so they appear in the record `Files` tab. The upload is performed against the standard `Attachment.file` field and then linked with `targetCommercialProposalId`. `resultMetadata.files[]` also keeps the document-service storage key, checksum, and Twenty file id/url for audit and download UI.
 
@@ -71,9 +70,11 @@ Generated XLSX/PDF files are uploaded to Twenty and attached to the CommercialPr
 - Navigation item: `Commercial Proposals`.
 - Command menu item: `Create commercial proposal`, available in Opportunity object context.
 - Command menu item: `Generate commercial proposal`, available in CommercialProposal context for `DRAFT` and `FAILED` records.
-- Command menu item: `Редактировать КП`, available when exactly one CommercialProposal is selected. Editable statuses are enforced server-side; historical statuses open read-only.
+- App-owned `RECORD_PAGE`: Home is a full-width editor front component; Timeline, Tasks, Notes and Files use native widgets. There is no generic `FIELDS` widget.
+- The default list opens records in `RECORD_PAGE`, not a side panel.
+- Command menu item: `Открыть карточку КП`, available when exactly one CommercialProposal is selected. Editable statuses are enforced server-side; historical statuses open read-only.
 
-The default app view exposes business fields only. JSON/debug fields remain stored for audit but are not part of the default list view. Twenty `v2.20.0` may still show stored fields in the record field settings picker.
+The default app view and record page expose business information only. JSON/debug fields remain stored for audit but are absent from the business layout and marked UI read-only where the SDK supports it. Twenty `v2.20.0` may still show stored fields in the administrative field settings picker.
 
 ## Prompt 5.1 Aggregate Backend Additions
 
@@ -84,7 +85,7 @@ Opportunity/Company relations are not changed.
 ### CommercialProposal fields
 
 - `version` (`NUMBER`, required, decimals 0, default `1`): business proposal version.
-- `contentModelVersion` (`SELECT`, required, default `LEGACY_V1`): `LEGACY_V1` or `AGGREGATE_V2`.
+- `contentModelVersion` (`SELECT`, required, default `AGGREGATE_V2`, UI read-only): `LEGACY_V1` or `AGGREGATE_V2`. Repository fallback for old records with a missing value remains `LEGACY_V1`.
 - `editorRevision` (`NUMBER`, required, decimals 0, default `1`): best-effort optimistic concurrency marker.
 - `lastEditorOperationId` (`TEXT`, nullable): last completed aggregate editor save operation id.
 - `contactName` (`TEXT`, nullable).

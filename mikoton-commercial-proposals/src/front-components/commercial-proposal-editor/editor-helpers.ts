@@ -220,6 +220,9 @@ export const formatMoney = (amount: number | null, currencyCode: string | null) 
   return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(amount)}${currency === undefined ? '' : ` ${currency}`}`;
 };
 
+export const getProposalDisplayNumber = (number: string) =>
+  number === 'Черновик' || number.startsWith('DRAFT-') ? 'Черновик' : number;
+
 export const createStarterItem = (
   suggestion: EditorContextResponse['legacySuggestion'],
 ): EditorItem => ({

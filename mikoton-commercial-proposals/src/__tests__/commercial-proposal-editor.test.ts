@@ -19,6 +19,7 @@ import {
   createEmptyStage,
   duplicateItem,
   duplicateStage,
+  getProposalDisplayNumber,
   isEditorDirty,
   moveEntry,
   normalizeDecimalInput,
@@ -303,6 +304,12 @@ describe('aggregate identity and consistency hardening', () => {
 });
 
 describe('commercial proposal editor helpers', () => {
+  it('hides technical draft identifiers from the business title', () => {
+    expect(getProposalDisplayNumber('Черновик')).toBe('Черновик');
+    expect(getProposalDisplayNumber('DRAFT-123e4567-e89b-42d3-a456-426614174107')).toBe('Черновик');
+    expect(getProposalDisplayNumber('КП-005 от 17.07.2026')).toBe('КП-005 от 17.07.2026');
+  });
+
   it('creates stable UUID identities and duplicates without persisted ids', () => {
     const createdItem = createEmptyItem();
     const createdStage = createEmptyStage();

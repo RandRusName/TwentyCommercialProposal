@@ -14,6 +14,7 @@ type CommercialProposalNode = {
   title: string | null;
   number: string | null;
   status: string | null;
+  contentModelVersion: string | null;
   sourceType: string | null;
   templateCode: string | null;
   language: string | null;
@@ -218,6 +219,7 @@ const findCommercialProposalsByKey = async () => {
               title
               number
               status
+              contentModelVersion
               sourceType
               templateCode
               language
@@ -322,17 +324,18 @@ describe('commercial proposal backend vertical slice', () => {
 
     const draft = first.payload.draft as { id: string; number: string };
     createdIds.commercialProposal = draft.id;
-    expect(draft.number).toBe(`DRAFT-${idempotencyKey}`);
+    expect(draft.number).toBe('Черновик');
 
     const records = await findCommercialProposalsByKey();
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
       id: draft.id,
       status: 'DRAFT',
+      contentModelVersion: 'AGGREGATE_V2',
       sourceType: 'OPPORTUNITY',
       templateCode: SUPPORTED_TEMPLATE_CODE,
       language: SUPPORTED_LANGUAGE,
-      amount: 123.45,
+      amount: 0,
       currencyCode: 'RUB',
       generatedAt: null,
       idempotencyKey,
@@ -393,6 +396,20 @@ describe('commercial proposal backend vertical slice', () => {
     const proposalId = (draft.payload.draft as { id: string }).id;
     createdIds.legacyCommercialProposal = proposalId;
 
+    await graphql(
+      `
+        mutation ConvertFixtureToLegacy($id: UUID!) {
+          updateCommercialProposal(
+            id: $id
+            data: { contentModelVersion: LEGACY_V1, amount: 123.45 }
+          ) {
+            id
+          }
+        }
+      `,
+      { id: proposalId },
+    );
+
     const generationKey = globalThis.crypto.randomUUID();
     const generation = await callGenerateRoute({
       commercialProposalId: proposalId,
@@ -428,9 +445,9 @@ describe('commercial proposal backend vertical slice', () => {
       status: 'success',
       isEditable: true,
       proposal: {
-        contentModelVersion: 'LEGACY_V1',
+        contentModelVersion: 'AGGREGATE_V2',
         editorRevision: 1,
-        amount: 123.45,
+        amount: 0,
       },
       opportunity: { name: smokeName, amount: 123.45, currencyCode: 'RUB' },
       company: { name: smokeName },
@@ -458,9 +475,9 @@ describe('commercial proposal backend vertical slice', () => {
     expect(headerOnly.response.status).toBe(200);
     expect(headerOnly.payload).toMatchObject({
       proposal: {
-        contentModelVersion: 'LEGACY_V1',
+        contentModelVersion: 'AGGREGATE_V2',
         editorRevision: 2,
-        amount: 123.45,
+        amount: 0,
       },
     });
 

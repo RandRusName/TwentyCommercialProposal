@@ -1,0 +1,83 @@
+import { describe, expect, it } from 'vitest';
+import { PageLayoutType, ViewOpenRecordIn } from 'twenty-sdk/define';
+
+import * as universalIdentifiers from 'src/constants/universal-identifiers';
+import openCommercialProposalRecord from 'src/front-components/open-commercial-proposal-record.front-component';
+import commercialProposalObject from 'src/objects/commercial-proposal.object';
+import commercialProposalRecordPage from 'src/page-layouts/commercial-proposal-record-page.page-layout';
+import commercialProposalsView from 'src/views/commercial-proposals.view';
+
+type ConfigResult<T> = { config: T };
+
+describe('commercial proposal business UX metadata', () => {
+  it('creates new records with aggregate v2 defaults and locks server-owned fields', () => {
+    const metadata = (commercialProposalObject as unknown as ConfigResult<{
+      fields: Array<Record<string, unknown>>;
+    }>).config;
+    const fields = Object.fromEntries(
+      metadata.fields.map((field) => [field.name, field]),
+    );
+
+    expect(fields.contentModelVersion).toMatchObject({
+      defaultValue: "'AGGREGATE_V2'",
+      isUIEditable: false,
+    });
+    for (const fieldName of [
+      'number',
+      'status',
+      'version',
+      'editorRevision',
+      'lastEditorOperationId',
+      'payloadSnapshot',
+      'resultMetadata',
+      'amount',
+      'generatedAt',
+      'files',
+      'idempotencyKey',
+      'lastError',
+    ]) {
+      expect(fields[fieldName]).toMatchObject({ isUIEditable: false });
+    }
+  });
+
+  it('defines a CommercialProposal record page without a generic fields widget', () => {
+    const layout = (commercialProposalRecordPage as unknown as ConfigResult<{
+      type: string;
+      objectUniversalIdentifier: string;
+      defaultTabToFocusOnMobileAndSidePanelUniversalIdentifier: string;
+      tabs: Array<{
+        universalIdentifier: string;
+        title: string;
+        widgets?: Array<{ type: string; configuration: Record<string, unknown> }>;
+      }>;
+    }>).config;
+
+    expect(layout.type).toBe(PageLayoutType.RECORD_PAGE);
+    expect(layout.objectUniversalIdentifier).toBe(
+      universalIdentifiers.COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
+    );
+    expect(layout.defaultTabToFocusOnMobileAndSidePanelUniversalIdentifier).toBe(
+      universalIdentifiers.COMMERCIAL_PROPOSAL_RECORD_PAGE_HOME_TAB_UNIVERSAL_IDENTIFIER,
+    );
+    expect(layout.tabs.flatMap((tab) => tab.widgets ?? []).map((widget) => widget.type))
+      .toEqual(['FRONT_COMPONENT', 'TIMELINE', 'TASKS', 'NOTES', 'FILES']);
+    expect(layout.tabs.flatMap((tab) => tab.widgets ?? []).some((widget) => widget.type === 'FIELDS'))
+      .toBe(false);
+  });
+
+  it('opens records in the central record page and keeps new identifiers unique', () => {
+    const view = (commercialProposalsView as unknown as ConfigResult<{
+      openRecordIn: string;
+    }>).config;
+    const navigationComponent = (openCommercialProposalRecord as unknown as ConfigResult<{
+      isHeadless: boolean;
+    }>).config;
+    const recordPageIdentifiers = Object.entries(universalIdentifiers)
+      .filter(([name]) => name.includes('COMMERCIAL_PROPOSAL_RECORD_PAGE'))
+      .map(([, value]) => value);
+
+    expect(view.openRecordIn).toBe(ViewOpenRecordIn.RECORD_PAGE);
+    expect(navigationComponent.isHeadless).toBe(true);
+    expect(new Set(recordPageIdentifiers).size).toBe(recordPageIdentifiers.length);
+  });
+});

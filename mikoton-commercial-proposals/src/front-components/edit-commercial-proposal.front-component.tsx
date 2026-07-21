@@ -12,6 +12,19 @@ import {
   useColorScheme,
   useSelectedRecordIds,
 } from 'twenty-sdk/front-component';
+import { Status } from 'twenty-ui/data-display';
+import { Callout, Loader } from 'twenty-ui/feedback';
+import {
+  IconArrowDown,
+  IconArrowUp,
+  IconCopy,
+  IconDeviceFloppy,
+  IconFileExport,
+  IconPlus,
+  IconRefresh,
+  IconTrash,
+} from 'twenty-ui/icon';
+import { Button, IconButton } from 'twenty-ui/input';
 
 import { EDIT_COMMERCIAL_PROPOSAL_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 import type {
@@ -19,6 +32,10 @@ import type {
   SaveEditorRequest,
   SaveEditorResult,
 } from 'src/domain/commercial-proposal-aggregate';
+import type {
+  CommercialProposalDraft,
+  CommercialProposalResultMetadata,
+} from 'src/domain/commercial-proposal';
 import {
   applyCanonicalResponse,
   buildSaveRequest,
@@ -30,6 +47,7 @@ import {
   duplicateItem,
   duplicateStage,
   formatMoney,
+  getProposalDisplayNumber,
   isEditorDirty,
   moveEntry,
   removeEntry,
@@ -44,6 +62,7 @@ import type {
   EditorStage,
   EditorState,
 } from 'src/front-components/commercial-proposal-editor/editor-types';
+import { createIdempotencyKey } from 'src/front-components/create-commercial-proposal.helpers';
 import {
   AppRouteError,
   callAppRoute,
@@ -53,6 +72,23 @@ import {
 const safeEditorError = (error: unknown) => {
   if (error instanceof AppRouteError) return error.message;
   return 'Не удалось выполнить операцию редактора. Обновите данные и повторите попытку.';
+};
+
+type GenerateResponse = {
+  status: 'success';
+  commercialProposal: CommercialProposalDraft;
+  result: CommercialProposalResultMetadata;
+};
+
+const getStatusColor = (
+  status: EditorState['status'],
+): 'gray' | 'yellow' | 'blue' | 'purple' | 'green' | 'red' => {
+  if (status === 'GENERATING') return 'yellow';
+  if (status === 'GENERATED') return 'blue';
+  if (status === 'SENT') return 'purple';
+  if (status === 'ACCEPTED') return 'green';
+  if (status === 'FAILED' || status === 'REJECTED') return 'red';
+  return 'gray';
 };
 
 const Field = ({ label, value, onChange, disabled, multiline = false, type = 'text', error }: {
@@ -88,6 +124,7 @@ const EditCommercialProposal = () => {
   const [state, setState] = useState<EditorState | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -96,6 +133,7 @@ const EditCommercialProposal = () => {
   const [starterSuggestionDismissed, setStarterSuggestionDismissed] =
     useState(false);
   const pendingSave = useRef<SaveEditorRequest | null>(null);
+  const generationOperationId = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     if (proposalId === null) {
@@ -133,6 +171,23 @@ const EditCommercialProposal = () => {
     [state],
   );
   const preview = useMemo(() => (state === null ? null : calculatePreview(state)), [state]);
+  const aggregateReadyForGeneration =
+    state !== null &&
+    state.items.length > 0 &&
+    state.stages.length > 0 &&
+    state.stages.every(
+      (stage) => stage.title.trim() !== '' && stage.result.trim() !== '' && stage.duration.trim() !== '',
+    ) &&
+    validation.valid &&
+    (preview ?? 0) > 0;
+  const canGenerate =
+    state !== null &&
+    context?.generationAvailability.allowed === true &&
+    !dirty &&
+    !saving &&
+    !generating &&
+    (state.status === 'DRAFT' || state.status === 'FAILED') &&
+    (state.contentModelVersion === 'LEGACY_V1' || aggregateReadyForGeneration);
 
   const edit = (updater: (current: EditorState) => EditorState) => {
     if (!editable) return;
@@ -204,9 +259,67 @@ const EditCommercialProposal = () => {
     }
   };
 
-  if (proposalId === null) return <div style={styles.root}>Выберите ровно одно коммерческое предложение.</div>;
-  if (loading) return <div style={styles.root}>Загрузка коммерческого предложения...</div>;
-  if (state === null || context === null) return <div style={styles.root}>{error ?? 'Не удалось загрузить КП.'}</div>;
+  const generate = async () => {
+    if (state === null || !canGenerate) return;
+
+    setGenerating(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      generationOperationId.current ??= createIdempotencyKey();
+      const response = await callAppRoute<GenerateResponse>(
+        '/commercial-proposals/generate',
+        {
+          commercialProposalId: state.proposalId,
+          idempotencyKey: generationOperationId.current,
+        },
+      );
+      generationOperationId.current = null;
+      await load();
+      setNotice(
+        `Документы сформированы: ${response.result.files.map((file) => file.fileName).join(', ')}`,
+      );
+      await enqueueSnackbar({
+        message: 'XLSX и PDF сформированы и приложены к КП',
+        variant: 'success',
+      });
+    } catch (caught) {
+      setError(safeEditorError(caught));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (proposalId === null) {
+    return (
+      <div style={styles.root}>
+        <Callout
+          variant="neutral"
+          title="Коммерческое предложение не выбрано"
+          description="Откройте ровно одну запись Commercial Proposal."
+        />
+      </div>
+    );
+  }
+  if (loading) {
+    return (
+      <div style={{ ...styles.root, display: 'grid', placeItems: 'center' }}>
+        <Loader />
+      </div>
+    );
+  }
+  if (state === null || context === null) {
+    return (
+      <div style={styles.root}>
+        <Callout
+          variant="error"
+          title="Не удалось загрузить КП"
+          description={error ?? 'Обновите страницу и повторите попытку.'}
+        />
+      </div>
+    );
+  }
 
   const setHeader = (key: keyof EditorState['header'], value: string | number | null) =>
     edit((current) => ({ ...current, header: { ...current.header, [key]: value } }));
@@ -242,14 +355,81 @@ const EditCommercialProposal = () => {
   return (
     <div style={styles.root}>
       <div style={styles.header}>
-        <div><h2 style={styles.title}>Редактировать КП</h2><div style={styles.muted}>{state.number} · {state.status} · {state.contentModelVersion} · ревизия {state.editorRevision}</div></div>
-        {!context.isEditable && <strong>Только чтение</strong>}
+        <div>
+          <h2 style={styles.title}>{getProposalDisplayNumber(state.number)}</h2>
+          <div style={styles.muted}>{state.header.title}</div>
+        </div>
+        <div style={styles.actions}>
+          <Status
+            color={getStatusColor(state.status)}
+            isLoaderVisible={state.status === 'GENERATING' || generating}
+            text={state.status}
+            weight="medium"
+          />
+          {(state.status === 'DRAFT' || state.status === 'FAILED') && (
+            <Button
+              Icon={IconFileExport}
+              title={generating ? 'Формирование...' : 'Сформировать документы'}
+              variant="primary"
+              accent="blue"
+              size="small"
+              disabled={!canGenerate}
+              isLoading={generating}
+              onClick={() => void generate()}
+            />
+          )}
+        </div>
       </div>
 
-      {error !== null && <div style={{ ...styles.error, marginTop: '12px' }}>{error}{conflict && <div style={{ marginTop: '8px' }}><button type="button" style={styles.button} onClick={() => void load()}>Загрузить актуальную версию</button><span style={{ marginLeft: '8px' }}>Локальные изменения остаются на экране до перезагрузки.</span></div>}</div>}
-      {dirty && !validation.valid && <div style={{ ...styles.error, marginTop: '12px' }}>Исправьте отмеченные поля перед сохранением.</div>}
-      {notice !== null && <div style={{ ...styles.success, marginTop: '12px' }}>{notice}</div>}
-      {(context.warnings?.length ?? 0) > 0 && <div style={{ ...styles.banner, marginTop: '12px' }}>Часть справочного контекста Opportunity/Company сейчас недоступна. Состав КП загружен полностью.</div>}
+      {error !== null && (
+        <div style={{ marginTop: '12px' }}>
+          <Callout variant="error" title="Операция не выполнена" description={error} />
+          {conflict && (
+            <div style={{ ...styles.header, marginTop: '8px' }}>
+              <span style={styles.muted}>Локальные изменения останутся на экране до перезагрузки.</span>
+              <Button
+                Icon={IconRefresh}
+                title="Загрузить актуальную версию"
+                variant="secondary"
+                size="small"
+                onClick={() => void load()}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {dirty && !validation.valid && (
+        <div style={{ marginTop: '12px' }}>
+          <Callout
+            variant="warning"
+            title="Черновик заполнен не полностью"
+            description="Исправьте отмеченные поля перед сохранением."
+          />
+        </div>
+      )}
+      {notice !== null && (
+        <div style={{ marginTop: '12px' }}>
+          <Callout variant="success" title="Готово" description={notice} />
+        </div>
+      )}
+      {(context.warnings?.length ?? 0) > 0 && (
+        <div style={{ marginTop: '12px' }}>
+          <Callout
+            variant="warning"
+            title="Контекст сделки доступен частично"
+            description="Opportunity или Company сейчас недоступны. Сохранённый состав КП загружен полностью."
+          />
+        </div>
+      )}
+      {!context.isEditable && (
+        <div style={{ marginTop: '12px' }}>
+          <Callout
+            variant="neutral"
+            title="КП доступно только для чтения"
+            description="Редактирование разрешено только в статусах DRAFT и FAILED."
+          />
+        </div>
+      )}
 
       <section style={styles.section}><h3 style={styles.sectionTitle}>Контекст сделки</h3><div style={styles.grid}><div><span style={styles.label}>Opportunity</span><div>{context.opportunity?.name ?? 'Не указана'}</div></div><div><span style={styles.label}>Прогноз сделки</span><div>{formatMoney(context.opportunity?.amount ?? null, context.opportunity?.currencyCode ?? null)}</div></div><div><span style={styles.label}>Компания</span><div>{context.company?.name ?? 'Компания не указана'}</div></div></div></section>
 
@@ -260,17 +440,204 @@ const EditCommercialProposal = () => {
         <Field label="Срок действия, дней" type="number" value={String(state.header.validityDays)} disabled={!editable} onChange={(value) => setHeader('validityDays', Number(value))} error={validation.errors.validityDays} />
       </div><div style={{ marginTop: '10px' }}><Field label="Контекст и цель" value={state.header.contextAndGoal ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('contextAndGoal', value)} /></div></section>
 
-      {context.legacySuggestion.canCreateStarterItem && state.items.length === 0 && !starterSuggestionDismissed && <div style={{ ...styles.banner, marginTop: '16px' }}>У этого КП ещё нет состава работ. Можно создать стартовую строку из текущей суммы сделки.<div style={{ marginTop: '8px' }}><button type="button" style={styles.button} disabled={!editable} onClick={() => edit((current) => ({ ...current, items: [createStarterItem(context.legacySuggestion)] }))}>Создать стартовую строку</button><button type="button" style={{ ...styles.button, marginLeft: '8px' }} disabled={!editable} onClick={() => { setStarterSuggestionDismissed(true); setNotice('Добавьте первую строку вручную.'); }}>Начать с пустой таблицы</button></div></div>}
+      {context.legacySuggestion.canCreateStarterItem && state.items.length === 0 && !starterSuggestionDismissed && (
+        <div style={{ marginTop: '16px' }}>
+          <Callout
+            variant="warning"
+            title="КП создано в старом формате"
+            description="Сохранение хотя бы одной позиции необратимо переведёт его на новую модель. Прежняя сумма сохранится, пока состав работ остаётся пустым."
+          />
+          <div style={{ ...styles.actions, marginTop: '8px' }}>
+            <Button
+              Icon={IconPlus}
+              title="Создать стартовую строку"
+              variant="secondary"
+              size="small"
+              disabled={!editable}
+              onClick={() =>
+                edit((current) => ({
+                  ...current,
+                  items: [createStarterItem(context.legacySuggestion)],
+                }))
+              }
+            />
+            <Button
+              title="Начать с пустой таблицы"
+              variant="tertiary"
+              size="small"
+              disabled={!editable}
+              onClick={() => {
+                setStarterSuggestionDismissed(true);
+                setNotice('Добавьте первую строку вручную.');
+              }}
+            />
+          </div>
+        </div>
+      )}
 
-      <section style={styles.section}><div style={styles.header}><h3 style={styles.sectionTitle}>Состав работ</h3>{editable && <div style={styles.actions}><button type="button" style={styles.button} onClick={() => setCatalogOpen((value) => !value)}>Добавить из каталога</button><button type="button" style={styles.button} onClick={() => edit((current) => ({ ...current, items: [...current.items, createEmptyItem()] }))}>Добавить строку</button></div>}</div>{catalogOpen && <CatalogPicker currencyCode={state.header.currencyCode} onAdd={addCatalogItems} onClose={() => setCatalogOpen(false)} />}<div style={styles.tableWrap}><table style={styles.table}><thead><tr>{['№','Источник','Блок','Наименование','Описание','Количество','Ед.','Ставка','Скидка, %','Сумма','Действия'].map((label) => <th key={label} style={styles.cell}>{label}</th>)}</tr></thead><tbody>{state.items.map((item, index) => <tr key={item.clientKey}><td style={styles.cell}>{index + 1}</td><td style={styles.cell}>{item.catalogItemId === null ? 'Вручную' : 'Каталог'}</td>{(['block','name','description','quantity','unit','unitPrice','discountPercent'] as const).map((key) => <td key={key} style={styles.cell}><input aria-label={`${key} ${index + 1}`} style={{ ...styles.input, width: key === 'description' ? '190px' : '100px' }} disabled={!editable} value={item[key]} onChange={(event) => updateItem(index, { [key]: event.target.value })} />{validation.errors[`items.${index}.${key}`] !== undefined && <div style={{ color: '#dc2626' }}>{validation.errors[`items.${index}.${key}`]}</div>}</td>)}<td style={styles.cell}>{formatMoney(calculatePreview({ ...state, items: [item] }), state.header.currencyCode)}</td><td style={styles.cell}><div style={styles.actions}>{editable && <><button type="button" title="Дублировать" aria-label="Дублировать строку" style={styles.button} onClick={() => edit((current) => ({ ...current, items: [...current.items.slice(0, index + 1), duplicateItem(item), ...current.items.slice(index + 1)] }))}>+</button><button type="button" title="Вверх" aria-label="Переместить строку вверх" style={styles.button} onClick={() => edit((current) => ({ ...current, items: moveEntry(current.items, index, -1) }))}>↑</button><button type="button" title="Вниз" aria-label="Переместить строку вниз" style={styles.button} onClick={() => edit((current) => ({ ...current, items: moveEntry(current.items, index, 1) }))}>↓</button><button type="button" title="Удалить" aria-label="Удалить строку" style={styles.button} onClick={() => edit((current) => ({ ...current, items: removeEntry(current.items, index) }))}>×</button></>}</div></td></tr>)}</tbody></table></div></section>
+      {state.contentModelVersion === 'AGGREGATE_V2' && !aggregateReadyForGeneration && (state.status === 'DRAFT' || state.status === 'FAILED') && (
+        <div style={{ marginTop: '12px' }}>
+          <Callout
+            variant="info"
+            title="Документы пока нельзя сформировать"
+            description="Добавьте минимум одну корректную позицию и один этап с результатом и сроком, сохраните изменения и убедитесь, что итог больше нуля."
+          />
+        </div>
+      )}
 
-      <section style={styles.section}><div style={styles.header}><div><h3 style={styles.sectionTitle}>План работ</h3><div style={styles.muted}>Результат и срок понадобятся перед формированием документа.</div></div>{editable && <button type="button" style={styles.button} onClick={() => edit((current) => ({ ...current, stages: [...current.stages, createEmptyStage()] }))}>Добавить этап</button>}</div>{state.stages.map((stage, index) => <div key={stage.clientKey} style={{ ...styles.grid, marginBottom: '10px' }}><Field label={`Этап ${index + 1}`} value={stage.title} disabled={!editable} onChange={(value) => updateStage(index, { title: value })} error={validation.errors[`stages.${index}.title`]} /><Field label="Результат" value={stage.result} disabled={!editable} onChange={(value) => updateStage(index, { result: value })} /><Field label="Срок" value={stage.duration} disabled={!editable} onChange={(value) => updateStage(index, { duration: value })} /><Field label="Описание" value={stage.description} disabled={!editable} onChange={(value) => updateStage(index, { description: value })} /><div style={styles.actions}>{editable && <><button type="button" style={styles.button} onClick={() => edit((current) => ({ ...current, stages: [...current.stages.slice(0, index + 1), duplicateStage(stage), ...current.stages.slice(index + 1)] }))}>Дублировать</button><button type="button" aria-label="Переместить этап вверх" style={styles.button} onClick={() => edit((current) => ({ ...current, stages: moveEntry(current.stages, index, -1) }))}>↑</button><button type="button" aria-label="Переместить этап вниз" style={styles.button} onClick={() => edit((current) => ({ ...current, stages: moveEntry(current.stages, index, 1) }))}>↓</button><button type="button" style={styles.button} onClick={() => edit((current) => ({ ...current, stages: removeEntry(current.stages, index) }))}>Удалить</button></>}</div></div>)}</section>
+      <section style={styles.section}>
+        <div style={styles.header}>
+          <h3 style={styles.sectionTitle}>Состав работ</h3>
+          {editable && (
+            <div style={styles.actions}>
+              <Button
+                Icon={IconPlus}
+                title="Добавить из каталога"
+                variant="secondary"
+                size="small"
+                onClick={() => setCatalogOpen((value) => !value)}
+              />
+              <Button
+                Icon={IconPlus}
+                title="Добавить строку"
+                variant="secondary"
+                size="small"
+                onClick={() =>
+                  edit((current) => ({
+                    ...current,
+                    items: [...current.items, createEmptyItem()],
+                  }))
+                }
+              />
+            </div>
+          )}
+        </div>
+        {catalogOpen && (
+          <CatalogPicker
+            currencyCode={state.header.currencyCode}
+            onAdd={addCatalogItems}
+            onClose={() => setCatalogOpen(false)}
+          />
+        )}
+        <div style={styles.tableWrap}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                {['№', 'Источник', 'Блок', 'Наименование', 'Описание', 'Количество', 'Ед.', 'Ставка', 'Скидка, %', 'Сумма', 'Действия'].map((label) => (
+                  <th key={label} style={styles.cell}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {state.items.map((item, index) => (
+                <tr key={item.clientKey}>
+                  <td style={styles.cell}>{index + 1}</td>
+                  <td style={styles.cell}>{item.catalogItemId === null ? 'Вручную' : 'Каталог'}</td>
+                  {(['block', 'name', 'description', 'quantity', 'unit', 'unitPrice', 'discountPercent'] as const).map((key) => (
+                    <td key={key} style={styles.cell}>
+                      <input
+                        aria-label={`${key} ${index + 1}`}
+                        style={{ ...styles.input, width: key === 'description' ? '190px' : '100px' }}
+                        disabled={!editable}
+                        value={item[key]}
+                        onChange={(event) => updateItem(index, { [key]: event.target.value })}
+                      />
+                      {validation.errors[`items.${index}.${key}`] !== undefined && (
+                        <div style={{ color: '#dc2626' }}>{validation.errors[`items.${index}.${key}`]}</div>
+                      )}
+                    </td>
+                  ))}
+                  <td style={styles.cell}>{formatMoney(calculatePreview({ ...state, items: [item] }), state.header.currencyCode)}</td>
+                  <td style={styles.cell}>
+                    {editable && (
+                      <div style={styles.actions}>
+                        <IconButton Icon={IconCopy} variant="tertiary" size="small" ariaLabel="Дублировать строку" onClick={() => edit((current) => ({ ...current, items: [...current.items.slice(0, index + 1), duplicateItem(item), ...current.items.slice(index + 1)] }))} />
+                        <IconButton Icon={IconArrowUp} variant="tertiary" size="small" ariaLabel="Переместить строку вверх" disabled={index === 0} onClick={() => edit((current) => ({ ...current, items: moveEntry(current.items, index, -1) }))} />
+                        <IconButton Icon={IconArrowDown} variant="tertiary" size="small" ariaLabel="Переместить строку вниз" disabled={index === state.items.length - 1} onClick={() => edit((current) => ({ ...current, items: moveEntry(current.items, index, 1) }))} />
+                        <IconButton Icon={IconTrash} variant="tertiary" accent="danger" size="small" ariaLabel="Удалить строку" onClick={() => edit((current) => ({ ...current, items: removeEntry(current.items, index) }))} />
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section style={styles.section}>
+        <div style={styles.header}>
+          <div>
+            <h3 style={styles.sectionTitle}>План работ</h3>
+            <div style={styles.muted}>Результат и срок понадобятся перед формированием документа.</div>
+          </div>
+          {editable && (
+            <Button
+              Icon={IconPlus}
+              title="Добавить этап"
+              variant="secondary"
+              size="small"
+              onClick={() => edit((current) => ({ ...current, stages: [...current.stages, createEmptyStage()] }))}
+            />
+          )}
+        </div>
+        {state.stages.map((stage, index) => (
+          <div key={stage.clientKey} style={{ ...styles.grid, marginBottom: '12px' }}>
+            <Field label={`Этап ${index + 1}`} value={stage.title} disabled={!editable} onChange={(value) => updateStage(index, { title: value })} error={validation.errors[`stages.${index}.title`]} />
+            <Field label="Результат" value={stage.result} disabled={!editable} onChange={(value) => updateStage(index, { result: value })} />
+            <Field label="Срок" value={stage.duration} disabled={!editable} onChange={(value) => updateStage(index, { duration: value })} />
+            <Field label="Описание" value={stage.description} disabled={!editable} onChange={(value) => updateStage(index, { description: value })} />
+            {editable && (
+              <div style={styles.actions}>
+                <IconButton Icon={IconCopy} variant="tertiary" size="small" ariaLabel="Дублировать этап" onClick={() => edit((current) => ({ ...current, stages: [...current.stages.slice(0, index + 1), duplicateStage(stage), ...current.stages.slice(index + 1)] }))} />
+                <IconButton Icon={IconArrowUp} variant="tertiary" size="small" ariaLabel="Переместить этап вверх" disabled={index === 0} onClick={() => edit((current) => ({ ...current, stages: moveEntry(current.stages, index, -1) }))} />
+                <IconButton Icon={IconArrowDown} variant="tertiary" size="small" ariaLabel="Переместить этап вниз" disabled={index === state.stages.length - 1} onClick={() => edit((current) => ({ ...current, stages: moveEntry(current.stages, index, 1) }))} />
+                <IconButton Icon={IconTrash} variant="tertiary" accent="danger" size="small" ariaLabel="Удалить этап" onClick={() => edit((current) => ({ ...current, stages: removeEntry(current.stages, index) }))} />
+              </div>
+            )}
+          </div>
+        ))}
+      </section>
 
       <section style={styles.section}><h3 style={styles.sectionTitle}>Условия</h3><div style={styles.grid}><Field label="Условия оплаты" value={state.header.paymentTerms ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('paymentTerms', value)} /><Field label="Допущения" value={state.header.assumptions ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('assumptions', value)} /><Field label="Следующий шаг" value={state.header.nextStep ?? ''} disabled={!editable} multiline onChange={(value) => setHeader('nextStep', value)} /></div></section>
 
       <section style={styles.section}><h3 style={styles.sectionTitle}>Итог</h3><strong>{formatMoney(preview, state.header.currencyCode)}</strong><div style={styles.muted}>Предварительный итог. После сохранения сервер возвращает каноническую сумму.</div></section>
 
-      <div style={styles.sticky}><div>{dirty ? 'Есть несохранённые изменения' : 'Все изменения сохранены'}</div>{context.isEditable && <div style={styles.actions}><button type="button" style={styles.button} disabled={saving} onClick={() => void recalculate()}>Пересчитать</button><button type="button" style={styles.button} disabled={!dirty || saving} onClick={() => { if (!confirmReset) { setConfirmReset(true); setNotice('Нажмите «Сбросить изменения» ещё раз для подтверждения.'); return; } if (canonical !== null) setState(structuredClone(canonical)); setConfirmReset(false); setNotice(null); pendingSave.current = null; }}>Сбросить изменения</button><button type="button" style={{ ...styles.primary, opacity: !dirty || !validation.valid || saving ? 0.55 : 1 }} disabled={!dirty || !validation.valid || saving} onClick={() => void save()}>{saving ? 'Сохранение...' : 'Сохранить'}</button></div>}</div>
+      <div style={styles.sticky}>
+        <div style={styles.muted}>{dirty ? 'Есть несохранённые изменения' : 'Все изменения сохранены'}</div>
+        {context.isEditable && (
+          <div style={styles.actions}>
+            <Button Icon={IconRefresh} title="Пересчитать" variant="tertiary" size="small" disabled={saving || generating} onClick={() => void recalculate()} />
+            <Button
+              title={confirmReset ? 'Подтвердить сброс' : 'Сбросить изменения'}
+              variant="secondary"
+              size="small"
+              disabled={!dirty || saving || generating}
+              onClick={() => {
+                if (!confirmReset) {
+                  setConfirmReset(true);
+                  setNotice('Нажмите «Подтвердить сброс» для удаления локальных изменений.');
+                  return;
+                }
+                if (canonical !== null) setState(structuredClone(canonical));
+                setConfirmReset(false);
+                setNotice(null);
+                pendingSave.current = null;
+              }}
+            />
+            <Button
+              Icon={IconDeviceFloppy}
+              title={saving ? 'Сохранение...' : 'Сохранить'}
+              variant="primary"
+              accent="blue"
+              size="small"
+              disabled={!dirty || !validation.valid || saving || generating}
+              isLoading={saving}
+              onClick={() => void save()}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 };
