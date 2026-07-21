@@ -1,5 +1,7 @@
 # Commercial Proposal Editor API v2
 
+`SaveEditorItemInput` now accepts nullable `catalogItemId`. A newly assigned id must resolve to an active catalog item in the same currency. Existing relations to a subsequently inactive item remain valid. The catalog picker uses authenticated `POST /catalog-items/search`; proposal id is not part of that payload.
+
 ## Preferred Boundary
 
 Use aggregate routes with proposal id only in the path:

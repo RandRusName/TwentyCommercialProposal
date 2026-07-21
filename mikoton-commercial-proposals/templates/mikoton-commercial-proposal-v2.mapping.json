@@ -10,8 +10,9 @@
       "orientation": "landscape",
       "paperSize": 9,
       "fitToWidth": 1,
-      "fitToHeight": 1,
-      "repeatRows": "$15:$15"
+      "fitToHeight": 0,
+      "repeatRows": "$15:$15",
+      "oddFooter": "&RСтраница &P из &N"
     },
     "requiredParts": [
       "[Content_Types].xml",

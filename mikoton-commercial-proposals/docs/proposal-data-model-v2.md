@@ -1,5 +1,7 @@
 # Commercial Proposal Data Model v2
 
+Prompt 5.4 activates the previously deferred optional `CatalogItem` relation. The relation records provenance only. `CommercialProposalItem` remains the source of truth and stores copied snapshot values; catalog changes do not propagate.
+
 ## 1. Context
 
 The current app can create `CommercialProposal` drafts from `Opportunity` and generate XLSX/PDF files. The existing generation path is legacy schema `1.0`: it can synthesize one work item from the Opportunity name/amount when the proposal has no real line-item model.

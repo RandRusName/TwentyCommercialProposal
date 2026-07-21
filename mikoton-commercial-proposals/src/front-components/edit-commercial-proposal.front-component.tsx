@@ -24,6 +24,7 @@ import {
   buildSaveRequest,
   calculatePreview,
   createEmptyItem,
+  createEditorItemFromCatalogItem,
   createEmptyStage,
   createStarterItem,
   duplicateItem,
@@ -34,9 +35,11 @@ import {
   removeEntry,
   validateEditorState,
 } from 'src/front-components/commercial-proposal-editor/editor-helpers';
+import { CatalogPicker } from 'src/front-components/commercial-proposal-editor/catalog-picker';
 import { getEditorStyles } from 'src/front-components/commercial-proposal-editor/editor-styles';
 import type {
   EditorContextResponse,
+  CatalogItemOption,
   EditorItem,
   EditorStage,
   EditorState,
@@ -89,6 +92,7 @@ const EditCommercialProposal = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const [starterSuggestionDismissed, setStarterSuggestionDismissed] =
     useState(false);
   const pendingSave = useRef<SaveEditorRequest | null>(null);
@@ -210,6 +214,30 @@ const EditCommercialProposal = () => {
     edit((current) => ({ ...current, items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item) }));
   const updateStage = (index: number, patch: Partial<EditorStage>) =>
     edit((current) => ({ ...current, stages: current.stages.map((stage, stageIndex) => stageIndex === index ? { ...stage, ...patch } : stage) }));
+  const addCatalogItems = (catalogItems: CatalogItemOption[]) => {
+    if (catalogItems.length === 0) return;
+    const currencyCode = catalogItems[0]?.currencyCode ?? null;
+    if (catalogItems.some((item) => item.currencyCode !== currencyCode)) {
+      setError('Все выбранные позиции должны иметь одну валюту.');
+      return;
+    }
+    if (state.header.currencyCode !== null && state.header.currencyCode !== currencyCode) {
+      setError('Валюта позиции каталога не совпадает с валютой КП.');
+      return;
+    }
+    edit((current) => ({
+      ...current,
+      header: {
+        ...current.header,
+        currencyCode: current.header.currencyCode ?? currencyCode,
+      },
+      items: [
+        ...current.items,
+        ...catalogItems.map(createEditorItemFromCatalogItem),
+      ],
+    }));
+    setCatalogOpen(false);
+  };
 
   return (
     <div style={styles.root}>
@@ -234,7 +262,7 @@ const EditCommercialProposal = () => {
 
       {context.legacySuggestion.canCreateStarterItem && state.items.length === 0 && !starterSuggestionDismissed && <div style={{ ...styles.banner, marginTop: '16px' }}>У этого КП ещё нет состава работ. Можно создать стартовую строку из текущей суммы сделки.<div style={{ marginTop: '8px' }}><button type="button" style={styles.button} disabled={!editable} onClick={() => edit((current) => ({ ...current, items: [createStarterItem(context.legacySuggestion)] }))}>Создать стартовую строку</button><button type="button" style={{ ...styles.button, marginLeft: '8px' }} disabled={!editable} onClick={() => { setStarterSuggestionDismissed(true); setNotice('Добавьте первую строку вручную.'); }}>Начать с пустой таблицы</button></div></div>}
 
-      <section style={styles.section}><div style={styles.header}><h3 style={styles.sectionTitle}>Состав работ</h3>{editable && <button type="button" style={styles.button} onClick={() => edit((current) => ({ ...current, items: [...current.items, createEmptyItem()] }))}>Добавить строку</button>}</div><div style={styles.tableWrap}><table style={styles.table}><thead><tr>{['№','Блок','Наименование','Описание','Количество','Ед.','Ставка','Скидка, %','Сумма','Действия'].map((label) => <th key={label} style={styles.cell}>{label}</th>)}</tr></thead><tbody>{state.items.map((item, index) => <tr key={item.clientKey}><td style={styles.cell}>{index + 1}</td>{(['block','name','description','quantity','unit','unitPrice','discountPercent'] as const).map((key) => <td key={key} style={styles.cell}><input aria-label={`${key} ${index + 1}`} style={{ ...styles.input, width: key === 'description' ? '190px' : '100px' }} disabled={!editable} value={item[key]} onChange={(event) => updateItem(index, { [key]: event.target.value })} />{validation.errors[`items.${index}.${key}`] !== undefined && <div style={{ color: '#dc2626' }}>{validation.errors[`items.${index}.${key}`]}</div>}</td>)}<td style={styles.cell}>{formatMoney(calculatePreview({ ...state, items: [item] }), state.header.currencyCode)}</td><td style={styles.cell}><div style={styles.actions}>{editable && <><button type="button" title="Дублировать" aria-label="Дублировать строку" style={styles.button} onClick={() => edit((current) => ({ ...current, items: [...current.items.slice(0, index + 1), duplicateItem(item), ...current.items.slice(index + 1)] }))}>+</button><button type="button" title="Вверх" aria-label="Переместить строку вверх" style={styles.button} onClick={() => edit((current) => ({ ...current, items: moveEntry(current.items, index, -1) }))}>↑</button><button type="button" title="Вниз" aria-label="Переместить строку вниз" style={styles.button} onClick={() => edit((current) => ({ ...current, items: moveEntry(current.items, index, 1) }))}>↓</button><button type="button" title="Удалить" aria-label="Удалить строку" style={styles.button} onClick={() => edit((current) => ({ ...current, items: removeEntry(current.items, index) }))}>×</button></>}</div></td></tr>)}</tbody></table></div></section>
+      <section style={styles.section}><div style={styles.header}><h3 style={styles.sectionTitle}>Состав работ</h3>{editable && <div style={styles.actions}><button type="button" style={styles.button} onClick={() => setCatalogOpen((value) => !value)}>Добавить из каталога</button><button type="button" style={styles.button} onClick={() => edit((current) => ({ ...current, items: [...current.items, createEmptyItem()] }))}>Добавить строку</button></div>}</div>{catalogOpen && <CatalogPicker currencyCode={state.header.currencyCode} onAdd={addCatalogItems} onClose={() => setCatalogOpen(false)} />}<div style={styles.tableWrap}><table style={styles.table}><thead><tr>{['№','Источник','Блок','Наименование','Описание','Количество','Ед.','Ставка','Скидка, %','Сумма','Действия'].map((label) => <th key={label} style={styles.cell}>{label}</th>)}</tr></thead><tbody>{state.items.map((item, index) => <tr key={item.clientKey}><td style={styles.cell}>{index + 1}</td><td style={styles.cell}>{item.catalogItemId === null ? 'Вручную' : 'Каталог'}</td>{(['block','name','description','quantity','unit','unitPrice','discountPercent'] as const).map((key) => <td key={key} style={styles.cell}><input aria-label={`${key} ${index + 1}`} style={{ ...styles.input, width: key === 'description' ? '190px' : '100px' }} disabled={!editable} value={item[key]} onChange={(event) => updateItem(index, { [key]: event.target.value })} />{validation.errors[`items.${index}.${key}`] !== undefined && <div style={{ color: '#dc2626' }}>{validation.errors[`items.${index}.${key}`]}</div>}</td>)}<td style={styles.cell}>{formatMoney(calculatePreview({ ...state, items: [item] }), state.header.currencyCode)}</td><td style={styles.cell}><div style={styles.actions}>{editable && <><button type="button" title="Дублировать" aria-label="Дублировать строку" style={styles.button} onClick={() => edit((current) => ({ ...current, items: [...current.items.slice(0, index + 1), duplicateItem(item), ...current.items.slice(index + 1)] }))}>+</button><button type="button" title="Вверх" aria-label="Переместить строку вверх" style={styles.button} onClick={() => edit((current) => ({ ...current, items: moveEntry(current.items, index, -1) }))}>↑</button><button type="button" title="Вниз" aria-label="Переместить строку вниз" style={styles.button} onClick={() => edit((current) => ({ ...current, items: moveEntry(current.items, index, 1) }))}>↓</button><button type="button" title="Удалить" aria-label="Удалить строку" style={styles.button} onClick={() => edit((current) => ({ ...current, items: removeEntry(current.items, index) }))}>×</button></>}</div></td></tr>)}</tbody></table></div></section>
 
       <section style={styles.section}><div style={styles.header}><div><h3 style={styles.sectionTitle}>План работ</h3><div style={styles.muted}>Результат и срок понадобятся перед формированием документа.</div></div>{editable && <button type="button" style={styles.button} onClick={() => edit((current) => ({ ...current, stages: [...current.stages, createEmptyStage()] }))}>Добавить этап</button>}</div>{state.stages.map((stage, index) => <div key={stage.clientKey} style={{ ...styles.grid, marginBottom: '10px' }}><Field label={`Этап ${index + 1}`} value={stage.title} disabled={!editable} onChange={(value) => updateStage(index, { title: value })} error={validation.errors[`stages.${index}.title`]} /><Field label="Результат" value={stage.result} disabled={!editable} onChange={(value) => updateStage(index, { result: value })} /><Field label="Срок" value={stage.duration} disabled={!editable} onChange={(value) => updateStage(index, { duration: value })} /><Field label="Описание" value={stage.description} disabled={!editable} onChange={(value) => updateStage(index, { description: value })} /><div style={styles.actions}>{editable && <><button type="button" style={styles.button} onClick={() => edit((current) => ({ ...current, stages: [...current.stages.slice(0, index + 1), duplicateStage(stage), ...current.stages.slice(index + 1)] }))}>Дублировать</button><button type="button" aria-label="Переместить этап вверх" style={styles.button} onClick={() => edit((current) => ({ ...current, stages: moveEntry(current.stages, index, -1) }))}>↑</button><button type="button" aria-label="Переместить этап вниз" style={styles.button} onClick={() => edit((current) => ({ ...current, stages: moveEntry(current.stages, index, 1) }))}>↓</button><button type="button" style={styles.button} onClick={() => edit((current) => ({ ...current, stages: removeEntry(current.stages, index) }))}>Удалить</button></>}</div></div>)}</section>
 

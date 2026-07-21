@@ -6,6 +6,7 @@ import type {
 
 export type EditorItem = {
   id?: string;
+  catalogItemId: string | null;
   clientKey: string;
   block: string;
   name: string;
@@ -65,4 +66,20 @@ export type EditorContextResponse = CommercialProposalAggregate & {
 export type EditorValidation = {
   valid: boolean;
   errors: Record<string, string>;
+};
+
+export type CatalogItemOption = {
+  id: string;
+  name: string;
+  itemType: 'SERVICE' | 'PRODUCT' | 'LICENSE' | 'PACKAGE' | 'OTHER';
+  category: string | null;
+  defaultBlock: string;
+  description: string | null;
+  defaultUnit: string;
+  defaultPrice: number;
+  currencyCode: string;
+  isActive: boolean;
+  sortOrder: number;
+  isSelectable: boolean;
+  validationMessage: string | null;
 };

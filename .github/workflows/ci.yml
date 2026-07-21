@@ -37,7 +37,13 @@ jobs:
           echo "::add-mask::$document_secret"
           echo "CI_DOCUMENT_SERVICE_SECRET=$document_secret" >> "$GITHUB_ENV"
           echo "server-url=http://localhost:2021" >> "$GITHUB_OUTPUT"
-          echo "api-key=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyMDIwMjAyMC0xYzI1LTRkMDItYmYyNS02YWVjY2Y3ZWE0MTkiLCJ0eXBlIjoiQVBJX0tFWSIsIndvcmtzcGFjZUlkIjoiMjAyMDIwMjAtMWMyNS00ZDAyLWJmMjUtNmFlY2NmN2VhNDE5IiwiaWF0IjoxNzM1Njg5NjAwLCJleHAiOjQ4OTE0NDk2MDAsImp0aSI6IjIwMjAyMDIwLWY0MDEtNGQ4YS1hNzMxLTY0ZDAwN2MyN2JhZCJ9.bfQjfyN0NEtTCLE_xPyNcwonDzlSXFoP8kdCQTdnuDc" >> "$GITHUB_OUTPUT"
+          ephemeral_api_key="${{ secrets.TWENTY_EPHEMERAL_API_KEY }}"
+          if [ -z "$ephemeral_api_key" ]; then
+            echo "TWENTY_EPHEMERAL_API_KEY secret is required for ephemeral integration tests"
+            exit 1
+          fi
+          echo "::add-mask::$ephemeral_api_key"
+          echo "api-key=$ephemeral_api_key" >> "$GITHUB_OUTPUT"
 
           docker network create twenty-app-ci
           docker run -d \
@@ -45,11 +51,11 @@ jobs:
             --network twenty-app-ci \
             -e MINIO_ROOT_USER=ci-minio \
             -e MINIO_ROOT_PASSWORD=ci-minio-password \
-            minio/minio:latest server /data
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
           docker run --rm \
             --network twenty-app-ci \
             --entrypoint /bin/sh \
-            minio/mc:latest \
+            minio/mc:RELEASE.2025-08-13T08-35-41Z \
             -c 'until mc alias set ci http://minio:9000 ci-minio ci-minio-password; do sleep 2; done; mc mb --ignore-existing ci/commercial-proposals; mc anonymous set none ci/commercial-proposals'
 
           docker build \
@@ -122,6 +128,9 @@ jobs:
 
       - name: Unit tests
         run: yarn test:unit
+
+      - name: Document service tests
+        run: yarn test:document-service
 
       - name: Integration tests
         run: yarn test:integration

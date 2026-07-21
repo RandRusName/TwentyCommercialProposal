@@ -13,6 +13,7 @@ import uuid
 import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Protocol
 from xml.etree import ElementTree as ET
@@ -22,8 +23,8 @@ NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 NS_CONTENT_TYPES = "http://schemas.openxmlformats.org/package/2006/content-types"
 NS_RELATIONSHIPS = "http://schemas.openxmlformats.org/package/2006/relationships"
 ET.register_namespace("", NS_MAIN)
-ET.register_namespace("", NS_CONTENT_TYPES)
-ET.register_namespace("", NS_RELATIONSHIPS)
+ET.register_namespace("ct", NS_CONTENT_TYPES)
+ET.register_namespace("pr", NS_RELATIONSHIPS)
 
 TEMPLATE_CODE = "mikoton-commercial-proposal"
 TEMPLATE_VERSION = "1"
@@ -335,6 +336,17 @@ def _set_print_area(
     repeat_rows: str | None = None,
 ) -> bytes:
     workbook = ET.fromstring(workbook_xml)
+    sheets = workbook.find(_cell_tag("sheets"))
+    if sheets is None:
+        raise DocumentGenerationError("TEMPLATE_INVALID", "Workbook sheets are missing")
+    if workbook.find(_cell_tag("workbookPr")) is None:
+        workbook.insert(0, ET.Element(_cell_tag("workbookPr")))
+    if workbook.find(_cell_tag("bookViews")) is None:
+        book_views = ET.Element(_cell_tag("bookViews"))
+        ET.SubElement(book_views, _cell_tag("workbookView"), {"activeTab": "0"})
+        workbook.insert(list(workbook).index(sheets), book_views)
+    for sheet in sheets:
+        sheet.attrib.setdefault("state", "visible")
     defined_names = workbook.find(_cell_tag("definedNames"))
     if defined_names is None:
         defined_names = ET.SubElement(workbook, _cell_tag("definedNames"))
@@ -347,14 +359,18 @@ def _set_print_area(
         {"name": "_xlnm.Print_Area", "localSheetId": "0"},
     )
     area = print_area.split("!", 1)[-1]
-    defined_name.text = f"'{sheet_name}'!{area}"
+    defined_name.text = f"{sheet_name}!{area}"
     if repeat_rows:
         titles = ET.SubElement(
             defined_names,
             _cell_tag("definedName"),
             {"name": "_xlnm.Print_Titles", "localSheetId": "0"},
         )
-        titles.text = f"'{sheet_name}'!{repeat_rows}"
+        titles.text = f"{sheet_name}!{repeat_rows}"
+    calc_pr = workbook.find(_cell_tag("calcPr"))
+    if calc_pr is None:
+        calc_pr = ET.SubElement(workbook, _cell_tag("calcPr"))
+    calc_pr.attrib.update({"fullCalcOnLoad": "1", "forceFullCalc": "1"})
     return ET.tostring(workbook, encoding="utf-8", xml_declaration=True)
 
 
@@ -395,6 +411,128 @@ def _as_text(value: Any, field: str, allow_empty: bool = False) -> str:
     return value
 
 
+def _exact_keys(value: dict[str, Any], expected: set[str], field: str) -> None:
+    actual = set(value)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        raise DocumentGenerationError(
+            "PAYLOAD_INVALID",
+            f"{field} has invalid fields (missing={missing}, extra={extra})",
+        )
+
+
+def _decimal(value: Any, field: str) -> Decimal:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise DocumentGenerationError("PAYLOAD_INVALID", f"{field} must be a number")
+    try:
+        result = Decimal(str(value))
+    except InvalidOperation as error:
+        raise DocumentGenerationError("PAYLOAD_INVALID", f"{field} must be a number") from error
+    if not result.is_finite():
+        raise DocumentGenerationError("PAYLOAD_INVALID", f"{field} must be finite")
+    return result
+
+
+def _validate_payload_v2(payload: dict[str, Any], mapping: dict[str, Any]) -> None:
+    _exact_keys(payload, {"schemaVersion", "templateCode", "templateVersion", "proposal", "customer", "contractor", "content"}, "payload")
+    proposal = payload.get("proposal")
+    customer = payload.get("customer")
+    contractor = payload.get("contractor")
+    content = payload.get("content")
+    if not all(isinstance(value, dict) for value in (proposal, customer, contractor, content)):
+        raise DocumentGenerationError("PAYLOAD_INVALID", "proposal, customer, contractor and content are required")
+
+    _exact_keys(proposal, {"id", "number", "title", "date", "language", "currencyCode", "validityDays", "amount"}, "proposal")
+    _exact_keys(customer, {"companyId", "companyName", "contactName"}, "customer")
+    _exact_keys(contractor, {"name", "email"}, "contractor")
+    _exact_keys(content, {"contextAndGoal", "workItems", "plan", "paymentTerms", "assumptions", "nextStep"}, "content")
+
+    try:
+        uuid.UUID(_as_text(proposal.get("id"), "proposal.id"))
+    except (ValueError, AttributeError) as error:
+        raise DocumentGenerationError("PAYLOAD_INVALID", "proposal.id must be a UUID") from error
+    for key in ("number", "title"):
+        _as_text(proposal.get(key), f"proposal.{key}")
+    try:
+        date.fromisoformat(_as_text(proposal.get("date"), "proposal.date"))
+    except ValueError as error:
+        raise DocumentGenerationError("PAYLOAD_INVALID", "proposal.date must use YYYY-MM-DD") from error
+    if proposal.get("language") != "ru-RU":
+        raise DocumentGenerationError("PAYLOAD_INVALID", "proposal.language must be ru-RU")
+    currency = _as_text(proposal.get("currencyCode"), "proposal.currencyCode")
+    if re.fullmatch(r"[A-Z]{3}", currency) is None:
+        raise DocumentGenerationError("PAYLOAD_INVALID", "proposal.currencyCode must be a three-letter uppercase code")
+    validity = proposal.get("validityDays")
+    if isinstance(validity, bool) or not isinstance(validity, int) or validity <= 0:
+        raise DocumentGenerationError("PAYLOAD_INVALID", "proposal.validityDays must be a positive integer")
+    proposal_total = _decimal(proposal.get("amount"), "proposal.amount")
+    if proposal_total <= 0:
+        raise DocumentGenerationError("PAYLOAD_INVALID", "proposal.amount must be greater than zero")
+
+    company_id = customer.get("companyId")
+    if company_id is not None:
+        try:
+            uuid.UUID(_as_text(company_id, "customer.companyId"))
+        except (ValueError, AttributeError) as error:
+            raise DocumentGenerationError("PAYLOAD_INVALID", "customer.companyId must be null or UUID") from error
+    _as_text(customer.get("companyName"), "customer.companyName")
+    _as_text(customer.get("contactName"), "customer.contactName")
+    _as_text(contractor.get("name"), "contractor.name")
+    _as_text(contractor.get("email"), "contractor.email")
+    for key in ("contextAndGoal", "paymentTerms", "assumptions", "nextStep"):
+        _as_text(content.get(key), f"content.{key}", allow_empty=True)
+
+    work_items = content.get("workItems")
+    stages = content.get("plan")
+    if not isinstance(work_items, list) or not (1 <= len(work_items) <= int(mapping["limits"]["maxWorkItems"])):
+        raise DocumentGenerationError("PAYLOAD_INVALID", "content.workItems is outside template limits")
+    if not isinstance(stages, list) or not (int(mapping["limits"]["minPlanStages"]) <= len(stages) <= int(mapping["limits"]["maxPlanStages"])):
+        raise DocumentGenerationError("PAYLOAD_INVALID", "content.plan is outside template limits")
+
+    total = Decimal("0")
+    for index, item in enumerate(work_items):
+        path = f"content.workItems[{index}]"
+        if not isinstance(item, dict):
+            raise DocumentGenerationError("PAYLOAD_INVALID", f"{path} must be an object")
+        _exact_keys(item, {"position", "block", "name", "description", "quantity", "unit", "unitPrice", "discountPercent", "lineAmount", "currencyCode"}, path)
+        if item.get("position") != index + 1 or isinstance(item.get("position"), bool):
+            raise DocumentGenerationError("PAYLOAD_INVALID", f"{path}.position must equal {index + 1}")
+        for key in ("block", "name", "unit"):
+            _as_text(item.get(key), f"{path}.{key}")
+        _as_text(item.get("description"), f"{path}.description", allow_empty=True)
+        if item.get("currencyCode") != currency:
+            raise DocumentGenerationError("PAYLOAD_INVALID", f"{path}.currencyCode must match proposal.currencyCode")
+        quantity = _decimal(item.get("quantity"), f"{path}.quantity")
+        unit_price = _decimal(item.get("unitPrice"), f"{path}.unitPrice")
+        discount = _decimal(item.get("discountPercent"), f"{path}.discountPercent")
+        line_amount = _decimal(item.get("lineAmount"), f"{path}.lineAmount")
+        if quantity <= 0:
+            raise DocumentGenerationError("PAYLOAD_INVALID", f"{path}.quantity must be greater than zero")
+        if unit_price < 0:
+            raise DocumentGenerationError("PAYLOAD_INVALID", f"{path}.unitPrice must be non-negative")
+        if discount < 0 or discount > 100:
+            raise DocumentGenerationError("PAYLOAD_INVALID", f"{path}.discountPercent must be between 0 and 100")
+        expected = (quantity * unit_price * (Decimal("1") - discount / Decimal("100"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if line_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) != expected:
+            raise DocumentGenerationError("PAYLOAD_INVALID", f"{path}.lineAmount does not match the calculated amount")
+        total += expected
+
+    if proposal_total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) != total:
+        raise DocumentGenerationError("PAYLOAD_INVALID", "proposal.amount does not match content.workItems total")
+
+    for index, stage in enumerate(stages):
+        path = f"content.plan[{index}]"
+        if not isinstance(stage, dict):
+            raise DocumentGenerationError("PAYLOAD_INVALID", f"{path} must be an object")
+        _exact_keys(stage, {"position", "title", "result", "duration", "description"}, path)
+        if stage.get("position") != index + 1 or isinstance(stage.get("position"), bool):
+            raise DocumentGenerationError("PAYLOAD_INVALID", f"{path}.position must equal {index + 1}")
+        for key in ("title", "result", "duration"):
+            _as_text(stage.get(key), f"{path}.{key}")
+        _as_text(stage.get("description"), f"{path}.description", allow_empty=True)
+
+
 def validate_payload(payload: dict[str, Any], mapping: dict[str, Any]) -> None:
     schema_version = str(payload.get("schemaVersion"))
     template_version = str(payload.get("templateVersion"))
@@ -408,6 +546,10 @@ def validate_payload(payload: dict[str, Any], mapping: dict[str, Any]) -> None:
         raise DocumentGenerationError("TEMPLATE_NOT_FOUND", "Unsupported templateCode")
     if template_version != str(mapping.get("templateVersion")):
         raise DocumentGenerationError("DOCUMENT_SCHEMA_TEMPLATE_MISMATCH", "Mapping version does not match payload")
+
+    if schema_version == "2.0":
+        _validate_payload_v2(payload, mapping)
+        return
 
     proposal = payload.get("proposal")
     customer = payload.get("customer")
@@ -559,6 +701,15 @@ def _apply_page_setup(sheet: ET.Element, page_setup: dict[str, Any] | None) -> N
         "fitToHeight": str(page_setup.get("fitToHeight", 0)),
         "paperSize": str(page_setup.get("paperSize", 9)),
     })
+    odd_footer = page_setup.get("oddFooter")
+    if isinstance(odd_footer, str) and odd_footer:
+        header_footer = sheet.find(_cell_tag("headerFooter"))
+        if header_footer is None:
+            header_footer = ET.SubElement(sheet, _cell_tag("headerFooter"))
+        footer = header_footer.find(_cell_tag("oddFooter"))
+        if footer is None:
+            footer = ET.SubElement(header_footer, _cell_tag("oddFooter"))
+        footer.text = odd_footer
 
 
 def _apply_workbook_mapping(sheet: ET.Element, payload: dict[str, Any], mapping: dict[str, Any]) -> None:

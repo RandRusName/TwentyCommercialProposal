@@ -95,6 +95,7 @@ def fixture_payload_v2() -> dict:
     payload = fixture_payload()
     payload["schemaVersion"] = "2.0"
     payload["templateVersion"] = "2"
+    payload["customer"]["companyId"] = "33333333-3333-4333-8333-333333333333"
     payload["proposal"]["amount"] = 37350
     payload["content"]["workItems"] = [
         {
@@ -107,6 +108,7 @@ def fixture_payload_v2() -> dict:
             "unitPrice": 5500,
             "discountPercent": 15,
             "lineAmount": 9350,
+            "currencyCode": "RUB",
         },
         {
             "position": 2,
@@ -118,6 +120,7 @@ def fixture_payload_v2() -> dict:
             "unitPrice": 7000,
             "discountPercent": 0,
             "lineAmount": 28000,
+            "currencyCode": "RUB",
         },
     ]
     payload["content"]["plan"][0]["description"] = "Рабочая встреча"
@@ -136,6 +139,63 @@ def text_value(cell_node: ET.Element) -> str:
 
 
 class GeneratorTest(unittest.TestCase):
+    def test_v2_writes_fifty_items_and_ten_stages_with_multipage_setup(self) -> None:
+        payload = fixture_payload_v2()
+        payload["content"]["workItems"] = [
+            {
+                "position": position,
+                "block": f"Block {position}",
+                "name": f"Item {position}",
+                "description": f"Description {position}",
+                "quantity": 1,
+                "unit": "hour",
+                "unitPrice": position,
+                "discountPercent": 0,
+                "lineAmount": position,
+                "currencyCode": "RUB",
+            }
+            for position in range(1, 51)
+        ]
+        payload["content"]["plan"] = [
+            {
+                "position": position,
+                "title": f"Stage {position}",
+                "result": f"Result {position}",
+                "duration": f"{position} days",
+                "description": f"Stage description {position}",
+            }
+            for position in range(1, 11)
+        ]
+        payload["proposal"]["amount"] = 1275
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = generate_xlsx(
+                payload, TEMPLATE_V2_PATH, MAPPING_V2_PATH, Path(tmp)
+            )
+            with zipfile.ZipFile(output.path) as package:
+                sheet = ET.fromstring(package.read("xl/worksheets/sheet1.xml"))
+                workbook = package.read("xl/workbook.xml").decode("utf-8")
+
+                self.assertEqual(text_value(cell(sheet, "C65")), "Item 50")
+                self.assertEqual(text_value(cell(sheet, "B78")), "Stage 10")
+                self.assertEqual(
+                    cell(sheet, "I65").find("m:f", NS).text,
+                    "E65*G65*(1-H65/100)",
+                )
+                self.assertEqual(
+                    cell(sheet, "I66").find("m:f", NS).text,
+                    "SUM(I16:I65)",
+                )
+                page_setup = sheet.find("m:pageSetup", NS)
+                self.assertIsNotNone(page_setup)
+                self.assertEqual(page_setup.attrib["fitToWidth"], "1")
+                self.assertEqual(page_setup.attrib["fitToHeight"], "0")
+                footer = sheet.find("m:headerFooter/m:oddFooter", NS)
+                self.assertIsNotNone(footer)
+                self.assertEqual(footer.text, "&RСтраница &P из &N")
+                self.assertIn("$A$1:$I$87", workbook)
+                self.assertIn("$15:$15", workbook)
+
     def test_v2_writes_twenty_items_and_eight_stages_without_truncation(self) -> None:
         payload = fixture_payload_v2()
         payload["content"]["workItems"] = [
@@ -149,6 +209,7 @@ class GeneratorTest(unittest.TestCase):
                 "unitPrice": position,
                 "discountPercent": 0,
                 "lineAmount": position,
+                "currencyCode": "RUB",
             }
             for position in range(1, 21)
         ]
@@ -242,6 +303,37 @@ class GeneratorTest(unittest.TestCase):
         with self.assertRaises(DocumentGenerationError) as invalid_error:
             validate_payload(invalid, mapping)
         self.assertEqual(invalid_error.exception.code, "PAYLOAD_INVALID")
+
+    def test_v2_rejects_currency_totals_positions_and_unknown_fields(self) -> None:
+        from mikoton_document_service.generator import validate_payload
+
+        mapping = json.loads(MAPPING_V2_PATH.read_text(encoding="utf-8"))
+        mutations = []
+        wrong_currency = fixture_payload_v2()
+        wrong_currency["content"]["workItems"][0]["currencyCode"] = "USD"
+        mutations.append((wrong_currency, "content.workItems[0].currencyCode"))
+        wrong_line = fixture_payload_v2()
+        wrong_line["content"]["workItems"][0]["lineAmount"] = 1
+        mutations.append((wrong_line, "content.workItems[0].lineAmount"))
+        wrong_total = fixture_payload_v2()
+        wrong_total["proposal"]["amount"] = 1
+        mutations.append((wrong_total, "proposal.amount"))
+        wrong_position = fixture_payload_v2()
+        wrong_position["content"]["workItems"][1]["position"] = 1
+        mutations.append((wrong_position, "content.workItems[1].position"))
+        boolean_number = fixture_payload_v2()
+        boolean_number["content"]["workItems"][0]["quantity"] = True
+        mutations.append((boolean_number, "content.workItems[0].quantity"))
+        unknown = fixture_payload_v2()
+        unknown["proposal"]["unexpected"] = "value"
+        mutations.append((unknown, "proposal"))
+
+        for payload, expected_path in mutations:
+            with self.subTest(expected_path=expected_path):
+                with self.assertRaises(DocumentGenerationError) as raised:
+                    validate_payload(payload, mapping)
+                self.assertEqual(raised.exception.code, "PAYLOAD_INVALID")
+                self.assertIn(expected_path, str(raised.exception))
     def test_generates_xlsx_pdf_and_removes_macro_parts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

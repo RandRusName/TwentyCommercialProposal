@@ -1,5 +1,12 @@
 # Known Limitations
 
+## Prompt 5.4
+
+- Catalog search retrieves a bounded server result and applies deterministic filtering/sorting in the logic function because the installed `twenty-client-sdk@2.20.0` generated types do not include metadata that has not yet been installed. The HTTP result remains capped at 100.
+- Catalog source is informational after save; price/name synchronization is intentionally absent.
+- The application role now uses explicit read permissions for Opportunity, Company and CatalogItem plus update permissions for app-owned aggregate objects. Twenty SDK 2.20 exposes no separate `canCreateObjectRecords` role flag, so create behavior must be verified on target.
+- Local Microsoft Excel open-without-repair validation passed. Target download and multi-page visual validation remain mandatory release gates.
+
 - Template v2 supports at most 50 work items and 10 stages; larger proposals are rejected, never truncated.
 - Generation uses a best-effort editor revision recheck because Twenty v2.20.0 exposes no App-level multi-object transaction/CAS primitive.
 - LibreOffice PDF output requires a manual visual check after material template changes.
@@ -18,9 +25,8 @@
   target Twenty app installation through the metadata API.
 - Target storage uses MinIO/S3-compatible storage with private bucket and
   expiring signed URLs.
-- Compose currently uses `minio/minio:latest` and `minio/mc:latest` to avoid a
-  non-existent pinned tag. Pin image digests after the first successful target
-  deployment.
+- Compose pins MinIO server and client release tags. Image digests are not yet
+  pinned, so an internal registry mirror remains a future supply-chain hardening step.
 - Template v1 supports up to 5 work items and 1 to 3 plan stages. More work
   items fail validation instead of being silently truncated.
 - Download URL refresh without regeneration is represented in metadata but does
@@ -38,8 +44,8 @@
 - Generated Excel files are `.xlsx` without VBA/macros. Target download check
   confirmed the XLSX ZIP package opens and does not contain `xl/vbaProject.bin`
   or a `macroEnabled` content type.
-- Manual UI generation smoke and manual Microsoft Excel opening check are not
-  yet executed for the XLSX build.
+- Manual target UI generation smoke and Microsoft Excel opening of a target-downloaded
+  XLSX are not yet executed for this build.
 - Forced target `FAILED -> retry -> GENERATED` recovery test is not yet
   executed.
 - No DOCX generation is implemented.
@@ -52,9 +58,10 @@
 - `AGGREGATE_V2` generation is enabled through schema `2.0` and macro-free XLSX
   template v2. Template v2 currently supports at most 50 work items and 10
   stages; larger proposals are rejected instead of truncated.
-- Microsoft Excel was not available during Prompt 5.3 target validation. The
-  downloaded XLSX passed ZIP/workbook parsing, formula and print-area checks,
-  while LibreOffice produced and rendered a valid one-page PDF.
+- A locally generated XLSX was opened in Microsoft Excel 16 without a repair
+  warning. Excel exposed formulas and scaling settings; its COM `PrintArea`
+  property remained blank even though the workbook contains the expected
+  built-in print-area definition and LibreOffice exports the intended pages.
 - Optimistic concurrency is best-effort unless a future target/platform spike
   proves an official CAS/conditional update primitive is available.
 - Child `clientKey` replay safety is application-level parent+clientKey lookup;

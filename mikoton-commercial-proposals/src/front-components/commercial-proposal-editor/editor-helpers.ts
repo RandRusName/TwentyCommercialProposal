@@ -6,6 +6,7 @@ import type { SaveEditorRequest } from 'src/domain/commercial-proposal-aggregate
 import { createIdempotencyKey } from 'src/front-components/create-commercial-proposal.helpers';
 import type {
   EditorContextResponse,
+  CatalogItemOption,
   EditorItem,
   EditorStage,
   EditorState,
@@ -16,6 +17,7 @@ export const normalizeDecimalInput = (value: string) =>
   value.trim().replace(',', '.');
 
 export const createEmptyItem = (): EditorItem => ({
+  catalogItemId: null,
   clientKey: createIdempotencyKey(),
   block: '',
   name: '',
@@ -83,6 +85,7 @@ export const applyCanonicalResponse = (
   },
   items: context.items.map((item) => ({
     id: item.id,
+    catalogItemId: item.catalogItemId,
     clientKey: item.clientKey,
     block: item.block,
     name: item.name,
@@ -159,6 +162,7 @@ export const buildSaveRequest = (
   },
   items: state.items.map((item) => ({
     id: item.id,
+    catalogItemId: item.catalogItemId,
     clientKey: item.clientKey,
     block: item.block.trim(),
     name: item.name.trim(),
@@ -224,4 +228,18 @@ export const createStarterItem = (
   name: suggestion.suggestedTitle ?? 'Работы по проекту',
   unit: 'проект',
   unitPrice: String(suggestion.amount ?? 0),
+});
+
+export const createEditorItemFromCatalogItem = (
+  catalogItem: CatalogItemOption,
+): EditorItem => ({
+  catalogItemId: catalogItem.id,
+  clientKey: createIdempotencyKey(),
+  block: catalogItem.defaultBlock,
+  name: catalogItem.name,
+  description: catalogItem.description ?? '',
+  quantity: '1',
+  unit: catalogItem.defaultUnit,
+  unitPrice: String(catalogItem.defaultPrice),
+  discountPercent: '0',
 });

@@ -40,6 +40,9 @@ export type ApplicationErrorCode =
   | 'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT'
   | 'COMMERCIAL_PROPOSAL_VALIDATION_FAILED'
   | 'COMMERCIAL_PROPOSAL_SAVE_FAILED'
+  | 'CATALOG_ITEM_NOT_FOUND'
+  | 'CATALOG_ITEM_NOT_SELECTABLE'
+  | 'CATALOG_SEARCH_FAILED'
   | 'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED'
   | 'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED'
   | 'DOCUMENT_SCHEMA_TEMPLATE_MISMATCH'
@@ -297,6 +300,7 @@ export type DocumentGenerationPayloadV2 = {
       unitPrice: number;
       discountPercent: number;
       lineAmount: number;
+      currencyCode: string;
     }>;
     plan: Array<{
       position: number;
@@ -864,12 +868,10 @@ export const validateAggregateForGeneration = (
 
 export const buildDocumentGenerationPayloadV2 = ({
   aggregate,
-  opportunity,
   company,
   now = new Date(),
 }: {
   aggregate: CommercialProposalAggregate;
-  opportunity: OpportunityContext | null;
   company: { id: string; name: string } | null;
   now?: Date;
 }): DocumentGenerationPayloadV2 => {
@@ -892,7 +894,7 @@ export const buildDocumentGenerationPayloadV2 = ({
     },
     customer: {
       companyId: proposal.companyId,
-      companyName: company?.name ?? opportunity?.company?.name ?? 'Компания не указана',
+      companyName: company?.name ?? 'Компания не указана',
       contactName: proposal.contactName ?? 'Не указан',
     },
     contractor: { name: 'Шибеев Роман', email: 'consulting@mikoton.ru' },
@@ -908,6 +910,7 @@ export const buildDocumentGenerationPayloadV2 = ({
         unitPrice: item.unitPrice,
         discountPercent: item.discountPercent,
         lineAmount: item.lineAmount,
+        currencyCode: item.currencyCode,
       })),
       plan: aggregate.stages.map((stage) => ({
         position: stage.position,
@@ -1004,10 +1007,27 @@ export const generateCommercialProposalDocuments = async ({
       if (aggregate === undefined) throw error;
       return null;
     });
-  const company =
-    draft.companyId === null
-      ? null
-      : (await repository.getCompanyContext?.(draft.companyId)) ?? null;
+  let company: { id: string; name: string } | null = null;
+  if (draft.companyId !== null) {
+    try {
+      company = (await repository.getCompanyContext?.(draft.companyId)) ?? null;
+    } catch (error) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
+        'Компания коммерческого предложения не найдена или недоступна',
+        error,
+      );
+    }
+    if (
+      aggregate !== undefined &&
+      (company === null || company.id !== draft.companyId)
+    ) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
+        'Компания коммерческого предложения не найдена или недоступна',
+      );
+    }
+  }
   let generationDraft = draft;
   let payload: DocumentGenerationPayload | null = null;
 
@@ -1039,7 +1059,6 @@ export const generateCommercialProposalDocuments = async ({
               ...aggregate,
               proposal: finalDraft,
             },
-            opportunity,
             company,
             now,
           });

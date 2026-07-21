@@ -461,6 +461,46 @@ describe('commercial proposal domain', () => {
     expect(repository.updateCommercialProposal).not.toHaveBeenCalled();
   });
 
+  it.each(['missing', 'forbidden'])('rejects an exact proposal Company that is %s before generation side effects', async (mode) => {
+    const repository = makeRepository();
+    const proposal = makeDraft({ contentModelVersion: 'AGGREGATE_V2' });
+    vi.mocked(repository.getCommercialProposal).mockResolvedValue(proposal);
+    repository.getCommercialProposalAggregate = vi.fn(async () => ({
+      proposal,
+      items: [{
+        id: 'item-id', commercialProposalId: proposal.id,
+        clientKey: '11111111-1111-4111-8111-111111111111', catalogItemId: null,
+        position: 1, block: 'Работы', name: 'Анализ', description: null,
+        quantity: 1, unit: 'час', unitPrice: 100, discountPercent: 0,
+        lineAmount: 100, currencyCode: 'RUB',
+      }],
+      stages: [{
+        id: 'stage-id', commercialProposalId: proposal.id,
+        clientKey: '22222222-2222-4222-8222-222222222222', position: 1,
+        title: 'Этап', result: 'Результат', duration: '1 день', description: null,
+      }],
+    }));
+    repository.getCompanyContext = mode === 'missing'
+      ? vi.fn(async () => null)
+      : vi.fn(async () => { throw new Error('forbidden'); });
+    const documentClient = { generate: vi.fn() };
+
+    await expect(generateCommercialProposalDocuments({
+      input: {
+        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+        idempotencyKey: generationIdempotencyKey,
+      },
+      repository,
+      documentClient,
+      now: fixedDate,
+    })).rejects.toMatchObject({
+      code: 'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
+    });
+
+    expect(documentClient.generate).not.toHaveBeenCalled();
+    expect(repository.updateCommercialProposal).not.toHaveBeenCalled();
+  });
+
   it('does not invent a currency when the opportunity has none', async () => {
     const repository = makeRepository();
     vi.mocked(repository.getOpportunityContext).mockResolvedValueOnce({
@@ -619,6 +659,7 @@ const aggregateProposalId = '123e4567-e89b-42d3-a456-426614174013';
 const makeAggregateItem = (
   overrides: Partial<CommercialProposalItem> = {},
 ): CommercialProposalItem => ({
+  catalogItemId: null,
   id: 'item-id',
   commercialProposalId: aggregateProposalId,
   clientKey: itemClientKey,
@@ -717,6 +758,11 @@ const makeAggregateRepository = (
         stages: aggregate.stages.filter((stage) => stage.id !== id),
       };
     }),
+    getCatalogItemForSelection: vi.fn(async (id) => ({
+      id,
+      isActive: true,
+      currencyCode: 'RUB',
+    })),
     updateCommercialProposalForEditor: vi.fn(async (_id, patch) => {
       aggregate = {
         ...aggregate,
@@ -873,6 +919,44 @@ describe('commercial proposal aggregate domain', () => {
       position: 1,
       lineAmount: 225,
     });
+  });
+
+  it('validates a newly assigned catalog item but keeps copied snapshot values', async () => {
+    const repository = makeAggregateRepository();
+    const catalogItemId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const result = await saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: {
+        ...saveRequest,
+        items: [{ ...saveRequest.items[0]!, catalogItemId, name: 'Snapshot name', unitPrice: '225' }],
+      },
+      repository,
+    });
+
+    expect(repository.getCatalogItemForSelection).toHaveBeenCalledWith(catalogItemId);
+    expect(result.items[0]).toMatchObject({
+      catalogItemId,
+      name: 'Snapshot name',
+      unitPrice: 225,
+    });
+  });
+
+  it('rejects inactive or currency-mismatched catalog assignments', async () => {
+    const repository = makeAggregateRepository();
+    vi.mocked(repository.getCatalogItemForSelection!).mockResolvedValue({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      isActive: false,
+      currencyCode: 'USD',
+    });
+
+    await expect(saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: {
+        ...saveRequest,
+        items: [{ ...saveRequest.items[0]!, catalogItemId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
+      },
+      repository,
+    })).rejects.toMatchObject({ code: 'CATALOG_ITEM_NOT_SELECTABLE' });
   });
 
   it('replays a completed operation without duplicate children or revision increment', async () => {
@@ -1452,7 +1536,7 @@ describe('document service client', () => {
           new Response(
             JSON.stringify({
               status: 'success',
-              generationId: 'generation-id',
+              generationId: '11111111111111111111111111111111',
               templateCode: 'mikoton-commercial-proposal',
               templateVersion: '1',
               generatedAt: '2026-07-12T10:11:12Z',
@@ -1463,9 +1547,19 @@ describe('document service client', () => {
                   contentType:
                     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                   size: 100,
-                  sha256: 'sha-xlsx',
+                  sha256: 'a'.repeat(64),
                   storageKey: 'commercial-proposals/draft/generation/cp.xlsx',
                   downloadUrl: 'https://documents.test/cp.xlsx',
+                  downloadUrlExpiresAt: '2026-07-12T10:26:12Z',
+                },
+                {
+                  format: 'pdf',
+                  fileName: 'cp.pdf',
+                  contentType: 'application/pdf',
+                  size: 120,
+                  sha256: 'b'.repeat(64),
+                  storageKey: 'commercial-proposals/draft/generation/cp.pdf',
+                  downloadUrl: 'https://documents.test/cp.pdf',
                   downloadUrlExpiresAt: '2026-07-12T10:26:12Z',
                 },
               ],
@@ -1548,7 +1642,7 @@ describe('document service client', () => {
         new Response(
           JSON.stringify({
             status: 'success',
-            generationId: 'generation-id',
+            generationId: '22222222222222222222222222222222',
             templateCode: 'mikoton-commercial-proposal',
             templateVersion: '1',
             generatedAt: '2026-07-12T10:11:12Z',
@@ -1558,8 +1652,19 @@ describe('document service client', () => {
                 fileName: 'cp.pdf',
                 contentType: 'application/pdf',
                 size: 100,
-                sha256: 'sha-pdf',
+                sha256: 'c'.repeat(64),
+                storageKey: 'commercial-proposals/draft/generation/cp.pdf',
                 downloadUrl: 'https://documents.test/cp.pdf',
+              },
+              {
+                format: 'xlsx',
+                fileName: 'cp.xlsx',
+                contentType:
+                  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                size: 100,
+                sha256: 'd'.repeat(64),
+                storageKey: 'commercial-proposals/draft/generation/cp.xlsx',
+                downloadUrl: 'https://documents.test/cp.xlsx',
               },
             ],
           }),

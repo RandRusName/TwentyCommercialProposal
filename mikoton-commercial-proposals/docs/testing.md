@@ -1,5 +1,9 @@
 # Testing
 
+CI requires repository secret `TWENTY_EPHEMERAL_API_KEY` for the seeded ephemeral Twenty v2.20.0 image. The value is masked and is not stored in workflow source. Pull requests from forks do not receive this secret and therefore cannot run the authenticated vertical-slice job without maintainer approval.
+
+CI also runs `yarn test:document-service`. MinIO images are pinned to `minio/minio:RELEASE.2025-09-07T16-13-09Z` and `minio/mc:RELEASE.2025-08-13T08-35-41Z`.
+
 ## Local Tests
 
 Run from `mikoton-commercial-proposals/`:

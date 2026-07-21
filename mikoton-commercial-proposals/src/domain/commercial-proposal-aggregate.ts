@@ -27,6 +27,7 @@ export type CommercialProposalHeader = {
 export type CommercialProposalItem = {
   id: string;
   commercialProposalId: string;
+  catalogItemId: string | null;
   clientKey: string;
   position: number;
   block: string;
@@ -70,6 +71,7 @@ export type CommercialProposalAggregate = {
 
 export type SaveEditorItemInput = {
   id?: string;
+  catalogItemId?: string | null;
   clientKey: string;
   block: string;
   name: string;
@@ -174,6 +176,11 @@ export type CommercialProposalAggregateRepository = {
   ) => Promise<CommercialProposalStage>;
   deleteItem: (id: string) => Promise<void>;
   deleteStage: (id: string) => Promise<void>;
+  getCatalogItemForSelection?: (id: string) => Promise<{
+    id: string;
+    isActive: boolean;
+    currencyCode: string;
+  } | null>;
   updateCommercialProposalForEditor: (
     id: string,
     patch: {
@@ -388,6 +395,8 @@ const normalizeItems = (
 
     return {
       id: optionalUuid(item.id, `items[${index}].id`) ?? undefined,
+      catalogItemId:
+        optionalUuid(item.catalogItemId, `items[${index}].catalogItemId`) ?? null,
       clientKey,
       position: index + 1,
       block: requireString(item.block, `items[${index}].block`),
@@ -719,6 +728,38 @@ export const saveCommercialProposalEditor = async ({
   const normalized = buildNormalizedSave(aggregate, request);
   ensureChildOwnership(aggregate, normalized);
   await ensureChildIdentity(proposalId, aggregate, normalized, repository);
+
+  for (const item of normalized.items) {
+    const previous = item.id === undefined
+      ? null
+      : aggregate.items.find((entry) => entry.id === item.id) ?? null;
+    const newlyAssigned =
+      item.catalogItemId !== null && previous?.catalogItemId !== item.catalogItemId;
+
+    if (newlyAssigned) {
+      const catalogItem = await repository.getCatalogItemForSelection?.(
+        item.catalogItemId as string,
+      );
+      if (catalogItem === null || catalogItem === undefined) {
+        throw new ApplicationError(
+          'CATALOG_ITEM_NOT_FOUND',
+          'Позиция каталога не найдена или недоступна',
+        );
+      }
+      if (!catalogItem.isActive) {
+        throw new ApplicationError(
+          'CATALOG_ITEM_NOT_SELECTABLE',
+          'Неактивную позицию каталога нельзя добавить в коммерческое предложение',
+        );
+      }
+      if (catalogItem.currencyCode !== item.currencyCode) {
+        throw new ApplicationError(
+          'CATALOG_ITEM_NOT_SELECTABLE',
+          'Валюта позиции каталога не совпадает с валютой коммерческого предложения',
+        );
+      }
+    }
+  }
 
   for (const item of normalized.items) {
     const existingByKey = await repository.findItemByParentAndClientKey(

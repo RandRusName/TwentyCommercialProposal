@@ -1,5 +1,9 @@
 # Commercial Proposal Generation Schema v2
 
+Each `content.workItems[]` entry includes `currencyCode`. It must exactly equal `proposal.currencyCode`; mixed-currency snapshots are rejected by both the App and document-service.
+
+For `AGGREGATE_V2`, customer company context comes only from `CommercialProposal.company`. The Opportunity company is never used as fallback. A non-null but missing or forbidden proposal Company blocks generation before number/status/snapshot mutation. A null relation produces `Компания не указана`.
+
 ## Implemented contract
 
 `AGGREGATE_V2` dispatches to schema `2.0` and template `2`; `LEGACY_V1` stays on schema `1.0` and template `1`. Mismatches return `DOCUMENT_SCHEMA_TEMPLATE_MISMATCH`.

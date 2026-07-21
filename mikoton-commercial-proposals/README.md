@@ -1,5 +1,7 @@
 # Mikoton Commercial Proposals
 
+The aggregate editor supports manual rows and reusable `CatalogItem` defaults through `Добавить из каталога`. Catalog selection copies values into an independent `CommercialProposalItem` snapshot; later catalog changes never rewrite an existing proposal.
+
 Persisted `AGGREGATE_V2` proposals can be generated with schema `2.0` into macro-free XLSX and LibreOffice PDF files. Template v2 supports 50 work items and 10 stages; legacy records retain schema/template v1.
 
 Twenty App for creating a `CommercialProposal` draft from a selected
@@ -43,7 +45,6 @@ Not implemented in this phase:
 - public Marketplace distribution;
 - Company entry point;
 - record-page widget;
-- CatalogItem and catalog picker;
 - CPQ features.
 
 ## Local Checks
@@ -178,7 +179,9 @@ The aggregate editor flow includes:
 
 Schema `2.0` generation is enabled for persisted `AGGREGATE_V2` records. Template
 v2 supports 50 work items and 10 stages and produces macro-free XLSX plus PDF.
-CatalogItem remains out of scope until Prompt 5.4.
+The editor also includes an inline `CatalogItem` picker. Catalog selection copies
+values into proposal-owned item snapshots; later catalog changes do not mutate
+saved proposals.
 
 `test:integration` requires an ephemeral Twenty instance:
 

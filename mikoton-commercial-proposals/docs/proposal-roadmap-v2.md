@@ -1,5 +1,9 @@
 # Commercial Proposal v2 Roadmap
 
+## Prompt 5.4
+
+Implemented scope: generation contract hardening, item currency, exact proposal Company, strict document-service validation, multi-page print configuration, CatalogItem metadata/repository/search route, optional item relation and catalog picker. Remaining release gates are recorded factually in `phase-5-4-smoke-test.md`.
+
 ## Prompt 5.3 implementation status
 
 Schema/template dispatch, aggregate snapshot validation and hashing, macro-free XLSX template v2, LibreOffice PDF, persistent generation manifests and per-file Twenty attachment checkpoints are implemented. Target API/UI generation, legacy regression, attachment idempotency and a clean repeated metadata plan are recorded in `phase-5-3-smoke-test.md`.

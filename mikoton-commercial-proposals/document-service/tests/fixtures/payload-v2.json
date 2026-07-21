@@ -24,10 +24,10 @@
   "content": {
     "contextAndGoal": "Настроить единый процесс обработки обращений и управляемую воронку продаж.",
     "workItems": [
-      { "position": 1, "block": "Анализ", "name": "Интервью", "description": "Сбор и фиксация требований", "quantity": 6, "unit": "час", "unitPrice": 5000, "discountPercent": 0, "lineAmount": 30000 },
-      { "position": 2, "block": "Проектирование", "name": "Модель данных", "description": "Описание объектов и связей", "quantity": 8, "unit": "час", "unitPrice": 5500, "discountPercent": 0, "lineAmount": 44000 },
-      { "position": 3, "block": "Настройка", "name": "Воронка продаж", "description": "Этапы, представления и права", "quantity": 10, "unit": "час", "unitPrice": 6000, "discountPercent": 10, "lineAmount": 54000 },
-      { "position": 4, "block": "Запуск", "name": "Обучение", "description": "Рабочая сессия для команды", "quantity": 1, "unit": "сессия", "unitPrice": 2500, "discountPercent": 0, "lineAmount": 2500 }
+      { "position": 1, "block": "Анализ", "name": "Интервью", "description": "Сбор и фиксация требований", "quantity": 6, "unit": "час", "unitPrice": 5000, "discountPercent": 0, "lineAmount": 30000, "currencyCode": "RUB" },
+      { "position": 2, "block": "Проектирование", "name": "Модель данных", "description": "Описание объектов и связей", "quantity": 8, "unit": "час", "unitPrice": 5500, "discountPercent": 0, "lineAmount": 44000, "currencyCode": "RUB" },
+      { "position": 3, "block": "Настройка", "name": "Воронка продаж", "description": "Этапы, представления и права", "quantity": 10, "unit": "час", "unitPrice": 6000, "discountPercent": 10, "lineAmount": 54000, "currencyCode": "RUB" },
+      { "position": 4, "block": "Запуск", "name": "Обучение", "description": "Рабочая сессия для команды", "quantity": 1, "unit": "сессия", "unitPrice": 2500, "discountPercent": 0, "lineAmount": 2500, "currencyCode": "RUB" }
     ],
     "plan": [
       { "position": 1, "title": "Диагностика", "result": "Согласованные требования", "duration": "2 дня", "description": "Интервью и анализ" },

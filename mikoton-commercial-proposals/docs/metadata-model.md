@@ -1,5 +1,9 @@
 # Metadata Model
 
+## CatalogItem (Prompt 5.4)
+
+`CatalogItem` is searchable and native-UI creatable/editable. It stores reusable defaults (`itemType`, category, block, description, unit, price, currency, active flag and sort order). `CommercialProposalItem.catalogItem` is a nullable many-to-one relation with no cascade semantics. Four non-unique BTREE indexes cover active state, order, type and currency.
+
 ## Custom Object
 
 `commercialProposal`

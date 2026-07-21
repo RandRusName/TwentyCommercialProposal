@@ -44,6 +44,7 @@ const aggregateFixture = (): CommercialProposalAggregate => ({
   },
   items: [
     {
+      catalogItemId: null,
       id: '55555555-5555-4555-8555-555555555555',
       commercialProposalId: '11111111-1111-4111-8111-111111111111',
       clientKey: '66666666-6666-4666-8666-666666666666',
@@ -78,7 +79,6 @@ describe('generation schema v2', () => {
     const aggregate = aggregateFixture();
     const payload = buildDocumentGenerationPayloadV2({
       aggregate,
-      opportunity: null,
       company: { id: aggregate.proposal.companyId!, name: 'ООО Заказчик' },
       now: new Date('2026-07-20T09:00:00Z'),
     });
@@ -88,7 +88,7 @@ describe('generation schema v2', () => {
       templateVersion: '2',
       proposal: { title: 'Интеграция CRM', amount: 1900 },
       content: {
-        workItems: [{ name: 'Интервью', description: 'Сбор требований', lineAmount: 1900 }],
+        workItems: [{ name: 'Интервью', description: 'Сбор требований', lineAmount: 1900, currencyCode: 'RUB' }],
         plan: [{ title: 'Диагностика', description: 'Интервью с командой' }],
       },
     });

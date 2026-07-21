@@ -3,6 +3,7 @@ import { defineObject, FieldType, RelationType } from 'twenty-sdk/define';
 import {
   COMMERCIAL_PROPOSAL_FIELD_ITEMS_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_ITEM_FIELD_BLOCK_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_ITEM_FIELD_CATALOG_ITEM_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_ITEM_FIELD_CLIENT_KEY_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_ITEM_FIELD_COMMERCIAL_PROPOSAL_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_ITEM_FIELD_CURRENCY_CODE_UNIVERSAL_IDENTIFIER,
@@ -15,6 +16,8 @@ import {
   COMMERCIAL_PROPOSAL_ITEM_FIELD_UNIT_PRICE_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_ITEM_FIELD_UNIT_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_ITEM_OBJECT_UNIVERSAL_IDENTIFIER,
+  CATALOG_ITEM_FIELD_PROPOSAL_ITEMS_UNIVERSAL_IDENTIFIER,
+  CATALOG_ITEM_OBJECT_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
 } from 'src/constants/universal-identifiers';
 
@@ -32,6 +35,23 @@ export default defineObject({
   labelIdentifierFieldMetadataUniversalIdentifier:
     COMMERCIAL_PROPOSAL_ITEM_FIELD_NAME_UNIVERSAL_IDENTIFIER,
   fields: [
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_ITEM_FIELD_CATALOG_ITEM_UNIVERSAL_IDENTIFIER,
+      type: FieldType.RELATION,
+      name: 'catalogItem',
+      label: 'Позиция каталога',
+      description: 'Необязательный источник начальных значений строки КП',
+      isNullable: true,
+      relationTargetObjectMetadataUniversalIdentifier:
+        CATALOG_ITEM_OBJECT_UNIVERSAL_IDENTIFIER,
+      relationTargetFieldMetadataUniversalIdentifier:
+        CATALOG_ITEM_FIELD_PROPOSAL_ITEMS_UNIVERSAL_IDENTIFIER,
+      universalSettings: {
+        relationType: RelationType.MANY_TO_ONE,
+        joinColumnName: 'catalogItemId',
+      },
+    },
     {
       universalIdentifier:
         COMMERCIAL_PROPOSAL_ITEM_FIELD_COMMERCIAL_PROPOSAL_UNIVERSAL_IDENTIFIER,

@@ -77,6 +77,8 @@ type CommercialProposalItemRecord = {
   id: string;
   commercialProposalId?: string | null;
   commercialProposal?: { id?: string | null } | null;
+  catalogItemId?: string | null;
+  catalogItem?: { id?: string | null } | null;
   clientKey?: string | null;
   sortOrder?: number | null;
   block?: string | null;
@@ -157,6 +159,8 @@ const COMMERCIAL_PROPOSAL_ITEM_SELECTION = {
   currencyCode: true,
   commercialProposalId: true,
   commercialProposal: { id: true },
+  catalogItemId: true,
+  catalogItem: { id: true },
 } as const;
 
 const COMMERCIAL_PROPOSAL_STAGE_SELECTION = {
@@ -406,6 +410,7 @@ const mapItem = (record: CommercialProposalItemRecord): CommercialProposalItem =
   id: record.id,
   commercialProposalId:
     record.commercialProposal?.id ?? record.commercialProposalId ?? '',
+  catalogItemId: record.catalogItem?.id ?? record.catalogItemId ?? null,
   clientKey: record.clientKey ?? '',
   position: record.sortOrder ?? 0,
   block: record.block ?? '',
@@ -811,6 +816,7 @@ export class TwentyRecordRepository
   ): Promise<CommercialProposalItem> {
     const data = {
       commercialProposalId: proposalId,
+      catalogItemId: item.catalogItemId,
       clientKey: item.clientKey,
       sortOrder: item.position,
       block: item.block,
@@ -914,6 +920,29 @@ export class TwentyRecordRepository
         id: true,
       },
     });
+  }
+
+  async getCatalogItemForSelection(id: string) {
+    const response = await (this.client.query as (selection: unknown) => Promise<any>)({
+      catalogItem: {
+        __args: { filter: { id: { eq: id } } },
+        id: true,
+        isActive: true,
+        currencyCode: true,
+      },
+    });
+    const item = response.catalogItem as
+      | { id: string; isActive?: boolean | null; currencyCode?: string | null }
+      | null
+      | undefined;
+
+    return item == null
+      ? null
+      : {
+          id: item.id,
+          isActive: item.isActive === true,
+          currencyCode: item.currencyCode ?? '',
+        };
   }
 
   async updateCommercialProposalForEditor(

@@ -36,6 +36,8 @@ docker build `
 
 ## Compose With MinIO
 
+The compose file pins MinIO to `RELEASE.2025-09-07T16-13-09Z` and the client to `RELEASE.2025-08-13T08-35-41Z`; do not replace these with `latest` without a separate compatibility check.
+
 The provided compose file expects the existing Docker network shared with the
 target Twenty compose:
 

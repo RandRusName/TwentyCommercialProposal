@@ -79,6 +79,7 @@ const proposal = (overrides: Partial<CommercialProposalDraft> = {}): CommercialP
 });
 
 const item = (overrides: Partial<CommercialProposalItem> = {}): CommercialProposalItem => ({
+  catalogItemId: null,
   id: itemId,
   commercialProposalId: proposalId,
   clientKey: itemKey,

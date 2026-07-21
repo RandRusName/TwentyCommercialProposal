@@ -48,30 +48,92 @@ const getTimeoutMs = () => {
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const isGenerationFile = (value: unknown) =>
-  isObject(value) &&
-  (value.format === 'xlsx' || value.format === 'pdf') &&
-  typeof value.fileName === 'string' &&
-  typeof value.contentType === 'string' &&
-  typeof value.size === 'number' &&
-  typeof value.sha256 === 'string' &&
-  typeof value.downloadUrl === 'string';
+const SHA256_REGEX = /^[0-9a-f]{64}$/;
+const GENERATION_ID_REGEX = /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+const CONTENT_TYPE_BY_FORMAT = {
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pdf: 'application/pdf',
+} as const;
 
-const isSuccessResponse = (
-  value: unknown,
-): value is DocumentServiceSuccessResponse =>
-  isObject(value) &&
-  value.status === 'success' &&
-  typeof value.generationId === 'string' &&
-  value.templateCode === 'mikoton-commercial-proposal' &&
-  (value.templateVersion === '1' || value.templateVersion === '2') &&
-  (value.schemaVersion === undefined ||
-    value.schemaVersion === '1.0' ||
-    value.schemaVersion === '2.0') &&
-  (value.snapshotHash === undefined || typeof value.snapshotHash === 'string') &&
-  typeof value.generatedAt === 'string' &&
-  Array.isArray(value.files) &&
-  value.files.every(isGenerationFile);
+const isHttpUrl = (value: unknown) => {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  try {
+    return ['http:', 'https:'].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+};
+
+export const validateDocumentServiceSuccessResponse = ({
+  value,
+  payload,
+  requestedFormats,
+}: {
+  value: unknown;
+  payload: DocumentGenerationPayload;
+  requestedFormats: Array<'xlsx' | 'pdf'>;
+}): DocumentServiceSuccessResponse => {
+  if (
+    !isObject(value) ||
+    value.status !== 'success' ||
+    typeof value.generationId !== 'string' ||
+    !GENERATION_ID_REGEX.test(value.generationId) ||
+    value.templateCode !== 'mikoton-commercial-proposal' ||
+    value.templateVersion !== payload.templateVersion ||
+    typeof value.generatedAt !== 'string' ||
+    Number.isNaN(Date.parse(value.generatedAt)) ||
+    !Array.isArray(value.files)
+  ) {
+    throw new ApplicationError('DOCUMENT_SERVICE_INVALID_RESPONSE', 'Document service returned an invalid response');
+  }
+
+  if (payload.schemaVersion === '2.0') {
+    if (
+      value.schemaVersion !== '2.0' ||
+      typeof value.snapshotHash !== 'string' ||
+      !SHA256_REGEX.test(value.snapshotHash)
+    ) {
+      throw new ApplicationError('DOCUMENT_SERVICE_INVALID_RESPONSE', 'Document service returned invalid v2 schema metadata');
+    }
+  } else if (
+    value.schemaVersion !== undefined &&
+    value.schemaVersion !== '1.0'
+  ) {
+    throw new ApplicationError('DOCUMENT_SERVICE_INVALID_RESPONSE', 'Document service returned invalid v1 schema metadata');
+  }
+
+  const formats = value.files.map((file) => isObject(file) ? file.format : undefined);
+  if (
+    value.files.length !== requestedFormats.length ||
+    new Set(formats).size !== formats.length ||
+    requestedFormats.some((format) => !formats.includes(format))
+  ) {
+    throw new ApplicationError('DOCUMENT_SERVICE_INVALID_RESPONSE', 'Document service returned an unexpected file set');
+  }
+
+  for (const file of value.files) {
+    if (!isObject(file) || (file.format !== 'xlsx' && file.format !== 'pdf')) {
+      throw new ApplicationError('DOCUMENT_SERVICE_INVALID_RESPONSE', 'Document service returned invalid file metadata');
+    }
+    const hashValid = payload.schemaVersion === '1.0'
+      ? file.sha256 === undefined || (typeof file.sha256 === 'string' && SHA256_REGEX.test(file.sha256))
+      : typeof file.sha256 === 'string' && SHA256_REGEX.test(file.sha256);
+    if (
+      typeof file.fileName !== 'string' || file.fileName.trim() === '' ||
+      file.contentType !== CONTENT_TYPE_BY_FORMAT[file.format] ||
+      typeof file.size !== 'number' || !Number.isInteger(file.size) || file.size <= 0 ||
+      !hashValid ||
+      typeof file.storageKey !== 'string' || file.storageKey.trim() === '' ||
+      !isHttpUrl(file.downloadUrl) ||
+      (file.downloadUrlExpiresAt !== undefined &&
+        (typeof file.downloadUrlExpiresAt !== 'string' || Number.isNaN(Date.parse(file.downloadUrlExpiresAt))))
+    ) {
+      throw new ApplicationError('DOCUMENT_SERVICE_INVALID_RESPONSE', 'Document service returned invalid file metadata');
+    }
+  }
+
+  return value as DocumentServiceSuccessResponse;
+};
 
 const mapServiceErrorCode = (
   responseStatus: number,
@@ -225,14 +287,11 @@ export class HttpDocumentServiceClient implements DocumentGenerationClient {
         );
       }
 
-      if (!isSuccessResponse(responseBody)) {
-        throw new ApplicationError(
-          'DOCUMENT_SERVICE_INVALID_RESPONSE',
-          'Document service returned an invalid response',
-        );
-      }
-
-      return responseBody;
+      return validateDocumentServiceSuccessResponse({
+        value: responseBody,
+        payload: request.payload,
+        requestedFormats: request.requestedFormats,
+      });
     } catch (error) {
       if (error instanceof ApplicationError) {
         throw error;

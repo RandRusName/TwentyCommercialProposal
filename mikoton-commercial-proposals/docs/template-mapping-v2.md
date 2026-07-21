@@ -1,5 +1,7 @@
 # Template mapping v2
 
+Print setup is A4 landscape with `fitToWidth=1`, `fitToHeight=0` and repeated row 15. This permits controlled multi-page output without shrinking all 50 work items and 10 stages onto one unreadable page. Empty capacity rows are hidden; populated rows are never truncated.
+
 `templates/mikoton-commercial-proposal-v2.xlsx` is a macro-free XLSX template for schema `2.0`, template code `mikoton-commercial-proposal`, version `2`.
 
 | Area | Mapping |

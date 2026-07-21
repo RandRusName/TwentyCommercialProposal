@@ -7,7 +7,7 @@
   "printArea": "КП!$A$1:$I$87",
   "capacity": { "workItems": 50, "stages": 10 },
   "formulaRanges": { "lineAmounts": "I16:I65", "grandTotal": "I66" },
-  "pageSetup": { "orientation": "landscape", "fitToWidth": 1, "fitToHeight": 1, "repeatRows": "$15:$15" },
+  "pageSetup": { "orientation": "landscape", "paperSize": "A4", "fitToWidth": 1, "fitToHeight": 0, "repeatRows": "$15:$15", "oddFooter": "right-aligned page X of N" },
   "authoring": "@oai/artifact-tool 2.8.6+",
   "verified": { "artifactRender": true, "libreOfficeExport": true }
 }
