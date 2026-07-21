@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { PageLayoutType, ViewOpenRecordIn } from 'twenty-sdk/define';
+import {
+  PageLayoutTabLayoutMode,
+  PageLayoutType,
+  ViewOpenRecordIn,
+} from 'twenty-sdk/define';
 
 import * as universalIdentifiers from 'src/constants/universal-identifiers';
 import openCommercialProposalRecord from 'src/front-components/open-commercial-proposal-record.front-component';
@@ -48,6 +52,7 @@ describe('commercial proposal business UX metadata', () => {
         universalIdentifier: string;
         title: string;
         position: number;
+        layoutMode: string;
         widgets?: Array<{ type: string; configuration: Record<string, unknown> }>;
       }>;
     }>).config;
@@ -62,6 +67,7 @@ describe('commercial proposal business UX metadata', () => {
       universalIdentifier:
         universalIdentifiers.COMMERCIAL_PROPOSAL_RECORD_PAGE_HOME_TAB_UNIVERSAL_IDENTIFIER,
       title: 'Home',
+      layoutMode: PageLayoutTabLayoutMode.CANVAS,
     });
     expect(layout.tabs.flatMap((tab) => tab.widgets ?? []).map((widget) => widget.type))
       .toEqual(['FRONT_COMPONENT', 'TIMELINE', 'TASKS', 'NOTES', 'FILES']);

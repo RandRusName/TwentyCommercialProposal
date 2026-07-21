@@ -33,7 +33,8 @@ export default definePageLayout({
       title: 'Home',
       position: 10,
       icon: 'IconHome',
-      layoutMode: PageLayoutTabLayoutMode.VERTICAL_LIST,
+      // Twenty 2.20 renders FRONT_COMPONENT widgets only in canvas tabs.
+      layoutMode: PageLayoutTabLayoutMode.CANVAS,
       widgets: [
         {
           universalIdentifier:
