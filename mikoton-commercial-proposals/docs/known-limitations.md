@@ -12,6 +12,7 @@
 - Download URL refresh is represented in result metadata, but the front component has no dedicated refresh-without-regeneration action yet.
 - JSON audit fields remain stored. Twenty v2.20.0 may still expose them in record field settings even when they are omitted from the default business view.
 - The app-owned record page hides technical fields from the normal business card by omitting the generic `FIELDS` widget. SDK 2.20 has no declarative global `isHidden`, so administrators can still find these fields in Settings.
+- Twenty Server 2.20 creates a new page layout before its tabs during app installation. An explicit default tab cannot reference a tab from the same new manifest, so Home is the first active tab by position and acts as the effective default.
 - Generated Excel files are ordinary `.xlsx` files without VBA or macros. This is intentional after the macro-enabled workbook proved unreliable.
 - Forced target `FAILED -> retry -> GENERATED` recovery was not executed in this run; failure/retry behavior is covered by automated tests.
 - The aggregate editor uses explicit save. The SDK does not expose a supported navigation blocker, so unsaved changes are indicated but closing cannot be intercepted reliably.

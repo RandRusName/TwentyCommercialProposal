@@ -44,10 +44,10 @@ describe('commercial proposal business UX metadata', () => {
     const layout = (commercialProposalRecordPage as unknown as ConfigResult<{
       type: string;
       objectUniversalIdentifier: string;
-      defaultTabToFocusOnMobileAndSidePanelUniversalIdentifier: string;
       tabs: Array<{
         universalIdentifier: string;
         title: string;
+        position: number;
         widgets?: Array<{ type: string; configuration: Record<string, unknown> }>;
       }>;
     }>).config;
@@ -56,9 +56,13 @@ describe('commercial proposal business UX metadata', () => {
     expect(layout.objectUniversalIdentifier).toBe(
       universalIdentifiers.COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
     );
-    expect(layout.defaultTabToFocusOnMobileAndSidePanelUniversalIdentifier).toBe(
-      universalIdentifiers.COMMERCIAL_PROPOSAL_RECORD_PAGE_HOME_TAB_UNIVERSAL_IDENTIFIER,
-    );
+    expect(
+      [...layout.tabs].sort((left, right) => left.position - right.position)[0],
+    ).toMatchObject({
+      universalIdentifier:
+        universalIdentifiers.COMMERCIAL_PROPOSAL_RECORD_PAGE_HOME_TAB_UNIVERSAL_IDENTIFIER,
+      title: 'Home',
+    });
     expect(layout.tabs.flatMap((tab) => tab.widgets ?? []).map((widget) => widget.type))
       .toEqual(['FRONT_COMPONENT', 'TIMELINE', 'TASKS', 'NOTES', 'FILES']);
     expect(layout.tabs.flatMap((tab) => tab.widgets ?? []).some((widget) => widget.type === 'FIELDS'))

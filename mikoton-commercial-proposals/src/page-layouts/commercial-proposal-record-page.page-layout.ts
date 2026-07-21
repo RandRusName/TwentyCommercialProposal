@@ -26,8 +26,6 @@ export default definePageLayout({
   name: 'Commercial Proposal Record Page',
   type: PageLayoutType.RECORD_PAGE,
   objectUniversalIdentifier: COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
-  defaultTabToFocusOnMobileAndSidePanelUniversalIdentifier:
-    COMMERCIAL_PROPOSAL_RECORD_PAGE_HOME_TAB_UNIVERSAL_IDENTIFIER,
   tabs: [
     {
       universalIdentifier:
