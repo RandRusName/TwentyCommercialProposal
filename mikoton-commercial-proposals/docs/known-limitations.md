@@ -13,8 +13,10 @@
 - JSON audit fields remain stored. Twenty v2.20.0 may still expose them in record field settings even when they are omitted from the default business view.
 - The app-owned record page hides technical fields from the normal business card by omitting the generic `FIELDS` widget. SDK 2.20 has no declarative global `isHidden`, so administrators can still find these fields in Settings.
 - Twenty Server 2.20 creates a new page layout before its tabs during app installation. An explicit default tab cannot reference a tab from the same new manifest, so Home is the first active tab by position and acts as the effective default.
+- Twenty Server 2.20 does not apply an in-place App upgrade from `VERTICAL_LIST` to `CANVAS` for an existing page-layout tab, and `twenty plan` does not detect that property drift. The current app resolves this with rotated app-owned Home tab/widget identifiers; future layout-mode changes require the same plan-reviewed replacement strategy.
+- The native Timeline tab can display technical field changes as audit events. The normal Home business card still omits JSON, idempotency, revision and model-version fields.
 - Generated Excel files are ordinary `.xlsx` files without VBA or macros. This is intentional after the macro-enabled workbook proved unreliable.
-- Forced target `FAILED -> retry -> GENERATED` recovery was not executed in this run; failure/retry behavior is covered by automated tests.
+- Target `FAILED -> retry -> GENERATED` recovery was exercised after a missing customer contact caused a safe generation failure. The UI now blocks generation until the schema-v2 contact requirement is satisfied.
 - The aggregate editor uses explicit save. The SDK does not expose a supported navigation blocker, so unsaved changes are indicated but closing cannot be intercepted reliably.
 - Editor conflicts reload the canonical aggregate on explicit user action; automatic merge is not implemented.
 - Child `clientKey` replay safety is application-level parent-and-key lookup. No database-level compound uniqueness guarantee is claimed.
