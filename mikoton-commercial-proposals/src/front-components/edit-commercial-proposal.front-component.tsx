@@ -49,6 +49,7 @@ import {
   duplicateStage,
   formatMoney,
   getProposalDisplayNumber,
+  isAggregateReadyForGeneration,
   isEditorDirty,
   moveEntry,
   removeEntry,
@@ -177,13 +178,7 @@ const EditCommercialProposal = () => {
   const preview = useMemo(() => (state === null ? null : calculatePreview(state)), [state]);
   const aggregateReadyForGeneration =
     state !== null &&
-    state.items.length > 0 &&
-    state.stages.length > 0 &&
-    state.stages.every(
-      (stage) => stage.title.trim() !== '' && stage.result.trim() !== '' && stage.duration.trim() !== '',
-    ) &&
-    validation.valid &&
-    (preview ?? 0) > 0;
+    isAggregateReadyForGeneration(state, validation, preview);
   const canGenerate =
     state !== null &&
     context?.generationAvailability.allowed === true &&
@@ -484,7 +479,11 @@ const EditCommercialProposal = () => {
           <Callout
             variant="info"
             title="Документы пока нельзя сформировать"
-            description="Добавьте минимум одну корректную позицию и один этап с результатом и сроком, сохраните изменения и убедитесь, что итог больше нуля."
+              description={
+                state.header.contactName?.trim()
+                  ? 'Добавьте минимум одну корректную позицию и один этап с результатом и сроком, сохраните изменения и убедитесь, что итог больше нуля.'
+                  : 'Укажите контакт заказчика, затем добавьте позицию и этап с результатом и сроком.'
+              }
           />
         </div>
       )}

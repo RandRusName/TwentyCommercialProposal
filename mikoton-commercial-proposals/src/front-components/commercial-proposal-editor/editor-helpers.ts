@@ -202,6 +202,24 @@ export const calculatePreview = (state: EditorState) => {
   }
 };
 
+export const isAggregateReadyForGeneration = (
+  state: EditorState,
+  validation = validateEditorState(state),
+  preview = calculatePreview(state),
+) =>
+  state.header.contactName?.trim() !== '' &&
+  state.header.contactName !== null &&
+  state.items.length > 0 &&
+  state.stages.length > 0 &&
+  state.stages.every(
+    (stage) =>
+      stage.title.trim() !== '' &&
+      stage.result.trim() !== '' &&
+      stage.duration.trim() !== '',
+  ) &&
+  validation.valid &&
+  (preview ?? 0) > 0;
+
 export const formatMoney = (amount: number | null, currencyCode: string | null) => {
   if (amount === null) return 'Не указано';
   const currency = currencyCode?.trim().toUpperCase();

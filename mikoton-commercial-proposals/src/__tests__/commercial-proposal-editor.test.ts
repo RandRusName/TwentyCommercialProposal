@@ -20,6 +20,7 @@ import {
   duplicateItem,
   duplicateStage,
   getProposalDisplayNumber,
+  isAggregateReadyForGeneration,
   isEditorDirty,
   moveEntry,
   normalizeDecimalInput,
@@ -340,6 +341,26 @@ describe('commercial proposal editor helpers', () => {
     expect(validateEditorState(invalid).valid).toBe(false);
     expect(isEditorDirty(canonical, structuredClone(canonical))).toBe(false);
     expect(isEditorDirty(invalid, canonical)).toBe(true);
+  });
+
+  it('blocks aggregate generation until the customer contact is set', () => {
+    const state = applyCanonicalResponse(
+      context(
+        aggregate({
+          proposal: proposal({ contentModelVersion: 'AGGREGATE_V2' }),
+          items: [item()],
+          stages: [stage({ result: 'Ready', duration: '1 day' })],
+        }),
+      ),
+    );
+
+    expect(isAggregateReadyForGeneration(state)).toBe(false);
+    expect(
+      isAggregateReadyForGeneration({
+        ...state,
+        header: { ...state.header, contactName: 'Customer Contact' },
+      }),
+    ).toBe(true);
   });
 
   it('freezes an operation id for retry and creates a new one after an edit', () => {
