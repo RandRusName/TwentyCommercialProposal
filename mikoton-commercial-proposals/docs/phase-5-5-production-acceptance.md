@@ -39,7 +39,7 @@ not a production artifact, until target/operator acceptance is complete.
 
 | Check | State | Required evidence |
 |---|---|---|
-| Report-head CI | Pending | Green workflow URL for the documentation follow-up commit |
+| Documentation commit CI | Passed | [run 29907914289](https://github.com/RandRusName/TwentyCommercialProposal/actions/runs/29907914289), commit `12ba5750017ecff6aa0831754228ab70e7150b0d`, job `88883684934` |
 | Target metadata apply/repeated plan | Not run | Successful install and empty repeated plan |
 | Final-number backfill | Not run | Dry-run, duplicate-free apply, verification count |
 | Target E2E and parallel numbering | Not run | Isolated proposal ids, unique keys/numbers and files |
