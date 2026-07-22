@@ -140,6 +140,22 @@ const callGenerateRoute = async (body: Record<string, unknown>) => {
   return { response, payload };
 };
 
+const describeRouteFailure = (payload: Record<string, unknown>) => {
+  const error = payload.error;
+  if (typeof error !== 'object' || error === null) {
+    return JSON.stringify({ status: payload.status ?? null });
+  }
+
+  const safeError = error as { code?: unknown; message?: unknown };
+  return JSON.stringify({
+    status: payload.status ?? null,
+    error: {
+      code: safeError.code ?? null,
+      message: safeError.message ?? null,
+    },
+  });
+};
+
 const createCompany = async () => {
   const response = await graphql<{ createCompany: CreatedRecord }>(
     `
@@ -415,7 +431,10 @@ describe('commercial proposal backend vertical slice', () => {
       commercialProposalId: proposalId,
       idempotencyKey: generationKey,
     });
-    expect(generation.response.status).toBe(200);
+    expect(
+      generation.response.status,
+      describeRouteFailure(generation.payload),
+    ).toBe(200);
     expect(generation.payload).toMatchObject({
       status: 'success',
       generated: true,
@@ -616,7 +635,10 @@ describe('commercial proposal backend vertical slice', () => {
       commercialProposalId: proposalId,
       idempotencyKey: generationIdempotencyKey,
     });
-    expect(generation.response.status).toBe(200);
+    expect(
+      generation.response.status,
+      describeRouteFailure(generation.payload),
+    ).toBe(200);
     expect(generation.payload).toMatchObject({
       status: 'success',
       generated: true,
