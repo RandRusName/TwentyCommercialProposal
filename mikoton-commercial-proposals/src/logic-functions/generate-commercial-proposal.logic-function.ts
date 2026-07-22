@@ -14,7 +14,10 @@ import {
 } from 'src/logic-functions/http-response';
 import { HttpDocumentServiceClient } from 'src/services/document-service-client';
 import { TwentyRecordRepository } from 'src/services/twenty-record-repository';
-import { createLogicFunctionLogger } from 'src/logic-functions/logic-function-logger';
+import {
+  createLogicFunctionLogger,
+  summarizeInternalError,
+} from 'src/logic-functions/logic-function-logger';
 
 const handler = async (
   event: RoutePayload<GenerateCommercialProposalRequest>,
@@ -37,7 +40,7 @@ const handler = async (
   } catch (error) {
     const applicationError = toApplicationError(error);
 
-    logger.failure(applicationError.code);
+    logger.failure(applicationError.code, summarizeInternalError(error));
 
     return failure(applicationError);
   }

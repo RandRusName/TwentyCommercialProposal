@@ -3,6 +3,26 @@ type SafeLogFields = Record<
   string | number | boolean | null | undefined
 >;
 
+const redactTechnicalMessage = (message: string) =>
+  message
+    .replace(/(bearer\s+)[^\s,;]+/gi, '$1[REDACTED]')
+    .replace(
+      /((?:api[-_]?key|access[-_]?token|refresh[-_]?token|secret)\s*[=:]\s*)[^\s,;]+/gi,
+      '$1[REDACTED]',
+    )
+    .slice(0, 500);
+
+export const summarizeInternalError = (error: unknown): SafeLogFields => {
+  if (!(error instanceof Error)) {
+    return { internalErrorType: typeof error };
+  }
+
+  return {
+    internalErrorType: error.name || 'Error',
+    internalErrorMessage: redactTechnicalMessage(error.message),
+  };
+};
+
 export const createLogicFunctionLogger = (
   route: string,
   initialFields: SafeLogFields = {},
@@ -14,14 +34,15 @@ export const createLogicFunctionLogger = (
     result: 'success' | 'failed',
     fields: SafeLogFields,
   ) => {
-    console[level]('commercial-proposal app route', {
+    console[level](JSON.stringify({
+      event: 'commercial-proposal-app-route',
       requestId,
       route,
       result,
       durationMs: Date.now() - startedAt,
       ...initialFields,
       ...fields,
-    });
+    }));
   };
 
   return {

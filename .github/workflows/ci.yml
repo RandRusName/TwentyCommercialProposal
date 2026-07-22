@@ -147,6 +147,14 @@ jobs:
           TWENTY_APP_INTERNAL_API_URL: http://twenty-app-dev-test:2021
           CI_DOCUMENT_SERVICE_URL: http://document-service:8010
 
+      - name: Annotate safe integration diagnostics
+        if: failure()
+        run: |
+          docker logs twenty-app-dev-test 2>&1 \
+            | grep 'commercial-proposal-app-route' \
+            | tail -20 \
+            | while IFS= read -r line; do echo "::error::$line"; done || true
+
       - name: Build app
         run: yarn twenty dev:build .
 
