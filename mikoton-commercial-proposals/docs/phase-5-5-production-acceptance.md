@@ -4,25 +4,25 @@ Date: 2026-07-22 (Europe/Moscow)
 
 App version: `0.1.49` (Phase 5.5 **CORRECTIVE**). Twenty `v2.20.0`, remote `mikoton-target`.
 
-## Final evidence (local artifact recorded; CI/target pending)
+## Final evidence (code baseline and CI verified; target pending)
 
-Do not invent CI/target values. Local tarball recorded below; exact commit SHA
-requires a corrective commit (working tree is still dirty relative to
-`27899260`).
+Do not invent target values. The corrective code baseline, CI run and locally
+rebuilt private artifact are recorded below. Target deployment remains gated by
+the required backup/restore checkpoint.
 
 | Field | Value |
 |---|---|
 | App version | `0.1.49` |
-| Exact git commit | **Pending** — changes not committed yet (baseline HEAD `27899260adeb4307ba46df5d80c912dbbb6f9e15`) |
+| Exact code commit | `16d5c67ad152101e3847b2af7abd3b56fa6e4047` |
 | Tarball filename | `mikoton-commercial-proposals-0.1.49.tgz` |
-| Tarball size | `2,643,142` bytes |
-| Tarball SHA-256 | `E4EB1E777B1F6C6470A43DA4AC01DBD1D5195EE1FFFAA7061EDAF4E589CA9593` |
+| Tarball size | `2,646,814` bytes |
+| Tarball SHA-256 | `44143D9BAC0C5AA60C8526EB4A6F724F5B81D4E896C35E4402D4018FE8FD30A7` |
 | Template v1 SHA-256 | `6777A3CF9CC6A1A4BE0CCD1BABB93FA2DAFF6CD37EE9A9C1405E1EC4BD187AD0` (`mikoton-commercial-proposal-v1.xlsm`) |
 | Mapping v1 SHA-256 | `0F4580FDAC5E4DA5F1DC334CB6D64695B90F722DB9FAA8C040542EE0B57FFED5` |
 | Template v2 SHA-256 | `F5994EE83DA4DE932C4D7504D78BC4E2A22EC881415AA38AFAB58A6CE701A900` (`mikoton-commercial-proposal-v2.xlsx`) |
 | Mapping v2 SHA-256 | `B09EC8CF36DF95BA29F5CE45DE01C162BBF60508304989998E66AAC1382BEF00` |
-| Document-service image digest | **Pending** |
-| Integration CI run | **Pending** — not yet run for `0.1.49` |
+| Document-service target image digest | **Pending** — target deployment not performed |
+| Integration CI run | [GitHub Actions run 29922602764](https://github.com/RandRusName/TwentyCommercialProposal/actions/runs/29922602764) — **Passed** |
 
 ## Code fixes implemented at 0.1.49 (CORRECTIVE)
 
@@ -50,14 +50,14 @@ Platform note: Twenty SDK / Core API 2.20 still provides **no** App-level transa
 |---|---|---|
 | Lint | Passed locally | `yarn lint` — 0 warnings / 0 errors |
 | Typecheck | Passed locally | `yarn typecheck` |
-| Unit tests | Passed locally | `yarn test:unit` — 175 tests |
+| Unit tests | Passed locally | `yarn test:unit` — 176 tests |
 | Document-service tests | Passed locally | `py -3 -m unittest` — 18 tests |
-| `yarn test:secrets` | Passed locally | 167 tracked files |
-| `yarn test:private-urls` | Passed locally | 30 shipping runtime files |
-| Private tarball build | Passed locally | `0.1.49`, 2,643,142 bytes, WSL production build |
+| `yarn test:secrets` | Passed locally | 170 tracked files |
+| `yarn test:private-urls` | Passed locally | 31 shipping runtime files |
+| Private tarball build | Passed locally | `0.1.49`, 2,646,814 bytes, WSL production build |
 | Tarball validation | Passed locally | Claim unique index + `ownerToken` + categories LF present |
-| Ephemeral integration CI | **NOT DONE** | Requires push / CI run on exact commit |
-| Metadata plan on target | Passed, read-only | `19 add`, `12 in-place change`, `0 destroy`; nothing applied |
+| Ephemeral integration CI | Passed | Run `29922602764`; real legacy and aggregate generation vertical slices passed |
+| Metadata plan on target | Passed, read-only | Repeated on 2026-07-22: `19 add`, `12 in-place change`, `0 destroy`; nothing applied |
 
 ## Target / operator acceptance — NOT DONE / blocked
 
@@ -83,7 +83,8 @@ No target evidence exists for `0.1.49`. Treat every row as blocked until recorde
 **PHASE 5.5 INCOMPLETE — NOT READY FOR PRODUCTION**
 
 Corrective code for Phase 5.5 is implemented at App `0.1.49` (claim fencing,
-lease renewal, catalog cursor/categories, currency/`itemType` hardening). CI on
-the exact commit, private tarball/image digests, and all target/operator
-acceptance checks remain **NOT DONE** without recorded evidence. Do not tag
-`v1.0.0`.
+lease renewal, catalog cursor/categories, currency/`itemType` hardening), and
+the exact code commit has a green ephemeral integration CI run. Target install,
+image digest, backup/restore evidence and operator acceptance checks remain
+**NOT DONE**. Do not tag `v1.0.0` and do not begin the production architectural
+transition until this baseline is installed and accepted on target.

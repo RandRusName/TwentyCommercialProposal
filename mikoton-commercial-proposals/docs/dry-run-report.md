@@ -75,3 +75,29 @@ Not executed. A repeated plan must be run only after a successful apply/sync.
 
 Remote dry-run against `http://192.168.100.11:3000` is blocked until a real API
 key is provided. No destructive remote operation was performed.
+
+## Phase 5.5 Corrective Plan
+
+Date: 2026-07-22 (Europe/Moscow).
+
+The earlier credential blocker above is historical. The configured
+`mikoton-target` remote now reports API-key authentication as valid. The exact
+read-only command was:
+
+```powershell
+wsl.exe bash -lc 'source "$HOME/.nvm/nvm.sh" && cd /mnt/c/IT_Projects/TwentyCommercialProposals/mikoton-commercial-proposals && corepack yarn twenty plan -r mikoton-target .'
+```
+
+Result for App `0.1.49`, code commit
+`16d5c67ad152101e3847b2af7abd3b56fa6e4047`:
+
+- `19` additions;
+- `12` in-place changes;
+- `0` destructive changes;
+- no metadata was applied.
+
+The additions and changes are App-owned generation-claim metadata, indexes,
+permissions, catalog category route, compiled logic functions/front components
+and an application-variable description. No unrelated object or foreign layout
+deletion was proposed. Apply and repeated post-install plan remain blocked until
+the required target backup/restore checkpoint is recorded.

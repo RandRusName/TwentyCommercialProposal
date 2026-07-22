@@ -1,11 +1,15 @@
 # Production Acceptance Procedure
 
 Production acceptance is evidence-based and runs against isolated smoke data.
-App version for Phase 5.5 CORRECTIVE: `0.1.49`. Code fixes are implemented;
-target/operator checks below remain mandatory. Verdict stays
+App version for Phase 5.5 CORRECTIVE: `0.1.49`. Code commit
+`16d5c67ad152101e3847b2af7abd3b56fa6e4047` passed GitHub Actions run
+[`29922602764`](https://github.com/RandRusName/TwentyCommercialProposal/actions/runs/29922602764).
+The WSL tarball was rebuilt and validated at 2,646,814 bytes with SHA-256
+`44143D9BAC0C5AA60C8526EB4A6F724F5B81D4E896C35E4402D4018FE8FD30A7`.
+Target/operator checks below remain mandatory. Verdict stays
 **PHASE 5.5 INCOMPLETE — NOT READY FOR PRODUCTION** until target evidence is
-recorded. Artifact hashes, CI run ids, image digests and operator timestamps
-are to be recorded at the final release commit — do not invent them.
+recorded. Target image digests and operator timestamps are to be recorded at
+the final release commit — do not invent them.
 
 1. Record final commit, package version (`0.1.49` or later patch), tarball
    SHA-256, document-service image digest, and template/mapping hashes.
