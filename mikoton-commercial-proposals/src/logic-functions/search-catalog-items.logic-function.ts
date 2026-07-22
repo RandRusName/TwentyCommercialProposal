@@ -3,6 +3,7 @@ import type { RoutePayload } from 'twenty-sdk/logic-function';
 
 import { SEARCH_CATALOG_ITEMS_LOGIC_FUNCTION_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 import { failure, json, toApplicationError } from 'src/logic-functions/http-response';
+import { createLogicFunctionLogger } from 'src/logic-functions/logic-function-logger';
 import {
   CatalogItemRepository,
   normalizeCatalogSearchRequest,
@@ -10,14 +11,15 @@ import {
 } from 'src/services/catalog-item-repository';
 
 const handler = async (event: RoutePayload<CatalogSearchRequest>) => {
+  const logger = createLogicFunctionLogger('search-catalog-items');
   try {
     const request = normalizeCatalogSearchRequest(event.body);
     const result = await new CatalogItemRepository().search(request);
-    return json({ status: 'success', ...result });
+    logger.success({ resultCount: result.items.length });
+    return json({ status: 'success', ...result, requestId: logger.requestId });
   } catch (error) {
     const applicationError = toApplicationError(error);
-    console.error('search-catalog-items failed', {
-      code: applicationError.code,
+    logger.failure(applicationError.code, {
       activeOnly: event.body?.activeOnly,
       limit: event.body?.limit,
       hasText: [event.body?.query, event.body?.text].some(

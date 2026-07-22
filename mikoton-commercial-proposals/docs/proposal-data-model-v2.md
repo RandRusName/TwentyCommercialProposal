@@ -1,5 +1,12 @@
 # Commercial Proposal Data Model v2
 
+## Production Number Reservation
+
+`CommercialProposal.finalNumberKey` is nullable technical metadata with a
+unique BTREE index. Drafts keep `number = "Черновик"` and a null key. Generation
+atomically writes the customer-facing number and `YYYY:NNN` reservation in one
+proposal update, retrying bounded duplicate conflicts.
+
 Prompt 5.4 activates the previously deferred optional `CatalogItem` relation. The relation records provenance only. `CommercialProposalItem` remains the source of truth and stores copied snapshot values; catalog changes do not propagate.
 
 ## 1. Context

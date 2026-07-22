@@ -17,6 +17,7 @@ const aggregateFixture = (): CommercialProposalAggregate => ({
     id: '11111111-1111-4111-8111-111111111111',
     title: 'Интеграция CRM',
     number: 'КП-007 от 20.07.2026',
+    finalNumberKey: '2026:007',
     status: 'DRAFT',
     version: 1,
     contentModelVersion: 'AGGREGATE_V2',
@@ -104,6 +105,26 @@ describe('generation schema v2', () => {
     expect(() => validateAggregateForGeneration(aggregate)).toThrowError(
       expect.objectContaining({ code: 'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED' }),
     );
+  });
+
+  it('requires a customer contact with structured field details', () => {
+    const aggregate = aggregateFixture();
+    aggregate.proposal.contactName = '   ';
+    expect(() => validateAggregateForGeneration(aggregate)).toThrowError(
+      expect.objectContaining({
+        code: 'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
+        details: { path: 'proposal.contactName', message: 'Укажите контакт заказчика' },
+      }),
+    );
+  });
+
+  it('uses Moscow date in schema v2 payload at a UTC boundary', () => {
+    const payload = buildDocumentGenerationPayloadV2({
+      aggregate: aggregateFixture(),
+      company: null,
+      now: new Date('2026-06-30T21:00:00Z'),
+    });
+    expect(payload.proposal.date).toBe('2026-07-01');
   });
 
   it.each([null, 1, 'bad', []])('rejects malformed item element %j safely', (item) => {

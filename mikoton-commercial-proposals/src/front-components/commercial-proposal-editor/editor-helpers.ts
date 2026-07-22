@@ -15,6 +15,7 @@ import type {
   EditorStage,
   EditorState,
   EditorValidation,
+  PendingGenerationAttempt,
 } from 'src/front-components/commercial-proposal-editor/editor-types';
 
 export const normalizeDecimalInput = (value: string) =>
@@ -40,9 +41,26 @@ export const getGeneratedDocumentFiles = (
       (file.format === 'xlsx' || file.format === 'pdf') &&
       'fileName' in file &&
       typeof file.fileName === 'string' &&
-      'downloadUrl' in file &&
-      typeof file.downloadUrl === 'string',
+      (('twentyFileUrl' in file && typeof file.twentyFileUrl === 'string') ||
+        ('downloadUrl' in file && typeof file.downloadUrl === 'string')),
   );
+};
+
+export const getGeneratedDocumentFileUrl = (
+  file: CommercialProposalGenerationFile,
+  now = new Date(),
+) => {
+  if (typeof file.twentyFileUrl === 'string' && file.twentyFileUrl !== '') {
+    return file.twentyFileUrl;
+  }
+  if (typeof file.downloadUrl !== 'string' || file.downloadUrl === '') return null;
+  if (
+    typeof file.downloadUrlExpiresAt === 'string' &&
+    Date.parse(file.downloadUrlExpiresAt) <= now.getTime()
+  ) {
+    return null;
+  }
+  return file.downloadUrl;
 };
 
 export const createEmptyItem = (): EditorItem => ({
@@ -213,6 +231,67 @@ export const buildSaveRequest = (
 
 export const isEditorDirty = (current: EditorState, canonical: EditorState) =>
   JSON.stringify(current) !== JSON.stringify(canonical);
+
+export const isEditorLoadCurrent = ({
+  requestSequence,
+  latestSequence,
+  requestProposalId,
+  currentProposalId,
+}: {
+  requestSequence: number;
+  latestSequence: number;
+  requestProposalId: string;
+  currentProposalId: string | null;
+}) =>
+  requestSequence === latestSequence && requestProposalId === currentProposalId;
+
+export const getEditorGenerationFingerprint = (state: EditorState) =>
+  JSON.stringify({
+    proposalId: state.proposalId,
+    editorRevision: state.editorRevision,
+    header: state.header,
+    items: state.items.map(({ id: _id, ...item }) => item),
+    stages: state.stages.map(({ id: _id, ...stage }) => stage),
+  });
+
+export const resolvePendingGenerationAttempt = (
+  current: PendingGenerationAttempt | null,
+  state: EditorState,
+): PendingGenerationAttempt => {
+  const snapshotFingerprint = getEditorGenerationFingerprint(state);
+  if (
+    current?.proposalId === state.proposalId &&
+    current.editorRevision === state.editorRevision &&
+    current.snapshotFingerprint === snapshotFingerprint
+  ) {
+    return current;
+  }
+  return {
+    operationId: createIdempotencyKey(),
+    proposalId: state.proposalId,
+    editorRevision: state.editorRevision,
+    snapshotFingerprint,
+  };
+};
+
+export const getLocalizedProposalStatus = (
+  status: EditorState['status'],
+  locale: 'ru-RU' | 'en' = 'ru-RU',
+) => {
+  const labels = {
+    'ru-RU': {
+      DRAFT: 'Черновик', GENERATING: 'Формируется', GENERATED: 'Сформировано',
+      SENT: 'Отправлено', ACCEPTED: 'Принято', REJECTED: 'Отклонено',
+      FAILED: 'Ошибка', CANCELLED: 'Отменено',
+    },
+    en: {
+      DRAFT: 'Draft', GENERATING: 'Generating', GENERATED: 'Generated',
+      SENT: 'Sent', ACCEPTED: 'Accepted', REJECTED: 'Rejected',
+      FAILED: 'Failed', CANCELLED: 'Cancelled',
+    },
+  } as const;
+  return labels[locale][status];
+};
 
 export const calculatePreview = (state: EditorState) => {
   try {

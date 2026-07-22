@@ -13,8 +13,12 @@ import {
   toApplicationError,
 } from 'src/logic-functions/http-response';
 import { TwentyRecordRepository } from 'src/services/twenty-record-repository';
+import { createLogicFunctionLogger } from 'src/logic-functions/logic-function-logger';
 
 const handler = async (event: RoutePayload) => {
+  const logger = createLogicFunctionLogger('editor-context-commercial-proposal', {
+    proposalId: event.pathParameters.id,
+  });
   try {
     const commercialProposalId = validateCommercialProposalId(
       event.pathParameters.id,
@@ -43,8 +47,10 @@ const handler = async (event: RoutePayload) => {
               return null;
             });
 
+    logger.success({ editorRevision: aggregate.proposal.editorRevision });
     return json({
       status: 'success',
+      requestId: logger.requestId,
       ...buildEditorContext(aggregate, {
         opportunity: opportunity === null ? null : {
           id: opportunity.id,
@@ -59,14 +65,7 @@ const handler = async (event: RoutePayload) => {
   } catch (error) {
     const applicationError = toApplicationError(error);
 
-    console.error('editor-context-commercial-proposal failed', {
-      proposalId: event.pathParameters.id,
-      code: applicationError.code,
-      cause:
-        applicationError.cause instanceof Error
-          ? applicationError.cause.message
-          : undefined,
-    });
+    logger.failure(applicationError.code);
 
     return failure(applicationError);
   }

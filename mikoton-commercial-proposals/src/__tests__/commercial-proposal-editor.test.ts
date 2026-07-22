@@ -20,12 +20,15 @@ import {
   duplicateItem,
   duplicateStage,
   getGeneratedDocumentFiles,
+  getGeneratedDocumentFileUrl,
   getProposalDisplayNumber,
   isAggregateReadyForGeneration,
   isEditorDirty,
+  isEditorLoadCurrent,
   moveEntry,
   normalizeDecimalInput,
   removeEntry,
+  resolvePendingGenerationAttempt,
   validateEditorState,
 } from 'src/front-components/commercial-proposal-editor/editor-helpers';
 import type {
@@ -68,6 +71,77 @@ describe('generated document visibility', () => {
     } as unknown as CommercialProposalDraft['resultMetadata'])).toHaveLength(1);
     expect(getGeneratedDocumentFiles(null)).toEqual([]);
   });
+
+  it('keeps historical Twenty attachments visible without a document-service URL', () => {
+    const [file] = getGeneratedDocumentFiles({
+      generationId: 'legacy-generation',
+      generationIdempotencyKey: operationId,
+      templateCode: 'mikoton-commercial-proposal',
+      templateVersion: '1',
+      files: [{
+        format: 'pdf',
+        fileName: 'legacy.pdf',
+        contentType: 'application/pdf',
+        size: 10,
+        sha256: 'legacy-hash',
+        twentyFileId: 'twenty-file-id',
+        twentyFileUrl: 'https://twenty.test/files/legacy.pdf',
+      }],
+    } as CommercialProposalDraft['resultMetadata']);
+
+    expect(file).toBeDefined();
+    expect(getGeneratedDocumentFileUrl(file!)).toBe(
+      'https://twenty.test/files/legacy.pdf',
+    );
+  });
+
+  it('does not use an expired document-service URL without a Twenty attachment', () => {
+    expect(getGeneratedDocumentFileUrl({
+      format: 'pdf',
+      fileName: 'expired.pdf',
+      contentType: 'application/pdf',
+      size: 10,
+      sha256: 'expired-hash',
+      downloadUrl: 'https://documents.test/expired.pdf',
+      downloadUrlExpiresAt: '2026-07-20T00:00:00Z',
+    }, new Date('2026-07-22T00:00:00Z'))).toBeNull();
+  });
+});
+
+describe('editor async and generation operation guards', () => {
+  it('ignores a late response for an older proposal load', () => {
+    expect(isEditorLoadCurrent({
+      requestSequence: 1,
+      latestSequence: 2,
+      requestProposalId: 'proposal-a',
+      currentProposalId: 'proposal-b',
+    })).toBe(false);
+    expect(isEditorLoadCurrent({
+      requestSequence: 2,
+      latestSequence: 2,
+      requestProposalId: 'proposal-b',
+      currentProposalId: 'proposal-b',
+    })).toBe(true);
+  });
+
+  it('reuses an ambiguous generation operation only for the same canonical state', () => {
+    const state = applyCanonicalResponse(context());
+    const first = resolvePendingGenerationAttempt(null, state);
+
+    expect(resolvePendingGenerationAttempt(first, structuredClone(state))).toBe(first);
+    expect(resolvePendingGenerationAttempt(first, {
+      ...state,
+      header: { ...state.header, title: 'Changed after timeout' },
+    }).operationId).not.toBe(first.operationId);
+    expect(resolvePendingGenerationAttempt(first, {
+      ...state,
+      editorRevision: state.editorRevision + 1,
+    }).operationId).not.toBe(first.operationId);
+    expect(resolvePendingGenerationAttempt(first, {
+      ...state,
+      proposalId: '123e4567-e89b-42d3-a456-426614174999',
+    }).operationId).not.toBe(first.operationId);
+  });
 });
 
 afterEach(() => {
@@ -79,6 +153,7 @@ const proposal = (overrides: Partial<CommercialProposalDraft> = {}): CommercialP
   id: proposalId,
   title: 'Proposal',
   number: 'DRAFT-test',
+  finalNumberKey: null,
   status: 'DRAFT',
   version: 1,
   contentModelVersion: 'LEGACY_V1',

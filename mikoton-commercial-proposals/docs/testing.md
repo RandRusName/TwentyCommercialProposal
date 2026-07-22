@@ -1,5 +1,24 @@
 # Testing
 
+## Prompt 5.5 Final Gate
+
+Run from a clean checkout:
+
+```bash
+yarn install --immutable
+yarn lint
+yarn typecheck
+yarn test:unit
+yarn test:document-service
+yarn test:integration
+yarn test:secrets
+```
+
+`test:integration` is a hard gate in ephemeral mode and must fail when its
+temporary Twenty credentials are missing. Target smoke is separate and must
+never uninstall the App. Production tarball validation runs only in WSL and now
+also verifies the unique idempotency and final-number indexes in `manifest.json`.
+
 CI requires repository secret `TWENTY_EPHEMERAL_API_KEY` for the seeded ephemeral Twenty v2.20.0 image. The value is masked and is not stored in workflow source. Pull requests from forks do not receive this secret and therefore cannot run the authenticated vertical-slice job without maintainer approval.
 
 CI also runs `yarn test:document-service`. MinIO images are pinned to `minio/minio:RELEASE.2025-09-07T16-13-09Z` and `minio/mc:RELEASE.2025-08-13T08-35-41Z`.

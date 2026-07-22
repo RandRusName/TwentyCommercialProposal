@@ -15,6 +15,7 @@ import {
   COMMERCIAL_PROPOSAL_FIELD_CURRENCY_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_EDITOR_REVISION_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_FILES_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_FIELD_FINAL_NUMBER_KEY_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_GENERATED_AT_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_IDEMPOTENCY_KEY_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_FIELD_ITEMS_UNIVERSAL_IDENTIFIER,
@@ -77,6 +78,17 @@ export default defineObject({
       defaultValue: "''",
       isNullable: false,
       isUnique: false,
+      isUIEditable: false,
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_FIELD_FINAL_NUMBER_KEY_UNIVERSAL_IDENTIFIER,
+      type: FieldType.TEXT,
+      name: 'finalNumberKey',
+      label: 'Final number key',
+      description: 'Unique yearly sequence reservation in YYYY:NNN format',
+      defaultValue: null,
+      isNullable: true,
       isUIEditable: false,
     },
     {

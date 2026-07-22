@@ -13,6 +13,7 @@ import type {
   CommercialProposalDraft,
   CommercialProposalResultMetadata,
 } from 'src/domain/commercial-proposal';
+import { getGeneratedDocumentFileUrl } from 'src/front-components/commercial-proposal-editor/editor-helpers';
 import {
   createIdempotencyKey,
   getSafeErrorMessage,
@@ -269,7 +270,7 @@ const GenerateCommercialProposal = () => {
                 SHA-256: {file.sha256}
                 <br />
                 <a
-                  href={file.downloadUrl}
+                  href={getGeneratedDocumentFileUrl(file) ?? undefined}
                   target="_blank"
                   rel="noreferrer"
                   style={{ color: 'inherit', textDecoration: 'underline' }}

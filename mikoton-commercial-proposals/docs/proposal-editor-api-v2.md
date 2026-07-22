@@ -1,5 +1,12 @@
 # Commercial Proposal Editor API v2
 
+## Prompt 5.5 Concurrency Notes
+
+Editor loads and catalog searches reject stale async responses. Generation
+locks all editor mutations. A pending generation operation is bound to proposal
+id, editor revision and deterministic state fingerprint; any edit, save, record
+switch or non-ambiguous result clears it. The backend still owns all validation.
+
 `SaveEditorItemInput` now accepts nullable `catalogItemId`. A newly assigned id must resolve to an active catalog item in the same currency. Existing relations to a subsequently inactive item remain valid. The catalog picker uses authenticated `POST /catalog-items/search`; proposal id is not part of that payload.
 
 ## Preferred Boundary

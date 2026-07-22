@@ -68,6 +68,13 @@ export type EditorValidation = {
   errors: Record<string, string>;
 };
 
+export type PendingGenerationAttempt = {
+  operationId: string;
+  proposalId: string;
+  editorRevision: number;
+  snapshotFingerprint: string;
+};
+
 export type CatalogItemOption = {
   id: string;
   name: string;

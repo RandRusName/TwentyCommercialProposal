@@ -20,6 +20,7 @@ import type {
   NormalizedEditorStage,
 } from 'src/domain/commercial-proposal-aggregate';
 import { ATTACHMENT_FIELD_FILE_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
+import { resolveCatalogItemPrice } from 'src/services/catalog-item-repository';
 
 type CoreClient = InstanceType<typeof CoreApiClient>;
 
@@ -45,6 +46,7 @@ type CommercialProposalRecord = {
   id: string;
   title?: string | null;
   number?: string | null;
+  finalNumberKey?: string | null;
   status?: CommercialProposalDraft['status'] | null;
   version?: number | null;
   contentModelVersion?: CommercialProposalContentModelVersion | null;
@@ -116,6 +118,7 @@ const COMMERCIAL_PROPOSAL_SELECTION = {
   id: true,
   title: true,
   number: true,
+  finalNumberKey: true,
   status: true,
   version: true,
   contentModelVersion: true,
@@ -380,6 +383,7 @@ const mapDraft = (record: CommercialProposalRecord): CommercialProposalDraft => 
   id: record.id,
   title: record.title ?? '',
   number: record.number ?? '',
+  finalNumberKey: record.finalNumberKey ?? null,
   status: record.status ?? 'DRAFT',
   version: record.version ?? 1,
   contentModelVersion: record.contentModelVersion ?? 'LEGACY_V1',
@@ -549,29 +553,37 @@ export class TwentyRecordRepository
     return firstNode === undefined ? null : mapDraft(firstNode);
   }
 
-  async listCommercialProposalNumbers(): Promise<string[]> {
-    const response = await this.client.query({
-      commercialProposals: {
-        __args: {
-          first: 1000,
-        },
-        edges: {
-          node: {
-            number: true,
+  async listCommercialProposalFinalNumberKeys(year: number): Promise<string[]> {
+    const keys: string[] = [];
+    let after: string | undefined;
+
+    do {
+      const response = await (this.client.query as (selection: unknown) => Promise<any>)({
+        commercialProposals: {
+          __args: {
+            first: 200,
+            ...(after === undefined ? {} : { after }),
+            filter: { finalNumberKey: { startsWith: `${year}:` } },
           },
+          edges: { node: { finalNumberKey: true } },
+          pageInfo: { endCursor: true, hasNextPage: true },
         },
-      },
-    });
+      });
+      const connection = response.commercialProposals as {
+        edges?: Array<{ node?: { finalNumberKey?: string | null } | null }>;
+        pageInfo?: { endCursor?: string | null; hasNextPage?: boolean | null };
+      };
+      keys.push(
+        ...(connection.edges ?? [])
+          .map((edge) => edge.node?.finalNumberKey)
+          .filter((key): key is string => typeof key === 'string'),
+      );
+      after = connection.pageInfo?.hasNextPage
+        ? connection.pageInfo.endCursor ?? undefined
+        : undefined;
+    } while (after !== undefined);
 
-    const edges = response.commercialProposals?.edges as
-      | Array<{ node?: { number?: string | null } | null }>
-      | undefined;
-
-    return (
-      edges
-        ?.map((edge) => edge.node?.number)
-        .filter((number): number is string => typeof number === 'string') ?? []
-    );
+    return keys;
   }
 
   async createDraft(
@@ -583,6 +595,7 @@ export class TwentyRecordRepository
           data: {
             title: draft.title,
             number: draft.number,
+            finalNumberKey: draft.finalNumberKey,
             status: draft.status,
             version: draft.version,
             contentModelVersion: draft.contentModelVersion,
@@ -927,22 +940,37 @@ export class TwentyRecordRepository
       catalogItem: {
         __args: { filter: { id: { eq: id } } },
         id: true,
+        name: true,
+        itemType: true,
+        category: true,
+        defaultBlock: true,
+        description: true,
+        defaultUnit: true,
+        price: { amountMicros: true, currencyCode: true },
+        defaultPrice: true,
         isActive: true,
         currencyCode: true,
+        sortOrder: true,
       },
     });
     const item = response.catalogItem as
-      | { id: string; isActive?: boolean | null; currencyCode?: string | null }
+      | {
+          id: string;
+          isActive?: boolean | null;
+          currencyCode?: string | null;
+          defaultPrice?: number | null;
+          price?: { amountMicros?: number | null; currencyCode?: string | null } | null;
+        }
       | null
       | undefined;
 
-    return item == null
-      ? null
-      : {
-          id: item.id,
-          isActive: item.isActive === true,
-          currencyCode: item.currencyCode ?? '',
-        };
+    if (item == null) return null;
+    const price = resolveCatalogItemPrice(item);
+    return {
+      id: item.id,
+      isActive: item.isActive === true && price.valid,
+      currencyCode: price.currencyCode,
+    };
   }
 
   async updateCommercialProposalForEditor(
@@ -987,6 +1015,12 @@ export class TwentyRecordRepository
     commercialProposalId: string,
     file: CommercialProposalGenerationFile,
   ): Promise<CommercialProposalGenerationFile> {
+    if (typeof file.downloadUrl !== 'string' || file.downloadUrl === '') {
+      throw new ApplicationError(
+        'DOCUMENT_STORAGE_FAILED',
+        `Generated ${file.format.toUpperCase()} download URL is missing`,
+      );
+    }
     const response = await fetch(file.downloadUrl);
 
     if (!response.ok) {

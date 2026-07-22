@@ -169,8 +169,27 @@ if (missingReferences.length > 0) {
   process.exit(1);
 }
 
+const requiredUniqueIndexes = new Map([
+  ['58fada7e-1d1d-499d-9c1f-c2c7b6f5e9ea', 'CommercialProposal.idempotencyKey'],
+  ['ab410ad6-d6b5-41ef-bd6a-43e104671da0', 'CommercialProposal.finalNumberKey'],
+]);
+const manifestIndexes = Array.isArray(manifest.indexes) ? manifest.indexes : [];
+
+for (const [universalIdentifier, label] of requiredUniqueIndexes) {
+  const index = manifestIndexes.find(
+    (candidate) => candidate.universalIdentifier === universalIdentifier,
+  );
+
+  if (!index || index.isUnique !== true) {
+    console.error(
+      `ERROR: manifest is missing required unique index ${label} (${universalIdentifier}).`,
+    );
+    process.exit(1);
+  }
+}
+
 console.log(
-  `Manifest validation: OK (${packagedPathReferences.length} packaged paths verified, forward slashes only)`,
+  `Manifest validation: OK (${packagedPathReferences.length} packaged paths verified, forward slashes only, required unique indexes present)`,
 );
 NODE
 

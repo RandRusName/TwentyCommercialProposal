@@ -1,0 +1,9 @@
+import { defineIndex } from 'twenty-sdk/define';
+import { COMMERCIAL_PROPOSAL_FIELD_COMPANY_UNIVERSAL_IDENTIFIER, COMMERCIAL_PROPOSAL_INDEX_COMPANY_UNIVERSAL_IDENTIFIER, COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
+
+export default defineIndex({
+  universalIdentifier: COMMERCIAL_PROPOSAL_INDEX_COMPANY_UNIVERSAL_IDENTIFIER,
+  objectUniversalIdentifier: COMMERCIAL_PROPOSAL_OBJECT_UNIVERSAL_IDENTIFIER,
+  indexType: 'BTREE',
+  fields: [{ universalIdentifier: '1f4d4f76-03f9-453a-a123-a07958d7033b', fieldUniversalIdentifier: COMMERCIAL_PROPOSAL_FIELD_COMPANY_UNIVERSAL_IDENTIFIER }],
+});

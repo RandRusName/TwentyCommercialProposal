@@ -7,6 +7,7 @@ import {
 
 import * as universalIdentifiers from 'src/constants/universal-identifiers';
 import openCommercialProposalRecord from 'src/front-components/open-commercial-proposal-record.front-component';
+import commercialProposalFinalNumberKeyIndex from 'src/indexes/commercial-proposal-final-number-key.index';
 import commercialProposalObject from 'src/objects/commercial-proposal.object';
 import commercialProposalRecordPage from 'src/page-layouts/commercial-proposal-record-page.page-layout';
 import commercialProposalsView from 'src/views/commercial-proposals.view';
@@ -26,6 +27,11 @@ describe('commercial proposal business UX metadata', () => {
       defaultValue: "'AGGREGATE_V2'",
       isUIEditable: false,
     });
+    expect(fields.finalNumberKey).toMatchObject({
+      isNullable: true,
+      defaultValue: null,
+      isUIEditable: false,
+    });
     for (const fieldName of [
       'number',
       'status',
@@ -42,6 +48,21 @@ describe('commercial proposal business UX metadata', () => {
     ]) {
       expect(fields[fieldName]).toMatchObject({ isUIEditable: false });
     }
+  });
+
+  it('backs the nullable final number key with an app-owned unique index', () => {
+    const finalNumberIndex = (commercialProposalFinalNumberKeyIndex as unknown as ConfigResult<{
+      isUnique: boolean;
+      fields: Array<{ fieldUniversalIdentifier: string }>;
+    }>).config;
+
+    expect(finalNumberIndex).toMatchObject({
+      isUnique: true,
+      fields: [{
+        fieldUniversalIdentifier:
+          universalIdentifiers.COMMERCIAL_PROPOSAL_FIELD_FINAL_NUMBER_KEY_UNIVERSAL_IDENTIFIER,
+      }],
+    });
   });
 
   it('defines a CommercialProposal record page without a generic fields widget', () => {

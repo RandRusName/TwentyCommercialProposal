@@ -1,5 +1,13 @@
 # Document Service Runbook
 
+## Production Security Baseline
+
+`DOCUMENT_SERVICE_SECRET` must contain at least 32 bytes. Missing configuration
+fails closed. Requests are limited by `DOCUMENT_MAX_REQUEST_BYTES` (2 MiB by
+default), authentication uses constant-time comparison, and production compose
+does not publish the service port. `/readyz` must pass template, mapping,
+LibreOffice, writable-temp and storage checks before generation is enabled.
+
 ## Local Python Run
 
 From `mikoton-commercial-proposals/`:

@@ -1089,8 +1089,8 @@ def storage_from_environment() -> DocumentStorage:
     if storage_type in {"s3", "s3-compatible", "minio"}:
         return S3DocumentStorage(
             endpoint=os.environ["MINIO_ENDPOINT"],
-            access_key=os.environ["MINIO_ACCESS_KEY"],
-            secret_key=os.environ["MINIO_SECRET_KEY"],
+            access_key=os.environ.get("DOCUMENT_STORAGE_ACCESS_KEY") or os.environ["MINIO_ACCESS_KEY"],
+            secret_key=os.environ.get("DOCUMENT_STORAGE_SECRET_KEY") or os.environ["MINIO_SECRET_KEY"],
             bucket=os.environ.get("MINIO_BUCKET", "commercial-proposals"),
             secure=os.environ.get("MINIO_SECURE", "false").lower() == "true",
             public_base_url=os.environ.get("MINIO_PUBLIC_BASE_URL") or None,

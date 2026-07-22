@@ -1,5 +1,13 @@
 # Document Generation
 
+## Prompt 5.5 Guarantees
+
+Generation validates the canonical aggregate, including customer contact,
+before reserving a final number or mutating status/snapshot. The final number
+uses the Europe/Moscow business date and a database-backed unique
+`finalNumberKey`. A network-ambiguous retry reuses its operation only while the
+proposal id, revision and canonical fingerprint are unchanged.
+
 Aggregate proposals use macro-free XLSX template v2 and schema `2.0`. It supports 50 items and 10 stages, keeps percentage formulas and server-calculated cached totals, and is exported to PDF by LibreOffice. Legacy proposals keep the v1 path.
 
 Twenty attachment is checkpointed after each format. Retry matches `generationId + format + sha256` and attaches only a missing format.

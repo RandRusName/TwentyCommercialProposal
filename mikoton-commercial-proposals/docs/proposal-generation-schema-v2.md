@@ -1,5 +1,13 @@
 # Commercial Proposal Generation Schema v2
 
+## Business Date and Readiness
+
+The schema date, final number and yearly sequence derive from one
+Europe/Moscow business-date helper. Real timestamps such as `generatedAt`
+remain UTC instants. Schema 2.0 requires a saved aggregate, at least one valid
+item, complete required stages, positive matching total, currency and a
+non-empty customer contact.
+
 Each `content.workItems[]` entry includes `currencyCode`. It must exactly equal `proposal.currencyCode`; mixed-currency snapshots are rejected by both the App and document-service.
 
 For `AGGREGATE_V2`, customer company context comes only from `CommercialProposal.company`. The Opportunity company is never used as fallback. A non-null but missing or forbidden proposal Company blocks generation before number/status/snapshot mutation. A null relation produces `Компания не указана`.

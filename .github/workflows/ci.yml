@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Start ephemeral Twenty and document service
         id: twenty
@@ -51,11 +51,11 @@ jobs:
             --network twenty-app-ci \
             -e MINIO_ROOT_USER=ci-minio \
             -e MINIO_ROOT_PASSWORD=ci-minio-password \
-            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+            minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
           docker run --rm \
             --network twenty-app-ci \
             --entrypoint /bin/sh \
-            minio/mc:RELEASE.2025-08-13T08-35-41Z \
+            minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727 \
             -c 'until mc alias set ci http://minio:9000 ci-minio ci-minio-password; do sleep 2; done; mc mb --ignore-existing ci/commercial-proposals; mc anonymous set none ci/commercial-proposals'
 
           docker build \
@@ -85,7 +85,7 @@ jobs:
             -e MARKETPLACE_CATALOG_SYNC_CRON_ENABLED=false \
             -e API_RATE_LIMITING_SHORT_LIMIT=100000 \
             -e API_RATE_LIMITING_LONG_LIMIT=100000 \
-            twentycrm/twenty-app-dev:${TWENTY_VERSION}
+            twentycrm/twenty-app-dev:${TWENTY_VERSION}@sha256:c43f61779cefd8e5c3f161d585aae919bb2e288102ebec528883c748fb4b1d74
 
           timeout=180
           elapsed=0
@@ -110,7 +110,7 @@ jobs:
           done
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version-file: mikoton-commercial-proposals/.nvmrc
 
@@ -131,6 +131,9 @@ jobs:
 
       - name: Document service tests
         run: yarn test:document-service
+
+      - name: Secret scan
+        run: yarn test:secrets
 
       - name: Integration tests
         run: yarn test:integration
@@ -163,6 +166,10 @@ jobs:
           tar -tzf "$tarball" | grep -q 'logic-functions'
           if tar -tzf "$tarball" | grep -E '(^|/)\.env($|\.|/)'; then
             echo "Tarball contains env files"
+            exit 1
+          fi
+          if tar -xOzf "$tarball" | strings | grep -E '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|TWENTY_API_KEY=[^[:space:]]+|DOCUMENT_SERVICE_SECRET=[^[:space:]]+)'; then
+            echo "Tarball contains secret-like material"
             exit 1
           fi
           sha256sum "$tarball"

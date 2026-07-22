@@ -1,5 +1,12 @@
 # CatalogItem
 
+## Production Rules
+
+The native Twenty `CURRENCY` value is authoritative. Legacy numeric/currency
+fields are read only when `CATALOG_ALLOW_LEGACY_PRICE_FALLBACK=true`; production
+defaults to no silent fallback. Search and backfill use cursor pagination rather
+than a fixed 500/1000-record window. Catalog values remain proposal snapshots.
+
 `CatalogItem` is a reusable source of initial values for proposal work items. It is not a pricing source of truth after selection.
 
 | Field | Type | Required | Default |

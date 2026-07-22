@@ -62,6 +62,7 @@ export const failure = (error: ApplicationError) =>
       error: {
         code: error.code,
         message: error.message,
+        ...(error.details === undefined ? {} : { details: error.details }),
       },
     },
     HTTP_STATUS_BY_ERROR_CODE[error.code],

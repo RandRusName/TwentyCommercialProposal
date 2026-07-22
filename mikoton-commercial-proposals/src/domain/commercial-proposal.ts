@@ -62,6 +62,7 @@ export class ApplicationError extends Error {
     readonly code: ApplicationErrorCode,
     message: string,
     readonly cause?: unknown,
+    readonly details?: { path: string; message: string },
   ) {
     super(message);
     this.name = 'ApplicationError';
@@ -97,7 +98,7 @@ export type CommercialProposalGenerationFile = {
   size: number;
   sha256: string;
   storageKey?: string;
-  downloadUrl: string;
+  downloadUrl?: string;
   downloadUrlExpiresAt?: string;
   twentyFileId?: string;
   twentyFileUrl?: string;
@@ -130,6 +131,7 @@ export type CommercialProposalDraft = {
   id: string;
   title: string;
   number: string;
+  finalNumberKey: string | null;
   status: CommercialProposalStatus;
   version: number;
   contentModelVersion: CommercialProposalContentModelVersion;
@@ -195,7 +197,7 @@ export type CommercialProposalRepository = {
     commercialProposalId: string,
     patch: Partial<Omit<CommercialProposalDraft, 'id'>>,
   ) => Promise<CommercialProposalDraft>;
-  listCommercialProposalNumbers?: () => Promise<string[]>;
+  listCommercialProposalFinalNumberKeys?: (year: number) => Promise<string[]>;
   attachGeneratedFiles?: (
     commercialProposalId: string,
     files: CommercialProposalGenerationFile[],
@@ -343,7 +345,8 @@ export type DocumentGenerationClient = {
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const NUMBER_RETRY_LIMIT = 3;
+const NUMBER_RETRY_LIMIT = 20;
+const DRAFT_RETRY_LIMIT = 3;
 const MAX_YEARLY_PROPOSAL_SEQUENCE = 999;
 const FINAL_PROPOSAL_NUMBER_REGEX =
   /^КП-(?<sequence>\d{3}) от (?<day>\d{2})\.(?<month>\d{2})\.(?<year>\d{4})$/;
@@ -438,7 +441,7 @@ export const normalizeGenerateCommercialProposalRequest = (
   return { commercialProposalId, idempotencyKey };
 };
 
-const getMoscowDateParts = (date: Date) => {
+export const getCommercialProposalBusinessDate = (date = new Date()) => {
   const parts = new Intl.DateTimeFormat('ru-RU', {
     timeZone: 'Europe/Moscow',
     day: '2-digit',
@@ -448,10 +451,15 @@ const getMoscowDateParts = (date: Date) => {
   const get = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((part) => part.type === type)?.value ?? '';
 
+  const day = get('day');
+  const month = get('month');
+  const yearText = get('year');
   return {
-    day: get('day'),
-    month: get('month'),
-    year: get('year'),
+    year: Number(yearText),
+    month,
+    day,
+    isoDate: `${yearText}-${month}-${day}`,
+    displayDate: `${day}.${month}.${yearText}`,
   };
 };
 
@@ -473,8 +481,21 @@ export const buildCommercialProposalNumber = (
     );
   }
 
-  const { day, month, year } = getMoscowDateParts(date);
-  return `КП-${String(sequence).padStart(3, '0')} от ${day}.${month}.${year}`;
+  const businessDate = getCommercialProposalBusinessDate(date);
+  return `КП-${String(sequence).padStart(3, '0')} от ${businessDate.displayDate}`;
+};
+
+export const buildCommercialProposalFinalNumberKey = (
+  date: Date,
+  sequence: number,
+) => `${getCommercialProposalBusinessDate(date).year}:${String(sequence).padStart(3, '0')}`;
+
+export const parseCommercialProposalFinalNumberKey = (value: string) => {
+  const match = /^(?<year>\d{4}):(?<sequence>\d{3})$/.exec(value);
+  if (match?.groups === undefined) return null;
+  const sequence = Number(match.groups.sequence);
+  if (sequence < 1 || sequence > MAX_YEARLY_PROPOSAL_SEQUENCE) return null;
+  return { year: Number(match.groups.year), sequence };
 };
 
 export const parseCommercialProposalNumber = (number: string) => {
@@ -497,7 +518,7 @@ export const getNextCommercialProposalSequence = (
   numbers: string[],
   date = new Date(),
 ) => {
-  const targetYear = Number(getMoscowDateParts(date).year);
+  const targetYear = getCommercialProposalBusinessDate(date).year;
   const maxSequence = numbers.reduce((max, number) => {
     const parsed = parseCommercialProposalNumber(number);
 
@@ -518,6 +539,24 @@ export const getNextCommercialProposalSequence = (
   }
 
   return nextSequence;
+};
+
+export const getNextCommercialProposalSequenceFromKeys = (
+  keys: string[],
+  date = new Date(),
+) => {
+  const targetYear = getCommercialProposalBusinessDate(date).year;
+  const maxSequence = keys.reduce((max, key) => {
+    const parsed = parseCommercialProposalFinalNumberKey(key);
+    return parsed?.year === targetYear ? Math.max(max, parsed.sequence) : max;
+  }, 0);
+  if (maxSequence >= MAX_YEARLY_PROPOSAL_SEQUENCE) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_NUMBER_LIMIT_REACHED',
+      'Исчерпан годовой диапазон номеров коммерческих предложений 001..999',
+    );
+  }
+  return maxSequence + 1;
 };
 
 const isDuplicateConflict = (
@@ -574,7 +613,7 @@ export const createCommercialProposalDraft = async ({
     idempotencyKey: input.idempotencyKey,
   };
 
-  for (let attempt = 0; attempt < NUMBER_RETRY_LIMIT; attempt += 1) {
+  for (let attempt = 0; attempt < DRAFT_RETRY_LIMIT; attempt += 1) {
     const number = 'Черновик';
     const title = `Черновик КП - ${opportunity.name}`;
 
@@ -582,6 +621,7 @@ export const createCommercialProposalDraft = async ({
       const draft = await repository.createDraft({
         title,
         number,
+        finalNumberKey: null,
         status: 'DRAFT',
         version: 1,
         contentModelVersion: 'AGGREGATE_V2',
@@ -650,7 +690,7 @@ export const buildDocumentGenerationPayload = ({
 }): DocumentGenerationPayload => {
   const amount = draft.amount ?? opportunity.amount ?? 0;
   const currencyCode = draft.currencyCode ?? opportunity.currencyCode ?? 'RUB';
-  const proposalDate = now.toISOString().slice(0, 10);
+  const proposalDate = getCommercialProposalBusinessDate(now).isoDate;
   const companyName = opportunity.company?.name ?? 'Компания не указана';
 
   return {
@@ -814,6 +854,14 @@ export const validateAggregateForGeneration = (
   if (proposal.currencyCode === null || proposal.currencyCode.trim() === '') {
     throw generationValidationError('Укажите валюту коммерческого предложения');
   }
+  if (proposal.contactName === null || proposal.contactName.trim() === '') {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
+      'Укажите контакт заказчика',
+      undefined,
+      { path: 'proposal.contactName', message: 'Укажите контакт заказчика' },
+    );
+  }
 
   const unique = (values: string[], label: string) => {
     if (new Set(values).size !== values.length) {
@@ -886,7 +934,7 @@ export const buildDocumentGenerationPayloadV2 = ({
       id: proposal.id,
       number: proposal.number,
       title: proposal.title,
-      date: now.toISOString().slice(0, 10),
+      date: getCommercialProposalBusinessDate(now).isoDate,
       language: 'ru-RU',
       currencyCode: proposal.currencyCode as string,
       validityDays: proposal.validityDays,
@@ -895,7 +943,7 @@ export const buildDocumentGenerationPayloadV2 = ({
     customer: {
       companyId: proposal.companyId,
       companyName: company?.name ?? 'Компания не указана',
-      contactName: proposal.contactName ?? 'Не указан',
+      contactName: proposal.contactName as string,
     },
     contractor: { name: 'Шибеев Роман', email: 'consulting@mikoton.ru' },
     content: {
@@ -946,14 +994,26 @@ const getFinalProposalNumber = async ({
   repository: CommercialProposalRepository;
   now: Date;
 }) => {
-  if (isFinalCommercialProposalNumber(draft.number)) {
-    return draft.number;
+  const parsedNumber = parseCommercialProposalNumber(draft.number);
+  if (parsedNumber !== null) {
+    return {
+      number: draft.number,
+      finalNumberKey:
+        draft.finalNumberKey ??
+        `${parsedNumber.year}:${String(parsedNumber.sequence).padStart(3, '0')}`,
+    };
   }
 
-  const numbers = await repository.listCommercialProposalNumbers?.();
-  const nextSequence = getNextCommercialProposalSequence(numbers ?? [], now);
+  const businessDate = getCommercialProposalBusinessDate(now);
+  const keys = await repository.listCommercialProposalFinalNumberKeys?.(
+    businessDate.year,
+  );
+  const nextSequence = getNextCommercialProposalSequenceFromKeys(keys ?? [], now);
 
-  return buildCommercialProposalNumber(now, nextSequence);
+  return {
+    number: buildCommercialProposalNumber(now, nextSequence),
+    finalNumberKey: buildCommercialProposalFinalNumberKey(now, nextSequence),
+  };
 };
 
 export const generateCommercialProposalDocuments = async ({
@@ -1039,10 +1099,11 @@ export const generateCommercialProposalDocuments = async ({
     });
     const finalDraft: CommercialProposalDraft = {
       ...generationDraft,
-      number: finalNumber,
+      number: finalNumber.number,
+      finalNumberKey: finalNumber.finalNumberKey,
       title:
         aggregate === undefined
-          ? `${finalNumber} - ${opportunity?.name ?? draft.title}`
+          ? `${finalNumber.number} - ${opportunity?.name ?? draft.title}`
           : draft.title,
       templateCode: 'mikoton-commercial-proposal',
       templateVersion: aggregate === undefined ? '1' : '2',
@@ -1077,6 +1138,7 @@ export const generateCommercialProposalDocuments = async ({
       generationDraft = await repository.updateCommercialProposal(draft.id, {
         title: finalDraft.title,
         number: finalDraft.number,
+        finalNumberKey: finalDraft.finalNumberKey,
         status: 'GENERATING',
         templateCode: 'mikoton-commercial-proposal',
         templateVersion: payload.templateVersion,
@@ -1101,6 +1163,7 @@ export const generateCommercialProposalDocuments = async ({
       generationDraft = {
         ...generationDraft,
         number: draft.number,
+        finalNumberKey: draft.finalNumberKey,
       };
     }
   }

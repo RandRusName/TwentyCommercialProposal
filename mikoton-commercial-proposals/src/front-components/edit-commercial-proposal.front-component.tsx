@@ -11,6 +11,7 @@ import {
   enqueueSnackbar,
   useColorScheme,
   useRecordId,
+  useLocale,
   useSelectedRecordIds,
   useTranslate,
 } from 'twenty-sdk/front-component';
@@ -51,11 +52,15 @@ import {
   duplicateStage,
   formatMoney,
   getGeneratedDocumentFiles,
+  getGeneratedDocumentFileUrl,
+  getLocalizedProposalStatus,
   getProposalDisplayNumber,
   isAggregateReadyForGeneration,
   isEditorDirty,
+  isEditorLoadCurrent,
   moveEntry,
   removeEntry,
+  resolvePendingGenerationAttempt,
   validateEditorState,
 } from 'src/front-components/commercial-proposal-editor/editor-helpers';
 import { CatalogPicker } from 'src/front-components/commercial-proposal-editor/catalog-picker';
@@ -66,16 +71,37 @@ import type {
   EditorItem,
   EditorStage,
   EditorState,
+  PendingGenerationAttempt,
 } from 'src/front-components/commercial-proposal-editor/editor-types';
-import { createIdempotencyKey } from 'src/front-components/create-commercial-proposal.helpers';
 import {
   AppRouteError,
   callAppRoute,
   isApplicationError,
 } from 'src/front-components/utils/call-app-route';
 
-const safeEditorError = (error: unknown, fallback: string) => {
-  if (error instanceof AppRouteError) return error.message;
+const ERROR_MESSAGE_BY_CODE: Record<string, string> = {
+  COMMERCIAL_PROPOSAL_EDITOR_CONFLICT: 'The proposal was changed in another tab or operation.',
+  COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED: 'The proposal is incomplete. Check the required fields.',
+  COMMERCIAL_PROPOSAL_INVALID_STATUS: 'The proposal status changed. Load the latest version.',
+  CATALOG_ITEM_NOT_SELECTABLE: 'The catalog item is no longer available for selection.',
+  DOCUMENT_SERVICE_TIMEOUT: 'Document generation timed out. Retry without changing the proposal.',
+  DOCUMENT_SERVICE_UNAVAILABLE: 'The document service is temporarily unavailable.',
+  GENERATION_IDEMPOTENCY_CONFLICT: 'The proposal changed after this generation attempt. Start a new attempt.',
+  DOCUMENT_STORAGE_FAILED: 'The generated files could not be saved.',
+  PDF_EXPORT_FAILED: 'The PDF could not be generated.',
+};
+
+const safeEditorError = (
+  error: unknown,
+  fallback: string,
+  translate: (message: string) => string,
+) => {
+  if (error instanceof AppRouteError) {
+    const messageKey = error.applicationErrorCode === undefined
+      ? undefined
+      : ERROR_MESSAGE_BY_CODE[error.applicationErrorCode];
+    return messageKey === undefined ? fallback : translate(messageKey);
+  }
   return fallback;
 };
 
@@ -122,6 +148,7 @@ const Field = ({ label, value, onChange, disabled, multiline = false, type = 'te
 
 const EditCommercialProposal = () => {
   const { t } = useTranslate();
+  const locale = useLocale();
   const selectedRecordIds = useSelectedRecordIds();
   const recordPageRecordId = useRecordId();
   const styles = getEditorStyles(useColorScheme());
@@ -143,13 +170,18 @@ const EditCommercialProposal = () => {
   const [starterSuggestionDismissed, setStarterSuggestionDismissed] =
     useState(false);
   const pendingSave = useRef<SaveEditorRequest | null>(null);
-  const generationOperationId = useRef<string | null>(null);
+  const pendingGeneration = useRef<PendingGenerationAttempt | null>(null);
+  const loadSequence = useRef(0);
+  const loadedProposalId = useRef<string | null>(null);
+  const loadedEditorRevision = useRef<number | null>(null);
 
   const load = useCallback(async () => {
+    const requestSequence = ++loadSequence.current;
     if (proposalId === null) {
       setLoading(false);
       return;
     }
+    const requestProposalId = proposalId;
     setLoading(true);
     setError(null);
     try {
@@ -157,7 +189,22 @@ const EditCommercialProposal = () => {
         `/commercial-proposals/${encodeURIComponent(proposalId)}/editor-context`,
         {},
       );
+      if (!isEditorLoadCurrent({
+        requestSequence,
+        latestSequence: loadSequence.current,
+        requestProposalId,
+        currentProposalId: proposalId,
+      })) return;
       const next = applyCanonicalResponse(response);
+      if (
+        loadedProposalId.current !== requestProposalId ||
+        (loadedEditorRevision.current !== null &&
+          loadedEditorRevision.current !== next.editorRevision)
+      ) {
+        pendingGeneration.current = null;
+      }
+      loadedProposalId.current = requestProposalId;
+      loadedEditorRevision.current = next.editorRevision;
       setContext(response);
       setCanonical(next);
       setState(next);
@@ -167,15 +214,27 @@ const EditCommercialProposal = () => {
       setDocumentsOpen(false);
       pendingSave.current = null;
     } catch (caught) {
-      setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.')));
+      if (requestSequence !== loadSequence.current) return;
+      setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.'), t));
     } finally {
-      setLoading(false);
+      if (requestSequence === loadSequence.current) setLoading(false);
     }
   }, [proposalId, t]);
 
-  useEffect(() => void load(), [load]);
+  useEffect(() => {
+    setContext(null);
+    setCanonical(null);
+    setState(null);
+    setError(null);
+    setCatalogOpen(false);
+    setDocumentsOpen(false);
+    pendingSave.current = null;
+    pendingGeneration.current = null;
+    void load();
+    return () => { loadSequence.current += 1; };
+  }, [load]);
 
-  const editable = context?.isEditable === true && !saving;
+  const editable = context?.isEditable === true && !saving && !generating;
   const dirty = state !== null && canonical !== null && isEditorDirty(state, canonical);
   const validation = useMemo(
     () => (state === null ? { valid: false, errors: {} } : validateEditorState(state)),
@@ -201,6 +260,7 @@ const EditCommercialProposal = () => {
   const edit = (updater: (current: EditorState) => EditorState) => {
     if (!editable) return;
     pendingSave.current = null;
+    pendingGeneration.current = null;
     setConflict(false);
     setNotice(null);
     setConfirmReset(false);
@@ -232,6 +292,7 @@ const EditCommercialProposal = () => {
       setCanonical(next);
       setState(next);
       pendingSave.current = null;
+      pendingGeneration.current = null;
       await load();
       setNotice(response.replayed ? t('Saved operation confirmed') : t('Changes saved'));
       await enqueueSnackbar({ message: t('Commercial proposal saved'), variant: 'success' });
@@ -244,7 +305,7 @@ const EditCommercialProposal = () => {
       } else if (isApplicationError(caught, 'COMMERCIAL_PROPOSAL_DATA_INTEGRITY_ERROR')) {
         setError(t('The proposal contains conflicting technical records. Data review is required.'));
       } else {
-        setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.')));
+        setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.'), t));
       }
     } finally {
       setSaving(false);
@@ -264,7 +325,7 @@ const EditCommercialProposal = () => {
       );
       setNotice(t('Server total: {amount}', { amount: formatMoney(result.amount, result.currencyCode) }));
     } catch (caught) {
-      setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.')));
+      setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.'), t));
     }
   };
 
@@ -272,19 +333,24 @@ const EditCommercialProposal = () => {
     if (state === null || !canGenerate) return;
 
     setGenerating(true);
+    setCatalogOpen(false);
     setError(null);
     setNotice(null);
 
     try {
-      generationOperationId.current ??= createIdempotencyKey();
+      const attempt = resolvePendingGenerationAttempt(
+        pendingGeneration.current,
+        state,
+      );
+      pendingGeneration.current = attempt;
       const response = await callAppRoute<GenerateResponse>(
         '/commercial-proposals/generate',
         {
           commercialProposalId: state.proposalId,
-          idempotencyKey: generationOperationId.current,
+          idempotencyKey: attempt.operationId,
         },
       );
-      generationOperationId.current = null;
+      pendingGeneration.current = null;
       await load();
       setDocumentsOpen(true);
       setNotice(
@@ -295,7 +361,10 @@ const EditCommercialProposal = () => {
         variant: 'success',
       });
     } catch (caught) {
-      setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.')));
+      if (!(caught instanceof AppRouteError && caught.code === 'APP_ROUTE_NETWORK_ERROR')) {
+        pendingGeneration.current = null;
+      }
+      setError(safeEditorError(caught, t('Unable to complete the editor operation. Refresh the data and try again.'), t));
     } finally {
       setGenerating(false);
     }
@@ -373,7 +442,7 @@ const EditCommercialProposal = () => {
           <Status
             color={getStatusColor(state.status)}
             isLoaderVisible={state.status === 'GENERATING' || generating}
-            text={state.status}
+            text={getLocalizedProposalStatus(state.status, locale === 'ru-RU' ? 'ru-RU' : 'en')}
             weight="medium"
           />
           {(state.status === 'DRAFT' || state.status === 'FAILED') && (
@@ -440,6 +509,15 @@ const EditCommercialProposal = () => {
           />
         </div>
       )}
+      {generating && (
+        <div style={{ marginTop: '12px' }}>
+          <Callout
+            variant="info"
+            title={t('Generating...')}
+            description={t('The document is being generated. Editing is temporarily unavailable.')}
+          />
+        </div>
+      )}
 
       <section style={styles.section}>
         <div style={styles.header}>
@@ -465,7 +543,7 @@ const EditCommercialProposal = () => {
             {generatedFiles.map((file) => (
               <a
                 key={`${file.format}-${file.sha256}`}
-                href={file.twentyFileUrl ?? file.downloadUrl}
+                    href={getGeneratedDocumentFileUrl(file) ?? undefined}
                 target="_blank"
                 rel="noreferrer"
                 style={{ color: 'inherit', textDecoration: 'underline' }}
@@ -673,6 +751,7 @@ const EditCommercialProposal = () => {
                 setConfirmReset(false);
                 setNotice(null);
                 pendingSave.current = null;
+                pendingGeneration.current = null;
               }}
             />
             <Button

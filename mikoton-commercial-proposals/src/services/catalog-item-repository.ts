@@ -37,6 +37,7 @@ export type CatalogSearchRequest = {
   activeOnly?: boolean;
   limit?: number;
   offset?: number;
+  cursor?: string;
 };
 
 export type NormalizedCatalogSearchRequest = {
@@ -47,6 +48,7 @@ export type NormalizedCatalogSearchRequest = {
   activeOnly: boolean;
   limit: number;
   offset: number;
+  cursor: string | null;
 };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -83,6 +85,7 @@ export const normalizeCatalogSearchRequest = (
     activeOnly: body.activeOnly !== false,
     limit,
     offset,
+    cursor: body.cursor?.trim() || null,
   };
 };
 
@@ -93,6 +96,71 @@ type NativeCurrencyValue = {
 
 type CatalogRecord = Omit<CatalogItemDto, 'isSelectable' | 'validationMessage'> & {
   price?: NativeCurrencyValue | null;
+};
+
+export type ResolvedCatalogItemPrice = {
+  amount: number;
+  currencyCode: string;
+  source: 'NATIVE' | 'LEGACY';
+  valid: boolean;
+  validationMessage: string | null;
+};
+
+export const resolveCatalogItemPrice = (
+  record: {
+    price?: NativeCurrencyValue | null;
+    defaultPrice?: number | null;
+    currencyCode?: string | null;
+  },
+  allowLegacyFallback = process.env.CATALOG_ALLOW_LEGACY_PRICE_FALLBACK === 'true',
+): ResolvedCatalogItemPrice => {
+  const amountMicros = record.price?.amountMicros;
+  const nativeCurrency = record.price?.currencyCode?.trim().toUpperCase() ?? '';
+  if (
+    typeof amountMicros === 'number' &&
+    Number.isSafeInteger(amountMicros) &&
+    amountMicros >= 0 &&
+    /^[A-Z]{3}$/.test(nativeCurrency)
+  ) {
+    return {
+      amount: amountMicros / 1_000_000,
+      currencyCode: nativeCurrency,
+      source: 'NATIVE',
+      valid: true,
+      validationMessage: null,
+    };
+  }
+  const nativePriceWasProvided = record.price !== undefined && record.price !== null;
+  const nativeValidationMessage = nativePriceWasProvided
+    ? typeof amountMicros !== 'number' || !Number.isSafeInteger(amountMicros) || amountMicros < 0
+      ? 'Некорректная цена'
+      : !/^[A-Z]{3}$/.test(nativeCurrency)
+        ? 'Некорректная валюта'
+        : 'Укажите цену и валюту'
+    : 'Укажите цену и валюту';
+  const legacyCurrency = record.currencyCode?.trim().toUpperCase() ?? '';
+  if (
+    allowLegacyFallback &&
+    typeof record.defaultPrice === 'number' &&
+    Number.isFinite(record.defaultPrice) &&
+    record.defaultPrice >= 0 &&
+    /^[A-Z]{3}$/.test(legacyCurrency)
+  ) {
+    return {
+      amount: record.defaultPrice,
+      currencyCode: legacyCurrency,
+      source: 'LEGACY',
+      valid: true,
+      validationMessage: null,
+    };
+  }
+  return {
+    amount: 0,
+    currencyCode: nativeCurrency || legacyCurrency,
+    source: 'NATIVE',
+    valid: false,
+    validationMessage: nativeValidationMessage,
+  };
 };
 
 const getCatalogItemValidationMessage = (record: Partial<CatalogRecord>) => {
@@ -110,21 +178,11 @@ const mapCatalogItem = (
   requestedCurrency: string | null,
 ): CatalogItemDto => {
   const isActive = record.isActive === true;
-  const nativeAmountMicros = record.price?.amountMicros;
-  const nativeCurrencyCode = record.price?.currencyCode?.trim().toUpperCase();
-  const hasNativePrice =
-    typeof nativeAmountMicros === 'number' &&
-    Number.isFinite(nativeAmountMicros) &&
-    typeof nativeCurrencyCode === 'string' &&
-    /^[A-Z]{3}$/.test(nativeCurrencyCode);
-  const currencyCode = hasNativePrice
-    ? nativeCurrencyCode
-    : (record.currencyCode ?? '');
-  const defaultPrice = hasNativePrice
-    ? nativeAmountMicros / 1_000_000
-    : (record.defaultPrice ?? 0);
+  const price = resolveCatalogItemPrice(record);
+  const currencyCode = price.currencyCode;
+  const defaultPrice = price.amount;
   const currencyMatches = requestedCurrency === null || currencyCode === requestedCurrency;
-  const validationMessage = getCatalogItemValidationMessage({
+  const validationMessage = price.validationMessage ?? getCatalogItemValidationMessage({
     ...record,
     defaultPrice,
     currencyCode,
@@ -157,9 +215,17 @@ export class CatalogItemRepository {
 
   async search(request: NormalizedCatalogSearchRequest) {
     try {
-      const response = await (this.client.query as (selection: unknown) => Promise<any>)({
-        catalogItems: {
-          __args: { first: 500 },
+      const collected: CatalogItemDto[] = [];
+      const categories = new Set<string>();
+      let after = request.cursor ?? undefined;
+      let hasNextPage = true;
+      let scannedPages = 0;
+      const maxPagesPerRequest = 20;
+
+      while (hasNextPage && collected.length < request.limit && scannedPages < maxPagesPerRequest) {
+        const response = await (this.client.query as (selection: unknown) => Promise<any>)({
+          catalogItems: {
+          __args: { first: 100, ...(after === undefined ? {} : { after }) },
           edges: {
             node: {
               id: true,
@@ -179,18 +245,22 @@ export class CatalogItemRepository {
               sortOrder: true,
             },
           },
+          pageInfo: { endCursor: true, hasNextPage: true },
         },
-      });
-      const records: CatalogItemDto[] = (response.catalogItems?.edges ?? [])
+        });
+        const records: CatalogItemDto[] = (response.catalogItems?.edges ?? [])
         .map((edge: { node?: CatalogRecord | null }) => edge.node)
         .filter((record: CatalogRecord | null | undefined): record is CatalogRecord => record != null)
         .map((record: CatalogRecord) => mapCatalogItem(record, request.currencyCode));
-      const textMatches = (item: CatalogItemDto) =>
+        const textMatches = (item: CatalogItemDto) =>
         request.text === '' ||
         `${item.name} ${item.description ?? ''} ${item.category ?? ''}`
           .toLocaleLowerCase('ru-RU')
           .includes(request.text);
-      const filtered = records
+        for (const item of records) {
+          if (item.category !== null) categories.add(item.category);
+        }
+        const filtered = records
         .filter((item: CatalogItemDto) => !request.activeOnly || item.isActive)
         .filter((item: CatalogItemDto) => request.types.length === 0 || request.types.includes(item.itemType))
         .filter((item: CatalogItemDto) => request.category === null || item.category === request.category)
@@ -201,15 +271,24 @@ export class CatalogItemRepository {
           left.name.localeCompare(right.name, 'ru') ||
           left.id.localeCompare(right.id),
         );
-      const items = filtered.slice(request.offset, request.offset + request.limit);
+        collected.push(...filtered.slice(0, request.limit - collected.length));
+        hasNextPage = response.catalogItems?.pageInfo?.hasNextPage === true;
+        after = hasNextPage
+          ? response.catalogItems?.pageInfo?.endCursor ?? undefined
+          : undefined;
+        scannedPages += 1;
+        if (hasNextPage && after === undefined) break;
+      }
       return {
-        items,
-        categories: [...new Set<string>(records.map((item) => item.category).filter((value): value is string => value !== null))].sort((a, b) => a.localeCompare(b, 'ru')),
+        items: collected,
+        categories: [...categories].sort((a, b) => a.localeCompare(b, 'ru')),
         pageInfo: {
-          offset: request.offset,
           limit: request.limit,
-          hasNextPage: request.offset + items.length < filtered.length,
-          totalCount: filtered.length,
+          endCursor: after ?? null,
+          hasNextPage,
+          resultCompleteness: hasNextPage && scannedPages >= maxPagesPerRequest
+            ? 'PARTIAL'
+            : 'COMPLETE',
         },
       };
     } catch (error) {

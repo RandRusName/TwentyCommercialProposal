@@ -9,12 +9,17 @@ import catalogItemsView from 'src/views/catalog-items.view';
 import {
   CatalogItemRepository,
   normalizeCatalogSearchRequest,
+  resolveCatalogItemPrice,
   type CatalogItemDto,
 } from 'src/services/catalog-item-repository';
 
+type CatalogItemFixture = Omit<CatalogItemDto, 'isSelectable' | 'validationMessage'> & {
+  price?: { amountMicros: number | null; currencyCode: string | null } | null;
+};
+
 const catalogItem = (
-  overrides: Partial<CatalogItemDto> = {},
-): Omit<CatalogItemDto, 'isSelectable' | 'validationMessage'> => ({
+  overrides: Partial<CatalogItemFixture> = {},
+): CatalogItemFixture => ({
   id: '123e4567-e89b-42d3-a456-426614174120',
   name: 'Анализ требований',
   itemType: 'SERVICE',
@@ -26,6 +31,7 @@ const catalogItem = (
   currencyCode: 'RUB',
   isActive: true,
   sortOrder: 20,
+  price: { amountMicros: 5_000_000_000, currencyCode: 'RUB' },
   ...overrides,
 });
 
@@ -101,7 +107,13 @@ describe('catalog item search', () => {
       catalogItem({ id: '3', name: 'Бета', sortOrder: 10 }),
       catalogItem({ id: '2', name: 'Альфа', sortOrder: 10 }),
       catalogItem({ id: '1', name: 'Скрытая', isActive: false, sortOrder: 1 }),
-      catalogItem({ id: '4', name: 'USD', currencyCode: 'USD', sortOrder: 1 }),
+      catalogItem({
+        id: '4',
+        name: 'USD',
+        currencyCode: 'USD',
+        price: { amountMicros: 5_000_000_000, currencyCode: 'USD' },
+        sortOrder: 1,
+      }),
     ];
     const client = {
       query: vi.fn(async () => ({
@@ -121,7 +133,14 @@ describe('catalog item search', () => {
   it('returns malformed native records as disabled instead of breaking search', async () => {
     const client = {
       query: vi.fn(async () => ({
-        catalogItems: { edges: [{ node: catalogItem({ id: 'bad', defaultPrice: -1 }) }] },
+        catalogItems: {
+          edges: [{
+            node: catalogItem({
+              id: 'bad',
+              price: { amountMicros: -1, currencyCode: 'RUB' },
+            }),
+          }],
+        },
       })),
     };
     const result = await new CatalogItemRepository(client as never).search(
@@ -157,6 +176,62 @@ describe('catalog item search', () => {
       currencyCode: 'RUB',
       isSelectable: true,
     });
+  });
+
+  it.each(['RUB', 'USD', 'EUR'])('accepts native %s currency values', (currencyCode) => {
+    expect(resolveCatalogItemPrice({
+      price: { amountMicros: 123_450_000, currencyCode },
+      defaultPrice: 999,
+      currencyCode: 'RUB',
+    })).toMatchObject({
+      amount: 123.45,
+      currencyCode,
+      source: 'NATIVE',
+      valid: true,
+    });
+  });
+
+  it('keeps legacy price fallback disabled unless explicitly enabled', () => {
+    const record = { defaultPrice: 5000, currencyCode: 'RUB' };
+
+    expect(resolveCatalogItemPrice(record, false)).toMatchObject({ valid: false });
+    expect(resolveCatalogItemPrice(record, true)).toMatchObject({
+      amount: 5000,
+      currencyCode: 'RUB',
+      source: 'LEGACY',
+      valid: true,
+    });
+  });
+
+  it('continues cursor pagination past 500 upstream records', async () => {
+    let page = 0;
+    const client = {
+      query: vi.fn(async () => {
+        const currentPage = page++;
+        return {
+          catalogItems: {
+            edges: Array.from({ length: 100 }, (_, index) => ({
+              node: catalogItem({
+                id: `${currentPage}-${index}`,
+                name: currentPage === 5 && index === 10 ? 'Needle' : `Item ${currentPage}-${index}`,
+              }),
+            })),
+            pageInfo: {
+              endCursor: `cursor-${currentPage}`,
+              hasNextPage: currentPage < 5,
+            },
+          },
+        };
+      }),
+    };
+
+    const result = await new CatalogItemRepository(client as never).search(
+      normalizeCatalogSearchRequest({ query: 'Needle', limit: 10 }),
+    );
+
+    expect(client.query).toHaveBeenCalledTimes(6);
+    expect(result.items.map((item) => item.name)).toEqual(['Needle']);
+    expect(result.pageInfo.resultCompleteness).toBe('COMPLETE');
   });
 });
 

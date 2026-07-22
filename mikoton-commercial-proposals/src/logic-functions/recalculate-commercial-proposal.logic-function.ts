@@ -15,10 +15,14 @@ import {
   toApplicationError,
 } from 'src/logic-functions/http-response';
 import { TwentyRecordRepository } from 'src/services/twenty-record-repository';
+import { createLogicFunctionLogger } from 'src/logic-functions/logic-function-logger';
 
 const handler = async (
   event: RoutePayload<Partial<RecalculateRequest>>,
 ) => {
+  const logger = createLogicFunctionLogger('recalculate-commercial-proposal', {
+    proposalId: event.pathParameters.id,
+  });
   try {
     const commercialProposalId = validateCommercialProposalId(
       event.pathParameters.id,
@@ -28,8 +32,10 @@ const handler = async (
       await repository.getCommercialProposalAggregate(commercialProposalId);
     ensureCommercialProposalEditable(aggregate);
 
+    logger.success({ editorRevision: aggregate.proposal.editorRevision });
     return json({
       status: 'success',
+      requestId: logger.requestId,
       ...recalculateCommercialProposal(
         normalizeRecalculateRequest(event.body ?? undefined),
       ),
@@ -37,14 +43,7 @@ const handler = async (
   } catch (error) {
     const applicationError = toApplicationError(error);
 
-    console.error('recalculate-commercial-proposal failed', {
-      proposalId: event.pathParameters.id,
-      code: applicationError.code,
-      cause:
-        applicationError.cause instanceof Error
-          ? applicationError.cause.message
-          : undefined,
-    });
+    logger.failure(applicationError.code);
 
     return failure(applicationError);
   }

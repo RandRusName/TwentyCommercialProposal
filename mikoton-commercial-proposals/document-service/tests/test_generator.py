@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 import zipfile
 import sys
+import threading
+from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
@@ -21,6 +25,12 @@ from mikoton_document_service.generator import (
     generate_xlsx,
     generate_pdf_from_xlsx,
     generate_documents,
+)
+from mikoton_document_service.server import (
+    Handler,
+    _configured_secret,
+    _is_authorized,
+    _max_request_bytes,
 )
 
 
@@ -453,6 +463,88 @@ class GeneratorTest(unittest.TestCase):
             url,
             "http://192.168.100.11:9000/commercial-proposals/path/file.pdf?X-Amz-Signature=abc",
         )
+
+
+class DocumentServiceSecurityTests(unittest.TestCase):
+    def request(self, body: bytes, headers: dict[str, str]) -> tuple[int, dict]:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            connection.request(
+                "POST",
+                "/v1/commercial-proposals/generate",
+                body=body,
+                headers=headers,
+            )
+            response = connection.getresponse()
+            payload = json.loads(response.read().decode("utf-8"))
+            connection.close()
+            return response.status, payload
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_missing_or_short_secret_is_not_configured(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(_configured_secret())
+        with patch.dict(os.environ, {"DOCUMENT_SERVICE_SECRET": "too-short"}, clear=True):
+            self.assertIsNone(_configured_secret())
+
+    def test_authorization_uses_exact_bearer_value(self) -> None:
+        secret = "s" * 32
+        self.assertTrue(_is_authorized(f"Bearer {secret}", secret))
+        self.assertFalse(_is_authorized("Bearer wrong", secret))
+        self.assertFalse(_is_authorized("", secret))
+
+    def test_request_limit_is_bounded_and_configurable(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(_max_request_bytes(), 2 * 1024 * 1024)
+        with patch.dict(os.environ, {"DOCUMENT_MAX_REQUEST_BYTES": "1024"}, clear=True):
+            self.assertEqual(_max_request_bytes(), 1024)
+        with patch.dict(os.environ, {"DOCUMENT_MAX_REQUEST_BYTES": "0"}, clear=True):
+            with self.assertRaises(DocumentGenerationError):
+                _max_request_bytes()
+
+    def test_http_fails_closed_without_secret(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            status, payload = self.request(b"{}", {"content-type": "application/json"})
+        self.assertEqual(status, 503)
+        self.assertEqual(payload["error"]["code"], "SERVICE_NOT_READY")
+
+    def test_http_rejects_wrong_secret(self) -> None:
+        with patch.dict(os.environ, {"DOCUMENT_SERVICE_SECRET": "s" * 32}, clear=True):
+            status, payload = self.request(
+                b"{}",
+                {"content-type": "application/json", "authorization": "Bearer wrong"},
+            )
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"]["code"], "UNAUTHORIZED")
+
+    def test_http_rejects_oversized_body_before_json_parsing(self) -> None:
+        secret = "s" * 32
+        with patch.dict(os.environ, {
+            "DOCUMENT_SERVICE_SECRET": secret,
+            "DOCUMENT_MAX_REQUEST_BYTES": "10",
+        }, clear=True):
+            status, payload = self.request(
+                b"{" + (b"x" * 10),
+                {"content-type": "application/json", "authorization": f"Bearer {secret}"},
+            )
+        self.assertEqual(status, 413)
+        self.assertEqual(payload["error"]["code"], "PAYLOAD_TOO_LARGE")
+
+    def test_http_rejects_malformed_json(self) -> None:
+        secret = "s" * 32
+        with patch.dict(os.environ, {"DOCUMENT_SERVICE_SECRET": secret}, clear=True):
+            status, payload = self.request(
+                b"not-json",
+                {"content-type": "application/json", "authorization": f"Bearer {secret}"},
+            )
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"]["code"], "PAYLOAD_INVALID")
 
 
 if __name__ == "__main__":

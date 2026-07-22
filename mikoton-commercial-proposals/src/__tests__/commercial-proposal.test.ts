@@ -3,9 +3,12 @@ import {
   buildDraftTechnicalNumber,
   buildDocumentGenerationPayload,
   buildCommercialProposalNumber,
+  buildCommercialProposalFinalNumberKey,
   createCommercialProposalDraft,
   generateCommercialProposalDocuments,
   getNextCommercialProposalSequence,
+  getNextCommercialProposalSequenceFromKeys,
+  getCommercialProposalBusinessDate,
   normalizeCreateDraftRequest,
   normalizeGenerateCommercialProposalRequest,
   parseCommercialProposalNumber,
@@ -96,6 +99,7 @@ const makeDraft = (
   id: 'draft-id',
   title: 'Черновик КП - Test opportunity',
   number: buildDraftTechnicalNumber(idempotencyKey),
+  finalNumberKey: null,
   status: 'DRAFT',
   version: 1,
   contentModelVersion: 'LEGACY_V1',
@@ -146,7 +150,7 @@ const makeRepository = (
     ...makeDraft(),
     ...patch,
   })),
-  listCommercialProposalNumbers: vi.fn(async () => []),
+  listCommercialProposalFinalNumberKeys: vi.fn(async () => []),
   attachGeneratedFiles: vi.fn(async (_id, files: CommercialProposalGenerationFile[]) =>
     files.map((file) => ({
       ...file,
@@ -199,6 +203,58 @@ describe('commercial proposal domain', () => {
     expect(() =>
       getNextCommercialProposalSequence(['КП-999 от 12.07.2026'], fixedDate),
     ).toThrow(ApplicationError);
+  });
+
+  it('uses one Moscow business date across UTC boundaries', () => {
+    expect(getCommercialProposalBusinessDate(new Date('2026-01-01T20:59:59Z'))).toEqual({
+      year: 2026, month: '01', day: '01', isoDate: '2026-01-01', displayDate: '01.01.2026',
+    });
+    expect(getCommercialProposalBusinessDate(new Date('2026-01-01T21:00:00Z'))).toEqual({
+      year: 2026, month: '01', day: '02', isoDate: '2026-01-02', displayDate: '02.01.2026',
+    });
+    expect(buildCommercialProposalFinalNumberKey(fixedDate, 15)).toBe('2026:015');
+  });
+
+  it('allocates from more than one thousand final number keys and resets by year', () => {
+    const keys = Array.from({ length: 998 }, (_, index) => `2025:${String((index % 999) + 1).padStart(3, '0')}`);
+    keys.push('2026:017');
+    expect(getNextCommercialProposalSequenceFromKeys(keys, fixedDate)).toBe(18);
+    expect(getNextCommercialProposalSequenceFromKeys(keys, new Date('2027-01-01T10:00:00Z'))).toBe(1);
+  });
+
+  it('rejects missing aggregate contact before numbering, status, or document side effects', async () => {
+    const aggregate = makeAggregate({
+      proposal: makeDraft({
+        id: aggregateProposalId,
+        contentModelVersion: 'AGGREGATE_V2',
+        contactName: ' ',
+        amount: 100,
+        currencyCode: 'RUB',
+      }),
+      items: [makeAggregateItem()],
+      stages: [makeAggregateStage({ result: 'Ready', duration: '1 day' })],
+    });
+    const repository = makeRepository();
+    vi.mocked(repository.getCommercialProposal).mockResolvedValue(aggregate.proposal);
+    repository.getCommercialProposalAggregate = vi.fn(async () => aggregate);
+    repository.getCompanyContext = vi.fn(async () => ({ id: 'company-id', name: 'Company' }));
+    const documentClient = { generate: vi.fn() };
+
+    await expect(generateCommercialProposalDocuments({
+      input: {
+        commercialProposalId: aggregate.proposal.id,
+        idempotencyKey: generationIdempotencyKey,
+      },
+      repository,
+      documentClient,
+    })).rejects.toMatchObject({
+      code: 'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
+      details: { path: 'proposal.contactName' },
+    });
+
+    expect(repository.listCommercialProposalFinalNumberKeys).not.toHaveBeenCalled();
+    expect(repository.updateCommercialProposal).not.toHaveBeenCalled();
+    expect(documentClient.generate).not.toHaveBeenCalled();
   });
 
   it('normalizes the new HTTP contract', () => {
@@ -320,6 +376,7 @@ describe('commercial proposal domain', () => {
       expect.objectContaining({
         status: 'GENERATING',
         number: 'КП-001 от 12.07.2026',
+        finalNumberKey: '2026:001',
         title: 'КП-001 от 12.07.2026 - Test opportunity',
       }),
     );

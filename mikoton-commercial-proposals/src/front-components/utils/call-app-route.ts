@@ -26,7 +26,11 @@ type AppRouteDiagnostic = {
 };
 
 type AppRouteFailurePayload = {
-  error?: string | { code?: string; message?: string };
+  error?: string | {
+    code?: string;
+    message?: string;
+    details?: { path?: string; message?: string };
+  };
 };
 
 const APP_ROUTE_AUTH_MESSAGE =
@@ -39,6 +43,7 @@ export class AppRouteError extends Error {
     readonly diagnostic: AppRouteDiagnostic,
     readonly applicationErrorCode?: string,
     readonly responseStatus?: number,
+    readonly applicationErrorDetails?: { path?: string; message?: string },
   ) {
     super(message);
     this.name = 'AppRouteError';
@@ -158,6 +163,12 @@ const getStructuredErrorCode = (payload: object | null) => {
     : undefined;
 };
 
+const getStructuredErrorDetails = (payload: object | null) => {
+  if (payload === null || !('error' in payload)) return undefined;
+  const error = (payload as AppRouteFailurePayload).error;
+  return typeof error === 'object' ? error?.details : undefined;
+};
+
 export const isApplicationError = (error: unknown, code: string) =>
   error instanceof AppRouteError && error.applicationErrorCode === code;
 
@@ -247,6 +258,7 @@ export const callAppRoute = async <TResponse extends object>(
 
     const errorPayload = isObjectPayload(error.body) ? error.body : null;
     const applicationErrorCode = getStructuredErrorCode(errorPayload);
+    const applicationErrorDetails = getStructuredErrorDetails(errorPayload);
 
     if (error.status === 401) {
       logRouteDiagnostic('APP_ROUTE_UNAUTHORIZED', diagnostic);
@@ -256,6 +268,7 @@ export const callAppRoute = async <TResponse extends object>(
         diagnostic,
         applicationErrorCode,
         error.status,
+        applicationErrorDetails,
       );
     }
 
@@ -267,6 +280,7 @@ export const callAppRoute = async <TResponse extends object>(
         diagnostic,
         applicationErrorCode,
         error.status,
+        applicationErrorDetails,
       );
     }
 
@@ -280,6 +294,7 @@ export const callAppRoute = async <TResponse extends object>(
         diagnostic,
         applicationErrorCode,
         error.status,
+        applicationErrorDetails,
       );
     }
 

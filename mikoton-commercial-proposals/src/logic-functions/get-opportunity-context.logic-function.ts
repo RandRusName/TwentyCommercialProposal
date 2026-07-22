@@ -9,12 +9,14 @@ import {
   toApplicationError,
 } from 'src/logic-functions/http-response';
 import { TwentyRecordRepository } from 'src/services/twenty-record-repository';
+import { createLogicFunctionLogger } from 'src/logic-functions/logic-function-logger';
 
 type OpportunityContextRequest = {
   opportunityId?: string;
 };
 
 const handler = async (event: RoutePayload<OpportunityContextRequest>) => {
+  const logger = createLogicFunctionLogger('get-opportunity-context');
   try {
     const opportunityId = event.body?.opportunityId;
 
@@ -25,17 +27,12 @@ const handler = async (event: RoutePayload<OpportunityContextRequest>) => {
     const repository = new TwentyRecordRepository();
     const opportunity = await repository.getOpportunityContext(opportunityId);
 
-    return json({ status: 'success', opportunity });
+    logger.success();
+    return json({ status: 'success', opportunity, requestId: logger.requestId });
   } catch (error) {
     const applicationError = toApplicationError(error);
 
-    console.error('get-opportunity-context failed', {
-      code: applicationError.code,
-      cause:
-        applicationError.cause instanceof Error
-          ? applicationError.cause.message
-          : undefined,
-    });
+    logger.failure(applicationError.code);
 
     return failure(applicationError);
   }

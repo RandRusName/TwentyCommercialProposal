@@ -52,9 +52,13 @@ const graphql = async (query, variables = {}) => {
   return payload.data;
 };
 
-const data = await graphql(`
-  query CatalogNativePriceBackfill {
-    catalogItems(first: 500) {
+const records = [];
+let after = null;
+
+do {
+  const data = await graphql(`
+  query CatalogNativePriceBackfill($after: String) {
+    catalogItems(first: 200, after: $after) {
       edges {
         node {
           id
@@ -67,11 +71,23 @@ const data = await graphql(`
           }
         }
       }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
     }
   }
-`);
+`, { after });
+  const connection = data.catalogItems;
+  records.push(...(connection?.edges ?? []).map((edge) => edge.node));
+  after = connection?.pageInfo?.hasNextPage === true
+    ? connection.pageInfo.endCursor
+    : null;
+  if (connection?.pageInfo?.hasNextPage === true && (after === null || after === '')) {
+    throw new Error('Catalog pagination returned no cursor for the next page');
+  }
+} while (after !== null);
 
-const records = (data.catalogItems?.edges ?? []).map((edge) => edge.node);
 const candidates = records.filter((record) => {
   if (record.price?.amountMicros !== null && record.price?.amountMicros !== undefined) return false;
   return (

@@ -15,6 +15,14 @@ Target server and SDK versions:
 - `twenty-sdk@2.20.0`
 - `twenty-client-sdk@2.20.0`
 
+## Production Closure Status
+
+Prompt 5.5 hardening is implemented on the `0.1.x` release-candidate line. Do
+not promote the App to `1.0.0` until the final commit has a green CI run and the
+operator acceptance in `docs/phase-5-5-production-acceptance.md` is complete.
+The target deployment remains private and is performed only from a machine on
+the internal network.
+
 ## Scope
 
 Implemented in this phase:
@@ -28,6 +36,8 @@ Implemented in this phase:
 - business-safe draft label `Черновик` and final generation numbering in
   `КП-### от DD.MM.YYYY` format;
 - required `idempotencyKey` with unique metadata index and conflict recovery;
+- database-backed yearly final-number reservation through nullable unique
+  `finalNumberKey` (`YYYY:NNN`), with bounded conflict retry;
 - structured application errors;
 - draft metadata fields for source, template, language and payload snapshot.
 - functional vertical slice from Opportunity command menu to a
@@ -41,6 +51,8 @@ Implemented in this phase:
     section on its business card.
 - native Twenty `CURRENCY` price field for catalog items, with a safe API
   backfill utility for existing legacy prices;
+- cursor-paginated catalog search and migration utilities;
+- fail-closed document-service authentication and bounded request bodies;
 - `en`/`ru-RU` front-component localization inherited from the Twenty execution
   locale. App metadata labels are Russian on the current target because SDK
   2.20 does not localize navigation/object/view metadata at runtime.

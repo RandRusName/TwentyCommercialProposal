@@ -33,6 +33,8 @@
 - `files` (`FILES`, nullable): app-owned generated XLSX/PDF files field.
 - `idempotencyKey` (`TEXT`, required): client-generated draft creation request key.
 - `lastError` (`TEXT`, nullable): safe failure message for failed generation.
+- `finalNumberKey` (`TEXT`, nullable, UI read-only): unique reservation in
+  `YYYY:NNN` format. Drafts and historical records may remain `null`.
 
 Obsolete `docxUrl` and `pdfUrl` fields were removed from app metadata. DOCX is not generated. PDF is represented as a Twenty File attachment and as one item in `resultMetadata.files[]`.
 
@@ -57,10 +59,18 @@ BTREE indexes are declared for:
 - `opportunity`;
 - `company`;
 - `idempotencyKey`, unique.
+- `finalNumberKey`, unique. PostgreSQL unique-index semantics allow multiple
+  `NULL` values, so any number of drafts can coexist without a final number.
 
 The unique `idempotencyKey` index is the concurrency guard for draft creation. The logic function still performs best-effort pre-read and read-after-conflict recovery so repeated sequential and parallel requests return the existing draft where possible.
 
-New drafts share the business label `Черновик`, so `number` is intentionally non-unique. Final numbers use a server-side yearly `001..999` sequence and the Moscow date of document generation, for example `КП-005 от 17.07.2026`. Existing legacy numbers are not rewritten automatically. SDK 2.20 cannot express a partial unique index for generated records only; final allocation therefore uses max-read/retry and is a best-effort concurrency guarantee.
+New drafts share the business label `Черновик`, so `number` is intentionally
+non-unique. Final numbers use a yearly `001..999` sequence and the Moscow date
+of generation, for example `КП-005 от 17.07.2026`. Uniqueness is enforced by
+the `finalNumberKey` unique index; allocation retries a bounded number of times
+after a duplicate conflict. Existing final numbers are backfilled through the
+official API after duplicate validation; draft and legacy technical numbers are
+not rewritten.
 
 Generated XLSX/PDF files are uploaded to Twenty and attached to the CommercialProposal through standard Attachment records so they appear in the record `Files` tab. The upload is performed against the standard `Attachment.file` field and then linked with `targetCommercialProposalId`. `resultMetadata.files[]` also keeps the document-service storage key, checksum, and Twenty file id/url for audit and download UI.
 

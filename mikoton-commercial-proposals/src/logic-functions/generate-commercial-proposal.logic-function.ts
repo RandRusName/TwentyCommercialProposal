@@ -14,10 +14,15 @@ import {
 } from 'src/logic-functions/http-response';
 import { HttpDocumentServiceClient } from 'src/services/document-service-client';
 import { TwentyRecordRepository } from 'src/services/twenty-record-repository';
+import { createLogicFunctionLogger } from 'src/logic-functions/logic-function-logger';
 
 const handler = async (
   event: RoutePayload<GenerateCommercialProposalRequest>,
 ) => {
+  const logger = createLogicFunctionLogger('generate-commercial-proposal', {
+    proposalId: event.body?.commercialProposalId,
+    operationId: event.body?.idempotencyKey,
+  });
   try {
     const result = await generateCommercialProposalDocuments({
       input: normalizeGenerateCommercialProposalRequest(
@@ -27,17 +32,12 @@ const handler = async (
       documentClient: new HttpDocumentServiceClient(),
     });
 
-    return json({ status: 'success', ...result });
+    logger.success({ statusAfter: result.commercialProposal.status });
+    return json({ status: 'success', ...result, requestId: logger.requestId });
   } catch (error) {
     const applicationError = toApplicationError(error);
 
-    console.error('generate-commercial-proposal failed', {
-      code: applicationError.code,
-      cause:
-        applicationError.cause instanceof Error
-          ? applicationError.cause.message
-          : undefined,
-    });
+    logger.failure(applicationError.code);
 
     return failure(applicationError);
   }

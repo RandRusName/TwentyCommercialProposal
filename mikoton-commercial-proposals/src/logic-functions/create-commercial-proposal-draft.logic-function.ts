@@ -13,10 +13,14 @@ import {
   toApplicationError,
 } from 'src/logic-functions/http-response';
 import { TwentyRecordRepository } from 'src/services/twenty-record-repository';
+import { createLogicFunctionLogger } from 'src/logic-functions/logic-function-logger';
 
 const handler = async (
   event: RoutePayload<Partial<CreateDraftRequest>>,
 ) => {
+  const logger = createLogicFunctionLogger('create-commercial-proposal-draft', {
+    operationId: event.body?.idempotencyKey,
+  });
   try {
     const repository = new TwentyRecordRepository();
     const result = await createCommercialProposalDraft({
@@ -24,17 +28,12 @@ const handler = async (
       repository,
     });
 
-    return json({ status: 'success', ...result });
+    logger.success({ proposalId: result.draft.id, statusAfter: result.draft.status });
+    return json({ status: 'success', ...result, requestId: logger.requestId });
   } catch (error) {
     const applicationError = toApplicationError(error);
 
-    console.error('create-commercial-proposal-draft failed', {
-      code: applicationError.code,
-      cause:
-        applicationError.cause instanceof Error
-          ? applicationError.cause.message
-          : undefined,
-    });
+    logger.failure(applicationError.code);
 
     return failure(applicationError);
   }

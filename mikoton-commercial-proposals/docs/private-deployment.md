@@ -1,5 +1,13 @@
 # Private Deployment
 
+## Prompt 5.5 Release Rule
+
+Do not deploy or tag `1.0.0` until the exact final commit has green CI, a safe
+metadata plan, verified backups, isolated restore/rollback rehearsals and the
+target acceptance described in `production-acceptance.md`. GitHub-hosted
+runners never connect to the internal target; production private publish and
+install remain local WSL operations.
+
 The target Twenty server is available only on the internal network:
 
 ```text
