@@ -205,12 +205,12 @@ export const normalizeOpportunityCurrency = (
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
-const sha256 = (buffer: Buffer) =>
+const sha256 = (buffer: Uint8Array) =>
   createHash('sha256').update(buffer).digest('hex');
 
 const assertGeneratedFileBuffer = (
   file: CommercialProposalGenerationFile,
-  buffer: Buffer,
+  buffer: Uint8Array,
 ) => {
   if (buffer.length !== file.size) {
     throw new ApplicationError(
@@ -287,7 +287,7 @@ const parseUploadResponse = (responseText: string) => {
 };
 
 const createUploadForm = (
-  fileBuffer: Buffer,
+  fileBuffer: Uint8Array,
   fileName: string,
   contentType: string,
 ) => {
@@ -330,7 +330,7 @@ const createUploadForm = (
 };
 
 const uploadGeneratedFileToTwenty = async (
-  fileBuffer: Buffer,
+  fileBuffer: Uint8Array,
   fileName: string,
   contentType: string,
 ): Promise<UploadedTwentyFile> => {
@@ -1210,7 +1210,7 @@ export class TwentyRecordRepository
       );
     }
 
-    const buffer = Buffer.from(await response.arrayBuffer());
+    const buffer = new Uint8Array(await response.arrayBuffer());
     assertGeneratedFileBuffer(file, buffer);
 
     const uploadedFile = await uploadGeneratedFileToTwenty(
