@@ -1320,6 +1320,51 @@ describe('opportunity amount normalization', () => {
   });
 });
 
+describe('twenty record repository proposal numbering', () => {
+  it('includes soft-deleted reservations when listing yearly number keys', async () => {
+    const query = vi.fn(async (selection: any) => {
+      const includeDeleted =
+        selection.commercialProposals.__args.filter.deletedAt?.is ===
+        'NOT_NULL';
+
+      return {
+        commercialProposals: {
+          edges: [
+            {
+              node: {
+                finalNumberKey: includeDeleted ? '2026:002' : '2026:001',
+              },
+            },
+            ...(includeDeleted
+              ? [{ node: { finalNumberKey: '2026:001' } }]
+              : []),
+          ],
+          pageInfo: { endCursor: null, hasNextPage: false },
+        },
+      };
+    });
+    const repository = new TwentyRecordRepository({
+      query,
+      mutation: vi.fn(),
+    } as never);
+
+    await expect(
+      repository.listCommercialProposalFinalNumberKeys(2026),
+    ).resolves.toEqual(['2026:001', '2026:002']);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]?.[0]).toMatchObject({
+      commercialProposals: {
+        __args: {
+          filter: {
+            finalNumberKey: { startsWith: '2026:' },
+            deletedAt: { is: 'NOT_NULL' },
+          },
+        },
+      },
+    });
+  });
+});
+
 describe('twenty record repository generated file attachments', () => {
   it('uploads generated files and creates CommercialProposal attachments', async () => {
     const mutation = vi.fn(async () => ({ createAttachment: { id: 'attachment-id' } }));

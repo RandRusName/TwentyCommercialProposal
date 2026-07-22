@@ -554,36 +554,55 @@ export class TwentyRecordRepository
   }
 
   async listCommercialProposalFinalNumberKeys(year: number): Promise<string[]> {
-    const keys: string[] = [];
-    let after: string | undefined;
+    const collectKeys = async (includeDeleted: boolean) => {
+      const keys: string[] = [];
+      let after: string | undefined;
 
-    do {
-      const response = await (this.client.query as (selection: unknown) => Promise<any>)({
-        commercialProposals: {
-          __args: {
-            first: 200,
-            ...(after === undefined ? {} : { after }),
-            filter: { finalNumberKey: { startsWith: `${year}:` } },
+      do {
+        const response = await (this.client.query as (
+          selection: unknown,
+        ) => Promise<any>)({
+          commercialProposals: {
+            __args: {
+              first: 200,
+              ...(after === undefined ? {} : { after }),
+              filter: {
+                finalNumberKey: { startsWith: `${year}:` },
+                ...(includeDeleted
+                  ? { deletedAt: { is: 'NOT_NULL' } }
+                  : {}),
+              },
+            },
+            edges: { node: { finalNumberKey: true } },
+            pageInfo: { endCursor: true, hasNextPage: true },
           },
-          edges: { node: { finalNumberKey: true } },
-          pageInfo: { endCursor: true, hasNextPage: true },
-        },
-      });
-      const connection = response.commercialProposals as {
-        edges?: Array<{ node?: { finalNumberKey?: string | null } | null }>;
-        pageInfo?: { endCursor?: string | null; hasNextPage?: boolean | null };
-      };
-      keys.push(
-        ...(connection.edges ?? [])
-          .map((edge) => edge.node?.finalNumberKey)
-          .filter((key): key is string => typeof key === 'string'),
-      );
-      after = connection.pageInfo?.hasNextPage
-        ? connection.pageInfo.endCursor ?? undefined
-        : undefined;
-    } while (after !== undefined);
+        });
+        const connection = response.commercialProposals as {
+          edges?: Array<{ node?: { finalNumberKey?: string | null } | null }>;
+          pageInfo?: {
+            endCursor?: string | null;
+            hasNextPage?: boolean | null;
+          };
+        };
+        keys.push(
+          ...(connection.edges ?? [])
+            .map((edge) => edge.node?.finalNumberKey)
+            .filter((key): key is string => typeof key === 'string'),
+        );
+        after = connection.pageInfo?.hasNextPage
+          ? connection.pageInfo.endCursor ?? undefined
+          : undefined;
+      } while (after !== undefined);
 
-    return keys;
+      return keys;
+    };
+
+    const [activeKeys, deletedKeys] = await Promise.all([
+      collectKeys(false),
+      collectKeys(true),
+    ]);
+
+    return [...new Set([...activeKeys, ...deletedKeys])];
   }
 
   async createDraft(
