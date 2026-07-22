@@ -164,13 +164,7 @@ jobs:
             echo "Tarball is empty: $tarball"
             exit 1
           fi
-          tar -tzf "$tarball" | grep -q 'manifest.json'
-          tar -tzf "$tarball" | grep -q 'front-components'
-          tar -tzf "$tarball" | grep -q 'logic-functions'
-          if tar -tzf "$tarball" | grep -E '(^|/)\.env($|\.|/)'; then
-            echo "Tarball contains env files"
-            exit 1
-          fi
+          bash scripts/validate-tarball.sh "$tarball"
           if tar -xOzf "$tarball" | strings | grep -E '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|TWENTY_API_KEY=[^[:space:]]+|DOCUMENT_SERVICE_SECRET=[^[:space:]]+)'; then
             echo "Tarball contains secret-like material"
             exit 1

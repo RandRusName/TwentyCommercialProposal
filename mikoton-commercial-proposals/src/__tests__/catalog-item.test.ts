@@ -7,7 +7,9 @@ import catalogItemObject from 'src/objects/catalog-item.object';
 import commercialProposalItemObject from 'src/objects/commercial-proposal-item.object';
 import catalogItemsView from 'src/views/catalog-items.view';
 import {
+  buildCatalogFilterFingerprint,
   CatalogItemRepository,
+  decodeCatalogCursor,
   normalizeCatalogSearchRequest,
   resolveCatalogItemPrice,
   type CatalogItemDto,
@@ -127,7 +129,8 @@ describe('catalog item search', () => {
 
     expect(result.items.map((item) => item.name)).toEqual(['Альфа', 'Бета']);
     expect(result.items.every((item) => item.isSelectable)).toBe(true);
-    expect(result.categories).toEqual(['Аналитика']);
+    expect(result.categories).toEqual([]);
+    expect(result.pageCategories).toEqual(['Аналитика']);
   });
 
   it('returns malformed native records as disabled instead of breaking search', async () => {
@@ -152,6 +155,31 @@ describe('catalog item search', () => {
       isSelectable: false,
       validationMessage: 'Некорректная цена',
     });
+  });
+
+  it('disables malformed itemType in search without treating it as selectable SERVICE', async () => {
+    const client = {
+      query: vi.fn(async () => ({
+        catalogItems: {
+          edges: [{
+            node: catalogItem({
+              id: 'bad-type',
+              itemType: 'UNKNOWN' as never,
+            }),
+          }],
+        },
+      })),
+    };
+    const result = await new CatalogItemRepository(client as never).search(
+      normalizeCatalogSearchRequest({ activeOnly: false }),
+    );
+
+    expect(result.items[0]).toMatchObject({
+      id: 'bad-type',
+      isSelectable: false,
+      validationMessage: 'Некорректный тип позиции',
+    });
+    expect(result.items[0]?.itemType).not.toBe('SERVICE');
   });
 
   it('prefers the native currency field and converts micros to decimals', async () => {
@@ -241,6 +269,94 @@ describe('catalog item search', () => {
     expect(() => normalizeCatalogSearchRequest({ cursor: Buffer.from('{"v":2}').toString('base64url') })).toThrowError(
       expect.objectContaining({ code: 'INVALID_INPUT' }),
     );
+  });
+
+  it('binds cursors to filter fingerprints and rejects cross-filter reuse', () => {
+    const rub = normalizeCatalogSearchRequest({ currencyCode: 'RUB' });
+    const fingerprint = buildCatalogFilterFingerprint(rub);
+    const cursor = Buffer.from(
+      JSON.stringify({ v: 2, after: 'page-0', skip: 10, filterFingerprint: fingerprint }),
+    ).toString('base64url');
+
+    expect(decodeCatalogCursor(cursor, rub)).toMatchObject({
+      v: 2,
+      after: 'page-0',
+      skip: 10,
+      filterFingerprint: fingerprint,
+    });
+
+    expect(() =>
+      decodeCatalogCursor(cursor, normalizeCatalogSearchRequest({ currencyCode: 'USD' })),
+    ).toThrowError(
+      expect.objectContaining({
+        code: 'INVALID_INPUT',
+        message: 'cursor does not match current filters',
+      }),
+    );
+    expect(() =>
+      decodeCatalogCursor(cursor, normalizeCatalogSearchRequest({ text: 'crm', currencyCode: 'RUB' })),
+    ).toThrowError(expect.objectContaining({ code: 'INVALID_INPUT' }));
+    expect(() =>
+      decodeCatalogCursor(
+        cursor,
+        normalizeCatalogSearchRequest({ category: 'Аналитика', currencyCode: 'RUB' }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'INVALID_INPUT' }));
+    expect(() =>
+      decodeCatalogCursor(
+        cursor,
+        normalizeCatalogSearchRequest({ currencyCode: 'RUB', activeOnly: false }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'INVALID_INPUT' }));
+  });
+
+  it('rejects out-of-bounds skip and oversized after values', () => {
+    const request = normalizeCatalogSearchRequest({ currencyCode: 'RUB' });
+    const fingerprint = buildCatalogFilterFingerprint(request);
+
+    expect(() =>
+      decodeCatalogCursor(
+        Buffer.from(
+          JSON.stringify({ v: 2, after: null, skip: -1, filterFingerprint: fingerprint }),
+        ).toString('base64url'),
+        request,
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'INVALID_INPUT' }));
+    expect(() =>
+      decodeCatalogCursor(
+        Buffer.from(
+          JSON.stringify({ v: 2, after: null, skip: 101, filterFingerprint: fingerprint }),
+        ).toString('base64url'),
+        request,
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'INVALID_INPUT' }));
+    expect(() =>
+      decodeCatalogCursor(
+        Buffer.from(
+          JSON.stringify({
+            v: 2,
+            after: 'x'.repeat(513),
+            skip: 0,
+            filterFingerprint: fingerprint,
+          }),
+        ).toString('base64url'),
+        request,
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'INVALID_INPUT' }));
+    expect(() =>
+      decodeCatalogCursor(
+        Buffer.from(
+          JSON.stringify({
+            v: 2,
+            after: null,
+            skip: 0,
+            filterFingerprint: fingerprint,
+            extra: true,
+          }),
+        ).toString('base64url'),
+        request,
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'INVALID_INPUT' }));
   });
 
   it('does not skip filtered matches inside a raw page when paginating', async () => {
@@ -349,6 +465,85 @@ describe('catalog item search', () => {
 
     expect(seen).toHaveLength(150);
     expect(new Set(seen).size).toBe(150);
+  });
+});
+
+describe('catalog categories listing', () => {
+  it('collects unique categories across raw pages with stable sorting', async () => {
+    const pages = [0, 1, 2, 3, 4, 5].map((currentPage) => ({
+      edges: Array.from({ length: 100 }, (_, index) => ({
+        node: catalogItem({
+          id: `p${currentPage}-${index}`,
+          name: `Item ${currentPage}-${index}`,
+          category:
+            currentPage === 5 && index === 0
+              ? 'Поздняя категория'
+              : currentPage % 2 === 0
+                ? 'Альфа'
+                : 'Бета',
+          sortOrder: currentPage * 100 + index,
+        }),
+      })),
+      pageInfo: {
+        endCursor: `cursor-${currentPage}`,
+        hasNextPage: currentPage < 5,
+      },
+    }));
+    const client = {
+      query: vi.fn(async (selection: { catalogItems: { __args?: { after?: string } } }) => {
+        const after = selection.catalogItems.__args?.after;
+        const pageIndex = after === undefined ? 0 : Number(String(after).replace('cursor-', '')) + 1;
+        return {
+          catalogItems:
+            pages[pageIndex] ?? { edges: [], pageInfo: { endCursor: null, hasNextPage: false } },
+        };
+      }),
+    };
+
+    const result = await new CatalogItemRepository(client as never).listCategories(true);
+
+    expect(client.query).toHaveBeenCalledTimes(6);
+    expect(result.categories).toEqual(['Альфа', 'Бета', 'Поздняя категория']);
+    expect(result.pageInfo.resultCompleteness).toBe('COMPLETE');
+  });
+
+  it('marks category scan as PARTIAL when the safety limit is hit', async () => {
+    const client = {
+      query: vi.fn(async () => ({
+        catalogItems: {
+          edges: [{ node: catalogItem({ category: 'Альфа' }) }],
+          pageInfo: { endCursor: 'next', hasNextPage: true },
+        },
+      })),
+    };
+
+    const result = await new CatalogItemRepository(client as never).listCategories(
+      true,
+      { maxRawPages: 2 },
+    );
+
+    expect(client.query).toHaveBeenCalledTimes(2);
+    expect(result.pageInfo.resultCompleteness).toBe('PARTIAL');
+    expect(result.categories).toEqual(['Альфа']);
+  });
+
+  it('ignores malformed records while scanning categories', async () => {
+    const client = {
+      query: vi.fn(async () => ({
+        catalogItems: {
+          edges: [
+            { node: null },
+            { node: catalogItem({ category: 'Ок' }) },
+            { node: catalogItem({ category: null }) },
+          ],
+          pageInfo: { endCursor: null, hasNextPage: false },
+        },
+      })),
+    };
+
+    const result = await new CatalogItemRepository(client as never).listCategories(true);
+    expect(result.categories).toEqual(['Ок']);
+    expect(result.pageInfo.resultCompleteness).toBe('COMPLETE');
   });
 });
 

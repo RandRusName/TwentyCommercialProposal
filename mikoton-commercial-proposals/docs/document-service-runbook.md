@@ -12,6 +12,11 @@ For s3-compatible storage, `DOCUMENT_STORAGE_ACCESS_KEY` and
 `DOCUMENT_STORAGE_SECRET_KEY` are required. There is no silent fallback to
 `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` or MinIO root credentials.
 
+App `0.1.49` generation ownership (claim lease / `ownerToken` fencing) lives in
+the Twenty App, not in this worker. Document-service image digest for `0.1.49`
+acceptance is **Pending** — see `phase-5-5-production-acceptance.md`. Target
+deploy/smoke remains **NOT DONE**.
+
 ## Local Python Run
 
 From `mikoton-commercial-proposals/`:

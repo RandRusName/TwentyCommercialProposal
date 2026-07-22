@@ -9,9 +9,18 @@ type SearchResponse = {
   status: 'success';
   items: CatalogItemOption[];
   categories: string[];
+  pageCategories?: string[];
   pageInfo: {
     endCursor: string | null;
     hasNextPage: boolean;
+    resultCompleteness: 'COMPLETE' | 'PARTIAL';
+  };
+};
+
+type CategoriesResponse = {
+  status: 'success';
+  categories: string[];
+  pageInfo: {
     resultCompleteness: 'COMPLETE' | 'PARTIAL';
   };
 };
@@ -42,12 +51,32 @@ export const CatalogPicker = ({
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const requestSequence = useRef(0);
+  const categoriesLoaded = useRef(false);
+
+  useEffect(() => {
+    categoriesLoaded.current = false;
+    setLoading(true);
+    setError(null);
+    void callAppRoute<CategoriesResponse>('/catalog-items/categories', {
+      activeOnly: true,
+    })
+      .then((response) => {
+        setCategories(response.categories);
+        categoriesLoaded.current = true;
+      })
+      .catch(() => {
+        setError(t('Unable to load the catalog. Try again.'));
+        categoriesLoaded.current = false;
+      });
+  }, [reload, t]);
 
   useEffect(() => {
     const sequence = ++requestSequence.current;
     const timeout = setTimeout(() => {
       setLoading(true);
-      setError(null);
+      if (categoriesLoaded.current) {
+        setError(null);
+      }
       void callAppRoute<SearchResponse>('/catalog-items/search', {
         text: query,
         category: category || undefined,
@@ -59,7 +88,6 @@ export const CatalogPicker = ({
         .then((response) => {
           if (sequence !== requestSequence.current) return;
           setItems(response.items);
-          setCategories(response.categories);
           setEndCursor(response.pageInfo.endCursor);
           setHasNextPage(response.pageInfo.hasNextPage);
           setSelected((current) => {
@@ -72,7 +100,9 @@ export const CatalogPicker = ({
           });
         })
         .catch(() => {
-          if (sequence === requestSequence.current) setError(t('Unable to load the catalog. Try again.'));
+          if (sequence === requestSequence.current) {
+            setError(t('Unable to load the catalog. Try again.'));
+          }
         })
         .finally(() => {
           if (sequence === requestSequence.current) setLoading(false);
@@ -254,7 +284,6 @@ export const CatalogPicker = ({
                 response.items.forEach((item) => byId.set(item.id, item));
                 return [...byId.values()];
               });
-              setCategories((current) => [...new Set([...current, ...response.categories])].sort());
               setEndCursor(response.pageInfo.endCursor);
               setHasNextPage(response.pageInfo.hasNextPage);
             }).catch(() => {

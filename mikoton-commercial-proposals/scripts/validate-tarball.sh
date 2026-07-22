@@ -189,6 +189,37 @@ for (const [universalIdentifier, label] of requiredUniqueIndexes) {
   }
 }
 
+const requiredObjects = [
+  {
+    universalIdentifier: '0fff8939-c612-4884-853e-14ba0e9b719d',
+    nameSingular: 'commercialProposalGenerationClaim',
+    requiredFields: ['proposalKey', 'operationId', 'ownerToken', 'editorRevision', 'fingerprint', 'leaseExpiresAt'],
+  },
+];
+const manifestObjects = Array.isArray(manifest.objects) ? manifest.objects : [];
+for (const required of requiredObjects) {
+  const object = manifestObjects.find(
+    (candidate) => candidate.universalIdentifier === required.universalIdentifier,
+  );
+  if (!object) {
+    console.error(
+      `ERROR: manifest is missing object ${required.nameSingular} (${required.universalIdentifier}).`,
+    );
+    process.exit(1);
+  }
+  const fieldNames = new Set(
+    (Array.isArray(object.fields) ? object.fields : []).map((field) => field.name),
+  );
+  for (const fieldName of required.requiredFields) {
+    if (!fieldNames.has(fieldName)) {
+      console.error(
+        `ERROR: generation claim object is missing required field ${fieldName}.`,
+      );
+      process.exit(1);
+    }
+  }
+}
+
 console.log(
   `Manifest validation: OK (${packagedPathReferences.length} packaged paths verified, forward slashes only, required unique indexes present)`,
 );

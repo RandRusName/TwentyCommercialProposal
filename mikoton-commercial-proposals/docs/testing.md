@@ -29,8 +29,9 @@ CI requires repository secret `TWENTY_EPHEMERAL_API_KEY` for the seeded ephemera
 
 CI also runs `yarn test:document-service`. MinIO images are pinned to `minio/minio:RELEASE.2025-09-07T16-13-09Z` and `minio/mc:RELEASE.2025-08-13T08-35-41Z`.
 
-Exact pass counts, tarball SHA-256 and CI run ids for App `0.1.48` are **to be
-recorded at final release commit**.
+Exact pass counts, tarball SHA-256, image digest and CI run ids for App
+`0.1.49` are **Pending** — record only at the final release commit. Do not
+invent them.
 
 ## Local Tests
 
@@ -48,13 +49,19 @@ yarn.cmd twenty dev:build .
 yarn.cmd twenty dev:build --tarball .
 ```
 
-Unit and document-service coverage added for Phase 5.5 includes:
+Unit and document-service coverage for Phase 5.5 CORRECTIVE (`0.1.49`) includes:
 
-- generation claim concurrency (unique `proposalKey`, 409 in progress);
-- same-operation claim replay;
-- stale claim recovery after `leaseExpiresAt`;
-- currency normalization (`null` / `''` / whitespace / `rub` → `RUB`);
-- catalog opaque cursor pagination (no gaps/dupes; malformed cursor rejection);
+- generation claim: `operationId` vs `ownerToken`; `ACQUIRED` / `IN_PROGRESS`;
+- parallel same `operationId` → second `IN_PROGRESS` (not second owner);
+- fencing / `COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST` (no FAILED / no
+  claim delete / no attachments on loser);
+- 10-minute lease renewal checkpoints;
+- stale takeover after `leaseExpiresAt`;
+- currency normalization (`normalizeCurrencyCode`: trim+upper, `[A-Z]{3}`);
+- catalog cursor v2 (`filterFingerprint`, `skip` 0..100, `after` bounds);
+- categories route completeness (`COMPLETE` / `PARTIAL`); search empty
+  `categories` + `pageCategories`;
+- `itemType` allowlist on assignment; malformed type disabled in search;
 - private URL scan (`test:private-urls`);
 - worker storage credentials fail-closed (no `MINIO_ACCESS_KEY` silent fallback).
 
@@ -115,8 +122,8 @@ In `target` mode, setup does not sync metadata and never uninstalls the app.
 The test creates `[SMOKE]` business records and performs best-effort cleanup of
 those records only.
 
-Target smoke results for `0.1.48` (concurrency claim, FAILED/retry, recovery,
-restricted user) are **NOT YET VERIFIED** — see
+Target smoke results for `0.1.49` (claim fencing, ownership lost, FAILED/retry,
+recovery, restricted user) are **NOT DONE** — see
 `phase-5-5-production-acceptance.md`.
 
 ## CI
@@ -140,6 +147,6 @@ CI uses:
 
 ## Prompt 5.1–5.2 Historical Notes
 
-Earlier phase local/target evidence (versions before `0.1.48`) remains in git
+Earlier phase local/target evidence (versions before `0.1.49`) remains in git
 history and older smoke reports. Do not treat those artifact SHAs or deploy
-versions as acceptance for Phase 5.5 / `0.1.48`.
+versions as acceptance for Phase 5.5 CORRECTIVE / `0.1.49`.

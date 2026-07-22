@@ -6,17 +6,23 @@ production acceptance items are tracked separately in
 
 Same-proposal generation concurrency is **not** a limitation: ownership is
 atomic via the unique index on
-`CommercialProposalGenerationClaim.proposalKey`, with 5-minute lease recovery.
+`CommercialProposalGenerationClaim.proposalKey`, with a **10-minute** lease,
+`ownerToken` fencing, and stale-lock recovery. Parallel same `operationId`
+returns `IN_PROGRESS` (409), not a second owner. This is **not** SDK-level
+linearizability or multi-object transactions.
 
 - Twenty SDK 2.20 exposes no App-level transaction or compare-and-set primitive
   spanning the proposal, items and stages. Editor revision conflict detection
   is best-effort; child saves are replay-safe through parent plus `clientKey`.
-  Generation ownership is separate and uses the unique claim index above.
-- Catalog search uses an opaque cursor with client-side filtering because the
-  Twenty 2.20 `catalogItems` query in this app does not expose the needed
-  server-side filters/`orderBy`. Continuation has no gaps or duplicates within
-  a search session; global `sortOrder` across the full catalog is best-effort
-  relative to upstream page order.
+  Generation ownership is separate and uses the unique claim index plus
+  `ownerToken` fencing above.
+- Catalog search uses an opaque **v2** cursor (`filterFingerprint`-bound)
+  with client-side filtering because the Twenty 2.20 `catalogItems` query in
+  this app does not expose the needed server-side filters/`orderBy`.
+  Continuation has no gaps or duplicates within a search session; global
+  `sortOrder` across the full catalog is best-effort relative to upstream page
+  order. Search returns empty `categories`; use `POST /catalog-items/categories`
+  for the full list (`PARTIAL` if the safety page limit is hit).
 - The SDK exposes no supported navigation blocker for a front component. The
   editor shows dirty state and requires a clean save before generation, but it
   cannot intercept every host navigation or browser close.

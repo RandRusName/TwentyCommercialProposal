@@ -5,6 +5,7 @@ import {
   COMMERCIAL_PROPOSAL_GENERATION_CLAIM_FIELD_FINGERPRINT_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_GENERATION_CLAIM_FIELD_LEASE_EXPIRES_AT_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_GENERATION_CLAIM_FIELD_OPERATION_ID_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_GENERATION_CLAIM_FIELD_OWNER_TOKEN_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_GENERATION_CLAIM_FIELD_PROPOSAL_KEY_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_GENERATION_CLAIM_OBJECT_UNIVERSAL_IDENTIFIER,
 } from 'src/constants/universal-identifiers';
@@ -42,7 +43,19 @@ export default defineObject({
       type: FieldType.TEXT,
       name: 'operationId',
       label: 'Operation id',
-      description: 'Generation idempotency key that owns the claim',
+      description: 'Logical generation idempotency key for the user operation',
+      defaultValue: "''",
+      isNullable: false,
+      isUIEditable: false,
+    },
+    {
+      universalIdentifier:
+        COMMERCIAL_PROPOSAL_GENERATION_CLAIM_FIELD_OWNER_TOKEN_UNIVERSAL_IDENTIFIER,
+      type: FieldType.TEXT,
+      name: 'ownerToken',
+      label: 'Owner token',
+      description:
+        'Physical worker/execution token used for lease fencing; distinct from operationId',
       defaultValue: "''",
       isNullable: false,
       isUIEditable: false,

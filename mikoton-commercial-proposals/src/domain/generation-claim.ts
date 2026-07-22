@@ -6,17 +6,29 @@ import {
 } from 'src/domain/commercial-proposal';
 import type { CommercialProposalAggregate } from 'src/domain/commercial-proposal-aggregate';
 
-export const GENERATION_CLAIM_LEASE_MS = 5 * 60 * 1000;
+/** Base lease; owners renew at irreversible checkpoints. */
+export const GENERATION_CLAIM_LEASE_MS = 10 * 60 * 1000;
 
 export type GenerationClaimRecord = {
   id: string;
   proposalKey: string;
   operationId: string;
+  ownerToken: string;
   editorRevision: number;
   fingerprint: string;
   leaseExpiresAt: string;
   createdAt?: string | null;
 };
+
+export type AcquireGenerationClaimResult =
+  | {
+      state: 'ACQUIRED';
+      claim: GenerationClaimRecord;
+    }
+  | {
+      state: 'IN_PROGRESS';
+      claim: GenerationClaimRecord;
+    };
 
 export type GenerationClaimRepository = {
   createGenerationClaim: (
@@ -26,6 +38,13 @@ export type GenerationClaimRepository = {
     proposalKey: string,
   ) => Promise<GenerationClaimRecord | null>;
   deleteGenerationClaim: (id: string) => Promise<void>;
+  renewGenerationClaimLease?: (input: {
+    claimId: string;
+    proposalKey: string;
+    operationId: string;
+    ownerToken: string;
+    leaseExpiresAt: string;
+  }) => Promise<GenerationClaimRecord>;
   isDuplicateConflict?: (error: unknown) => boolean;
 };
 
@@ -38,6 +57,16 @@ const isDuplicateConflict = (
   }
   const message = error instanceof Error ? error.message : String(error);
   return /duplicate|unique|already exists|constraint/i.test(message);
+};
+
+const createOwnerToken = () => {
+  if (typeof globalThis.crypto?.randomUUID !== 'function') {
+    throw new ApplicationError(
+      'INTERNAL_ERROR',
+      'Secure UUID generation is unavailable for generation claim ownership',
+    );
+  }
+  return globalThis.crypto.randomUUID();
 };
 
 export const calculateGenerationContentFingerprint = ({
@@ -88,10 +117,10 @@ export const calculateGenerationContentFingerprint = ({
     }),
   );
 
-const isLeaseExpired = (claim: GenerationClaimRecord, now: Date) =>
+export const isLeaseExpired = (claim: GenerationClaimRecord, now: Date) =>
   Date.parse(claim.leaseExpiresAt) <= now.getTime();
 
-const matchesOperation = (
+const matchesLogicalOperation = (
   claim: GenerationClaimRecord,
   input: {
     operationId: string;
@@ -102,6 +131,63 @@ const matchesOperation = (
   claim.operationId === input.operationId &&
   claim.editorRevision === input.editorRevision &&
   claim.fingerprint === input.fingerprint;
+
+export const assertGenerationClaimOwnership = async ({
+  repository,
+  claim,
+}: {
+  repository: GenerationClaimRepository;
+  claim: GenerationClaimRecord;
+}): Promise<GenerationClaimRecord> => {
+  const current = await repository.findGenerationClaimByProposalKey(
+    claim.proposalKey,
+  );
+  if (
+    current === null ||
+    current.id !== claim.id ||
+    current.proposalKey !== claim.proposalKey ||
+    current.operationId !== claim.operationId ||
+    current.ownerToken !== claim.ownerToken
+  ) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST',
+      'Владение операцией формирования документов потеряно',
+    );
+  }
+  return current;
+};
+
+export const renewGenerationClaimLease = async ({
+  repository,
+  claim,
+  now = new Date(),
+}: {
+  repository: GenerationClaimRepository;
+  claim: GenerationClaimRecord;
+  now?: Date;
+}): Promise<GenerationClaimRecord> => {
+  await assertGenerationClaimOwnership({ repository, claim });
+  const leaseExpiresAt = new Date(
+    now.getTime() + GENERATION_CLAIM_LEASE_MS,
+  ).toISOString();
+
+  if (repository.renewGenerationClaimLease !== undefined) {
+    const renewed = await repository.renewGenerationClaimLease({
+      claimId: claim.id,
+      proposalKey: claim.proposalKey,
+      operationId: claim.operationId,
+      ownerToken: claim.ownerToken,
+      leaseExpiresAt,
+    });
+    return assertGenerationClaimOwnership({ repository, claim: renewed });
+  }
+
+  // Fallback repositories without renew still re-assert ownership.
+  return {
+    ...claim,
+    leaseExpiresAt,
+  };
+};
 
 export const acquireGenerationClaim = async ({
   repository,
@@ -117,11 +203,11 @@ export const acquireGenerationClaim = async ({
   editorRevision: number;
   fingerprint: string;
   now?: Date;
-}): Promise<GenerationClaimRecord> => {
+}): Promise<AcquireGenerationClaimResult> => {
   const leaseExpiresAt = new Date(
     now.getTime() + GENERATION_CLAIM_LEASE_MS,
   ).toISOString();
-  const desired = {
+  const desiredBase = {
     proposalKey,
     operationId,
     editorRevision,
@@ -129,8 +215,19 @@ export const acquireGenerationClaim = async ({
     leaseExpiresAt,
   };
 
+  const tryCreate = async (): Promise<AcquireGenerationClaimResult> => {
+    const claim = await repository.createGenerationClaim({
+      ...desiredBase,
+      ownerToken: createOwnerToken(),
+      leaseExpiresAt: new Date(
+        now.getTime() + GENERATION_CLAIM_LEASE_MS,
+      ).toISOString(),
+    });
+    return { state: 'ACQUIRED', claim };
+  };
+
   try {
-    return await repository.createGenerationClaim(desired);
+    return await tryCreate();
   } catch (error) {
     if (!isDuplicateConflict(repository, error)) {
       throw error;
@@ -140,7 +237,7 @@ export const acquireGenerationClaim = async ({
   const existing = await repository.findGenerationClaimByProposalKey(proposalKey);
   if (existing === null) {
     try {
-      return await repository.createGenerationClaim(desired);
+      return await tryCreate();
     } catch (error) {
       if (isDuplicateConflict(repository, error)) {
         throw new ApplicationError(
@@ -152,40 +249,36 @@ export const acquireGenerationClaim = async ({
     }
   }
 
-  if (matchesOperation(existing, desired)) {
-    return existing;
-  }
-
-  if (!isLeaseExpired(existing, now)) {
+  // Expired claims are never treated as live same-operation ownership.
+  if (isLeaseExpired(existing, now)) {
+    try {
+      await repository.deleteGenerationClaim(existing.id);
+    } catch {
+      // Another worker may already have replaced the stale claim.
+    }
+    try {
+      return await tryCreate();
+    } catch (error) {
+      if (!isDuplicateConflict(repository, error)) {
+        throw error;
+      }
+    }
+    const afterRace = await repository.findGenerationClaimByProposalKey(proposalKey);
+    if (afterRace !== null && !isLeaseExpired(afterRace, now)) {
+      return { state: 'IN_PROGRESS', claim: afterRace };
+    }
     throw new ApplicationError(
       'COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS',
       'Формирование документов для этого коммерческого предложения уже выполняется',
     );
   }
 
-  try {
-    await repository.deleteGenerationClaim(existing.id);
-  } catch {
-    // Another worker may have already deleted/replaced the stale claim.
+  // Live claim: same logical operation still means another physical owner holds it.
+  if (matchesLogicalOperation(existing, desiredBase)) {
+    return { state: 'IN_PROGRESS', claim: existing };
   }
 
-  try {
-    return await repository.createGenerationClaim(desired);
-  } catch (error) {
-    if (!isDuplicateConflict(repository, error)) {
-      throw error;
-    }
-  }
-
-  const afterRace = await repository.findGenerationClaimByProposalKey(proposalKey);
-  if (afterRace !== null && matchesOperation(afterRace, desired)) {
-    return afterRace;
-  }
-
-  throw new ApplicationError(
-    'COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS',
-    'Формирование документов для этого коммерческого предложения уже выполняется',
-  );
+  return { state: 'IN_PROGRESS', claim: existing };
 };
 
 export const releaseGenerationClaim = async ({
@@ -199,8 +292,23 @@ export const releaseGenerationClaim = async ({
     return;
   }
   try {
-    await repository.deleteGenerationClaim(claim.id);
+    const current = await repository.findGenerationClaimByProposalKey(
+      claim.proposalKey,
+    );
+    if (
+      current === null ||
+      current.id !== claim.id ||
+      current.operationId !== claim.operationId ||
+      current.ownerToken !== claim.ownerToken
+    ) {
+      return;
+    }
+    await repository.deleteGenerationClaim(current.id);
   } catch {
-    // Terminal paths must not fail closed on a missing claim row.
+    // Terminal paths must not fail closed on a missing/raced claim row.
   }
 };
+
+export const isOwnershipLostError = (error: unknown) =>
+  error instanceof ApplicationError &&
+  error.code === 'COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST';

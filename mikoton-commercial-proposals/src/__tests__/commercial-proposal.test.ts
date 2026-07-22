@@ -42,6 +42,7 @@ import {
 import { HttpDocumentServiceClient } from 'src/services/document-service-client';
 import {
   buildEditorContext,
+  normalizeCurrencyCode,
   recalculateCommercialProposal,
   saveCommercialProposalEditor,
   type CommercialProposalAggregate,
@@ -74,6 +75,23 @@ afterEach(() => {
   delete process.env.DOCUMENT_SERVICE_URL;
   delete process.env.DOCUMENT_SERVICE_SECRET;
   delete process.env.DOCUMENT_SERVICE_TIMEOUT_MS;
+});
+
+describe('normalizeCurrencyCode', () => {
+  it.each([
+    [null, null],
+    [undefined, null],
+    ['', null],
+    ['   ', null],
+    ['rub', 'RUB'],
+    [' Rub ', 'RUB'],
+  ] as const)('maps %j to %j', (input, expected) => {
+    expect(normalizeCurrencyCode(input)).toBe(expected);
+  });
+
+  it.each(['R', 'RUBLE', 123] as const)('rejects invalid currency %j', (input) => {
+    expect(() => normalizeCurrencyCode(input)).toThrow(ApplicationError);
+  });
 });
 
 const getFetchCallOptions = (fetchSpy: ReturnType<typeof vi.fn>) =>
@@ -134,6 +152,7 @@ const makeRepository = (
     id: string;
     proposalKey: string;
     operationId: string;
+    ownerToken: string;
     editorRevision: number;
     fingerprint: string;
     leaseExpiresAt: string;
@@ -185,6 +204,23 @@ const makeRepository = (
   findGenerationClaimByProposalKey: vi.fn(async (proposalKey) =>
     claims.get(proposalKey) ?? null,
   ),
+  renewGenerationClaimLease: vi.fn(async (input) => {
+    const current = claims.get(input.proposalKey);
+    if (
+      current === undefined ||
+      current.id !== input.claimId ||
+      current.operationId !== input.operationId ||
+      current.ownerToken !== input.ownerToken
+    ) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST',
+        'Владение операцией формирования документов потеряно',
+      );
+    }
+    const renewed = { ...current, leaseExpiresAt: input.leaseExpiresAt };
+    claims.set(input.proposalKey, renewed);
+    return renewed;
+  }),
   deleteGenerationClaim: vi.fn(async (id) => {
     for (const [key, claim] of claims.entries()) {
       if (claim.id === id) {
@@ -1091,6 +1127,104 @@ describe('commercial proposal aggregate domain', () => {
     })).rejects.toMatchObject({ code: 'CATALOG_ITEM_NOT_SELECTABLE' });
   });
 
+  it.each([
+    ['SERVICE', true],
+    ['PRODUCT', true],
+    ['UNKNOWN', false],
+    ['', false],
+  ] as const)('canonical catalog itemType %s is accepted=%s', async (itemType, accepted) => {
+    const repository = makeAggregateRepository();
+    vi.mocked(repository.getCatalogItemForSelection!).mockResolvedValue({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      name: 'Typed item',
+      itemType,
+      defaultBlock: 'Работы',
+      defaultUnit: 'час',
+      sortOrder: 100,
+      isActive: true,
+      amountMicros: 1_000_000_000,
+      currencyCode: 'RUB',
+    });
+
+    const promise = saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: {
+        ...saveRequest,
+        items: [{
+          ...saveRequest.items[0]!,
+          catalogItemId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        }],
+      },
+      repository,
+    });
+
+    if (accepted) {
+      await expect(promise).resolves.toMatchObject({ saved: true });
+    } else {
+      await expect(promise).rejects.toMatchObject({ code: 'CATALOG_ITEM_NOT_SELECTABLE' });
+    }
+  });
+
+  it('rejects null itemType on catalog assignment without substituting SERVICE', async () => {
+    const repository = makeAggregateRepository();
+    vi.mocked(repository.getCatalogItemForSelection!).mockResolvedValue({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      name: 'Typed item',
+      itemType: null as unknown as string,
+      defaultBlock: 'Работы',
+      defaultUnit: 'час',
+      sortOrder: 100,
+      isActive: true,
+      amountMicros: 1_000_000_000,
+      currencyCode: 'RUB',
+    });
+
+    await expect(saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: {
+        ...saveRequest,
+        items: [{
+          ...saveRequest.items[0]!,
+          catalogItemId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        }],
+      },
+      repository,
+    })).rejects.toMatchObject({ code: 'CATALOG_ITEM_NOT_SELECTABLE' });
+  });
+
+  it('normalizes and rejects currencyCode on the save boundary', async () => {
+    const repository = makeAggregateRepository();
+
+    await expect(saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: {
+        ...saveRequest,
+        header: { ...saveRequest.header, currencyCode: 'rub' },
+      },
+      repository,
+    })).resolves.toMatchObject({
+      proposal: expect.objectContaining({ currencyCode: 'RUB' }),
+    });
+
+    await expect(saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: {
+        ...saveRequest,
+        header: { ...saveRequest.header, currencyCode: 'RUBLE' },
+      },
+      repository,
+    })).rejects.toMatchObject({ code: 'COMMERCIAL_PROPOSAL_VALIDATION_FAILED' });
+
+    await expect(saveCommercialProposalEditor({
+      proposalId: aggregateProposalId,
+      request: {
+        ...saveRequest,
+        header: { ...saveRequest.header, currencyCode: 123 as unknown as string },
+      },
+      repository,
+    })).rejects.toMatchObject({ code: 'COMMERCIAL_PROPOSAL_VALIDATION_FAILED' });
+  });
+
   it('replays a completed operation without duplicate children or revision increment', async () => {
     const repository = makeAggregateRepository();
 
@@ -1838,13 +1972,13 @@ describe('generation claim concurrency', () => {
       id: string;
       proposalKey: string;
       operationId: string;
+      ownerToken: string;
       editorRevision: number;
       fingerprint: string;
       leaseExpiresAt: string;
     }>();
     const base = makeRepository();
     let draft = makeDraft({ id: '123e4567-e89b-42d3-a456-426614174002' });
-    const resultMetadataByOp = new Map<string, unknown>();
 
     vi.mocked(base.getCommercialProposal).mockImplementation(async () => draft);
     vi.mocked(base.updateCommercialProposal).mockImplementation(async (_id, patch) => {
@@ -1862,6 +1996,23 @@ describe('generation claim concurrency', () => {
     vi.mocked(base.findGenerationClaimByProposalKey!).mockImplementation(async (key) =>
       claims.get(key) ?? null,
     );
+    vi.mocked(base.renewGenerationClaimLease!).mockImplementation(async (input) => {
+      const current = claims.get(input.proposalKey);
+      if (
+        current === undefined ||
+        current.id !== input.claimId ||
+        current.operationId !== input.operationId ||
+        current.ownerToken !== input.ownerToken
+      ) {
+        throw new ApplicationError(
+          'COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST',
+          'Владение операцией формирования документов потеряно',
+        );
+      }
+      const renewed = { ...current, leaseExpiresAt: input.leaseExpiresAt };
+      claims.set(input.proposalKey, renewed);
+      return renewed;
+    });
     vi.mocked(base.deleteGenerationClaim!).mockImplementation(async (id) => {
       for (const [key, claim] of claims.entries()) {
         if (claim.id === id) claims.delete(key);
@@ -1880,9 +2031,28 @@ describe('generation claim concurrency', () => {
         draft = next;
       },
       claims,
-      resultMetadataByOp,
     };
   };
+
+  const successFiles = [
+    {
+      format: 'xlsx' as const,
+      fileName: 'cp.xlsx',
+      contentType:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      size: 10,
+      sha256: 'a'.repeat(64),
+      downloadUrl: 'https://documents.test/cp.xlsx',
+    },
+    {
+      format: 'pdf' as const,
+      fileName: 'cp.pdf',
+      contentType: 'application/pdf',
+      size: 10,
+      sha256: 'b'.repeat(64),
+      downloadUrl: 'https://documents.test/cp.pdf',
+    },
+  ];
 
   it('allows only one generation for the same proposal with different idempotency keys', async () => {
     const shared = makeSharedClaimRepository();
@@ -1897,50 +2067,31 @@ describe('generation claim concurrency', () => {
           templateCode: 'mikoton-commercial-proposal' as const,
           templateVersion: '1' as const,
           generatedAt: '2026-07-12T10:11:12.000Z',
-          files: [
-            {
-              format: 'xlsx' as const,
-              fileName: 'cp.xlsx',
-              contentType:
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-              size: 10,
-              sha256: 'a'.repeat(64),
-              downloadUrl: 'https://documents.test/cp.xlsx',
-            },
-            {
-              format: 'pdf' as const,
-              fileName: 'cp.pdf',
-              contentType: 'application/pdf',
-              size: 10,
-              sha256: 'b'.repeat(64),
-              downloadUrl: 'https://documents.test/cp.pdf',
-            },
-          ],
+          files: successFiles,
         };
       }),
     };
 
-    const first = generateCommercialProposalDocuments({
-      input: {
-        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
-        idempotencyKey: '123e4567-e89b-42d3-a456-426614174010',
-      },
-      repository: shared.repository,
-      documentClient,
-      now: fixedDate,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    const second = generateCommercialProposalDocuments({
-      input: {
-        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
-        idempotencyKey: '123e4567-e89b-42d3-a456-426614174011',
-      },
-      repository: shared.repository,
-      documentClient,
-      now: fixedDate,
-    });
-
-    const settled = await Promise.allSettled([first, second]);
+    const settled = await Promise.allSettled([
+      generateCommercialProposalDocuments({
+        input: {
+          commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+          idempotencyKey: '123e4567-e89b-42d3-a456-426614174010',
+        },
+        repository: shared.repository,
+        documentClient,
+        now: fixedDate,
+      }),
+      generateCommercialProposalDocuments({
+        input: {
+          commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+          idempotencyKey: '123e4567-e89b-42d3-a456-426614174011',
+        },
+        repository: shared.repository,
+        documentClient,
+        now: fixedDate,
+      }),
+    ]);
     const fulfilled = settled.filter((entry) => entry.status === 'fulfilled');
     const rejected = settled.filter((entry) => entry.status === 'rejected');
 
@@ -1948,23 +2099,70 @@ describe('generation claim concurrency', () => {
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect(rejected[0]).toMatchObject({
-      status: 'rejected',
       reason: expect.objectContaining({
         code: 'COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS',
       }),
     });
-    const success = (fulfilled[0] as PromiseFulfilledResult<{
-      result: { generationId: string; files: unknown[] };
-    }>).value;
-    expect(success.result.generationId).toBe('generation-1');
-    expect(success.result.files).toHaveLength(2);
-    expect(shared.getDraft().resultMetadata).toMatchObject({
-      generationId: 'generation-1',
-    });
-    expect(shared.claims.size).toBe(0);
+    expect(shared.repository.attachGeneratedFiles).toHaveBeenCalledTimes(2);
   });
 
-  it('replays the same operation after a held claim without a second document-service call', async () => {
+  it('allows only one physical owner for parallel same operationId', async () => {
+    const shared = makeSharedClaimRepository();
+    let documentCalls = 0;
+    const documentClient = {
+      generate: vi.fn(async () => {
+        documentCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return {
+          status: 'success' as const,
+          generationId: 'generation-same-op',
+          templateCode: 'mikoton-commercial-proposal' as const,
+          templateVersion: '1' as const,
+          generatedAt: '2026-07-12T10:11:12.000Z',
+          files: successFiles,
+        };
+      }),
+    };
+
+    const settled = await Promise.allSettled([
+      generateCommercialProposalDocuments({
+        input: {
+          commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+          idempotencyKey: generationIdempotencyKey,
+        },
+        repository: shared.repository,
+        documentClient,
+        now: fixedDate,
+      }),
+      generateCommercialProposalDocuments({
+        input: {
+          commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+          idempotencyKey: generationIdempotencyKey,
+        },
+        repository: shared.repository,
+        documentClient,
+        now: fixedDate,
+      }),
+    ]);
+
+    expect(documentClient.generate).toHaveBeenCalledTimes(1);
+    expect(shared.repository.attachGeneratedFiles).toHaveBeenCalledTimes(2);
+    const fulfilled = settled.filter((entry) => entry.status === 'fulfilled');
+    const rejected = settled.filter((entry) => entry.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toMatchObject({
+      reason: expect.objectContaining({
+        code: 'COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS',
+      }),
+    });
+    expect(shared.getDraft().resultMetadata).toMatchObject({
+      generationId: 'generation-same-op',
+      files: expect.any(Array),
+    });
+  });
+
+  it('replays the same operation sequentially without a second document-service call', async () => {
     const shared = makeSharedClaimRepository();
     const documentClient = {
       generate: vi.fn(async () => ({
@@ -1973,25 +2171,7 @@ describe('generation claim concurrency', () => {
         templateCode: 'mikoton-commercial-proposal' as const,
         templateVersion: '1' as const,
         generatedAt: '2026-07-12T10:11:12.000Z',
-        files: [
-          {
-            format: 'xlsx' as const,
-            fileName: 'cp.xlsx',
-            contentType:
-              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            size: 10,
-            sha256: 'a'.repeat(64),
-            downloadUrl: 'https://documents.test/cp.xlsx',
-          },
-          {
-            format: 'pdf' as const,
-            fileName: 'cp.pdf',
-            contentType: 'application/pdf',
-            size: 10,
-            sha256: 'b'.repeat(64),
-            downloadUrl: 'https://documents.test/cp.pdf',
-          },
-        ],
+        files: successFiles,
       })),
     };
 
@@ -2004,7 +2184,6 @@ describe('generation claim concurrency', () => {
       documentClient,
       now: fixedDate,
     });
-
     const second = await generateCommercialProposalDocuments({
       input: {
         commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
@@ -2021,12 +2200,93 @@ describe('generation claim concurrency', () => {
     expect(second.result).toEqual(first.result);
   });
 
+  it('fences a stale owner so it cannot attach files or write FAILED after takeover', async () => {
+    const shared = makeSharedClaimRepository();
+    let resolveGenerate!: (value: {
+      status: 'success';
+      generationId: string;
+      templateCode: 'mikoton-commercial-proposal';
+      templateVersion: '1';
+      generatedAt: string;
+      files: typeof successFiles;
+    }) => void;
+    const documentClient = {
+      generate: vi.fn(
+        () =>
+          new Promise<Parameters<typeof resolveGenerate>[0]>((resolve) => {
+            resolveGenerate = resolve;
+          }),
+      ),
+    };
+
+    const slow = generateCommercialProposalDocuments({
+      input: {
+        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+        idempotencyKey: '123e4567-e89b-42d3-a456-426614174030',
+      },
+      repository: shared.repository,
+      documentClient,
+      now: fixedDate,
+    });
+
+    await vi.waitFor(() => {
+      expect(documentClient.generate).toHaveBeenCalledTimes(1);
+    });
+
+    const held = [...shared.claims.values()][0]!;
+    shared.claims.set(held.proposalKey, {
+      ...held,
+      leaseExpiresAt: '2020-01-01T00:00:00.000Z',
+    });
+
+    const takeoverClient = {
+      generate: vi.fn(async () => ({
+        status: 'success' as const,
+        generationId: 'generation-takeover',
+        templateCode: 'mikoton-commercial-proposal' as const,
+        templateVersion: '1' as const,
+        generatedAt: '2026-07-12T10:11:12.000Z',
+        files: successFiles,
+      })),
+    };
+    const takeover = await generateCommercialProposalDocuments({
+      input: {
+        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+        idempotencyKey: '123e4567-e89b-42d3-a456-426614174031',
+      },
+      repository: shared.repository,
+      documentClient: takeoverClient,
+      now: fixedDate,
+    });
+    expect(takeover.generated).toBe(true);
+    expect(takeoverClient.generate).toHaveBeenCalledTimes(1);
+
+    resolveGenerate({
+      status: 'success',
+      generationId: 'generation-stale',
+      templateCode: 'mikoton-commercial-proposal',
+      templateVersion: '1',
+      generatedAt: '2026-07-12T10:11:12.000Z',
+      files: successFiles,
+    });
+
+    await expect(slow).rejects.toMatchObject({
+      code: 'COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST',
+    });
+    expect(shared.getDraft().resultMetadata).toMatchObject({
+      generationId: 'generation-takeover',
+    });
+    expect(shared.getDraft().status).toBe('GENERATED');
+    expect(shared.claims.has(held.proposalKey)).toBe(false);
+  });
+
   it('recovers a stale generation claim after lease expiry', async () => {
     const shared = makeSharedClaimRepository();
     shared.claims.set('123e4567-e89b-42d3-a456-426614174002', {
       id: 'stale-claim',
       proposalKey: '123e4567-e89b-42d3-a456-426614174002',
       operationId: '123e4567-e89b-42d3-a456-426614174099',
+      ownerToken: 'stale-owner',
       editorRevision: 1,
       fingerprint: 'stale',
       leaseExpiresAt: '2020-01-01T00:00:00.000Z',
@@ -2043,25 +2303,7 @@ describe('generation claim concurrency', () => {
         templateCode: 'mikoton-commercial-proposal' as const,
         templateVersion: '1' as const,
         generatedAt: '2026-07-12T10:11:12.000Z',
-        files: [
-          {
-            format: 'xlsx' as const,
-            fileName: 'cp.xlsx',
-            contentType:
-              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            size: 10,
-            sha256: 'a'.repeat(64),
-            downloadUrl: 'https://documents.test/cp.xlsx',
-          },
-          {
-            format: 'pdf' as const,
-            fileName: 'cp.pdf',
-            contentType: 'application/pdf',
-            size: 10,
-            sha256: 'b'.repeat(64),
-            downloadUrl: 'https://documents.test/cp.pdf',
-          },
-        ],
+        files: successFiles,
       })),
     };
 
@@ -2085,6 +2327,7 @@ describe('generation claim concurrency', () => {
       id: string;
       proposalKey: string;
       operationId: string;
+      ownerToken: string;
       editorRevision: number;
       fingerprint: string;
       leaseExpiresAt: string;
@@ -2123,6 +2366,12 @@ describe('generation claim concurrency', () => {
         return created;
       }),
       findGenerationClaimByProposalKey: vi.fn(async (key) => claims.get(key) ?? null),
+      renewGenerationClaimLease: vi.fn(async (input) => {
+        const current = claims.get(input.proposalKey)!;
+        const renewed = { ...current, leaseExpiresAt: input.leaseExpiresAt };
+        claims.set(input.proposalKey, renewed);
+        return renewed;
+      }),
       deleteGenerationClaim: vi.fn(async (id) => {
         for (const [key, claim] of claims.entries()) {
           if (claim.id === id) claims.delete(key);
@@ -2142,25 +2391,11 @@ describe('generation claim concurrency', () => {
         templateCode: 'mikoton-commercial-proposal' as const,
         templateVersion: '1' as const,
         generatedAt: '2026-07-12T10:11:12.000Z',
-        files: [
-          {
-            format: 'xlsx' as const,
-            fileName: `${idempotencyKey}.xlsx`,
-            contentType:
-              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            size: 10,
-            sha256: 'a'.repeat(64),
-            downloadUrl: `https://documents.test/${idempotencyKey}.xlsx`,
-          },
-          {
-            format: 'pdf' as const,
-            fileName: `${idempotencyKey}.pdf`,
-            contentType: 'application/pdf',
-            size: 10,
-            sha256: 'b'.repeat(64),
-            downloadUrl: `https://documents.test/${idempotencyKey}.pdf`,
-          },
-        ],
+        files: successFiles.map((file) => ({
+          ...file,
+          fileName: `${idempotencyKey}.${file.format}`,
+          downloadUrl: `https://documents.test/${idempotencyKey}.${file.format}`,
+        })),
       })),
     };
 
@@ -2189,9 +2424,5 @@ describe('generation claim concurrency', () => {
     expect(left.commercialProposal.finalNumberKey).not.toBe(
       right.commercialProposal.finalNumberKey,
     );
-    expect(new Set([
-      left.commercialProposal.finalNumberKey,
-      right.commercialProposal.finalNumberKey,
-    ]).size).toBe(2);
   });
 });

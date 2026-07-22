@@ -23,6 +23,10 @@
   sources and docs that should use `$TWENTY_API_URL` or placeholders.
 - Logs contain identifiers, statuses, duration and safe error codes only. They
   exclude payloads, tokens, secrets, signed URLs and raw SDK exceptions.
+- Generation claim fencing uses `ownerToken` (physical worker token), separate
+  from `operationId` (logical idempotency key). Ownership-lost workers do not
+  write `FAILED`, delete claims, or attach files. This is application-level
+  fencing on top of a unique `proposalKey` index — not SDK transactions.
 
 ## Credential Operations
 
@@ -31,6 +35,6 @@ document-storage credentials, update runtime secret stores, restart affected
 services, verify readiness and revoke the old credentials. Never place values
 in Git, release manifests or acceptance reports.
 
-The historical credential rotation required by Prompt 5.5 is not considered
-verified until the operator records the rotation timestamp and successful
-post-rotation smoke without exposing the value.
+The historical credential rotation required by Prompt 5.5 is **NOT DONE** until
+the operator records the rotation timestamp and successful post-rotation smoke
+without exposing the value. See `phase-5-5-production-acceptance.md`.

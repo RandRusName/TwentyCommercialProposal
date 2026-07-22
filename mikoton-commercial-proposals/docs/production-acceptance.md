@@ -1,22 +1,29 @@
 # Production Acceptance Procedure
 
 Production acceptance is evidence-based and runs against isolated smoke data.
-App version for Phase 5.5 code closure: `0.1.48`. Code fixes are implemented;
-target/operator checks below remain mandatory. Verdict stays **NOT READY** until
-they are recorded. Artifact hashes, CI run ids and operator timestamps are to
-be recorded at the final release commit — do not invent them.
+App version for Phase 5.5 CORRECTIVE: `0.1.49`. Code fixes are implemented;
+target/operator checks below remain mandatory. Verdict stays
+**PHASE 5.5 INCOMPLETE — NOT READY FOR PRODUCTION** until target evidence is
+recorded. Artifact hashes, CI run ids, image digests and operator timestamps
+are to be recorded at the final release commit — do not invent them.
 
-1. Record final commit, package version (`0.1.48` or later patch), tarball
+1. Record final commit, package version (`0.1.49` or later patch), tarball
    SHA-256, document-service image digest, and template/mapping hashes.
 2. Obtain a green GitHub Actions run for that exact commit.
 3. Create and verify Twenty plus MinIO backups; rehearse restore in isolation.
 4. Run WSL metadata plan and require zero destructive changes; apply metadata
-   including `CommercialProposalGenerationClaim`.
+   including `CommercialProposalGenerationClaim` (`operationId`, `ownerToken`,
+   lease fields).
 5. Deploy the document-service (with required `DOCUMENT_STORAGE_*` worker
    credentials) and App; run repeated plan and require no drift.
-6. Execute admin and restricted-user E2E, concurrency (same-proposal claim),
-   runtime failure/retry, timeout-after-success, and partial-attachment recovery
-   scenarios on the target.
+6. Execute admin and restricted-user E2E on target, including:
+   - parallel same `operationId` → second caller `IN_PROGRESS` / HTTP 409
+     (not a second owner);
+   - stale lease takeover → new `ownerToken`; old worker
+     `COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST` with no `FAILED` write,
+     no claim delete by the loser, no attachments;
+   - runtime failure/retry, timeout-after-success, and partial-attachment
+     recovery.
 7. Manually inspect XLSX and PDF and verify historical proposals/files.
 8. Rehearse rollback without uninstall (claim object is additive /
    forward-compatible).

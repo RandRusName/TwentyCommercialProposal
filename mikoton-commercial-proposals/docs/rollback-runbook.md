@@ -3,8 +3,12 @@
 ## Preconditions
 
 Record the installed App version, previous tarball SHA-256, document-service
-image digest, template/mapping hashes and backup identifiers. Rollback is not an
-uninstall and must not delete App metadata or business records.
+image digest, template/mapping hashes and backup identifiers. For App `0.1.49`
+those values are **Pending** until recorded — do not invent them. Rollback is
+not an uninstall and must not delete App metadata or business records.
+
+An isolated rollback rehearsal for Phase 5.5 is **NOT DONE** until operator
+evidence is written in `phase-5-5-production-acceptance.md`.
 
 ## App
 
@@ -17,10 +21,12 @@ uninstall and must not delete App metadata or business records.
 Additive fields, indexes and objects can remain. Never remove them solely to
 match an older binary.
 
-`CommercialProposalGenerationClaim` is additive. Rolling back the App binary
-without destroying metadata leaves the claim object/index in place
-(forward-compatible). Older binaries that do not read or write claims simply
-ignore the object; do not drop claim metadata as part of a normal rollback.
+`CommercialProposalGenerationClaim` is additive (including `operationId`,
+`ownerToken`, lease fields). Rolling back the App binary without destroying
+metadata leaves the claim object/index in place (forward-compatible). Older
+binaries that do not read or write claims simply ignore the object; do not drop
+claim metadata as part of a normal rollback. Pre-`0.1.49` binaries lack
+`ownerToken` fencing semantics — treat mixed-version generation as unsafe.
 
 ## Document Service
 

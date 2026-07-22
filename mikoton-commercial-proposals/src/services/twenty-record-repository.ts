@@ -991,6 +991,7 @@ export class TwentyRecordRepository
   async createGenerationClaim(claim: {
     proposalKey: string;
     operationId: string;
+    ownerToken: string;
     editorRevision: number;
     fingerprint: string;
     leaseExpiresAt: string;
@@ -1001,6 +1002,7 @@ export class TwentyRecordRepository
           data: {
             proposalKey: claim.proposalKey,
             operationId: claim.operationId,
+            ownerToken: claim.ownerToken,
             editorRevision: claim.editorRevision,
             fingerprint: claim.fingerprint,
             leaseExpiresAt: claim.leaseExpiresAt,
@@ -1009,22 +1011,23 @@ export class TwentyRecordRepository
         id: true,
         proposalKey: true,
         operationId: true,
+        ownerToken: true,
         editorRevision: true,
         fingerprint: true,
         leaseExpiresAt: true,
         createdAt: true,
       },
     });
-    const created = response.createCommercialProposalGenerationClaim as {
+    return response.createCommercialProposalGenerationClaim as {
       id: string;
       proposalKey: string;
       operationId: string;
+      ownerToken: string;
       editorRevision: number;
       fingerprint: string;
       leaseExpiresAt: string;
       createdAt?: string | null;
     };
-    return created;
   }
 
   async findGenerationClaimByProposalKey(proposalKey: string) {
@@ -1039,6 +1042,7 @@ export class TwentyRecordRepository
             id: true,
             proposalKey: true,
             operationId: true,
+            ownerToken: true,
             editorRevision: true,
             fingerprint: true,
             leaseExpiresAt: true,
@@ -1049,6 +1053,63 @@ export class TwentyRecordRepository
     });
     const node = response.commercialProposalGenerationClaims?.edges?.[0]?.node;
     return node ?? null;
+  }
+
+  async renewGenerationClaimLease(input: {
+    claimId: string;
+    proposalKey: string;
+    operationId: string;
+    ownerToken: string;
+    leaseExpiresAt: string;
+  }) {
+    const current = await this.findGenerationClaimByProposalKey(input.proposalKey);
+    if (
+      current === null ||
+      current.id !== input.claimId ||
+      current.operationId !== input.operationId ||
+      current.ownerToken !== input.ownerToken
+    ) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST',
+        'Владение операцией формирования документов потеряно',
+      );
+    }
+    const response = await this.client.mutation({
+      updateCommercialProposalGenerationClaim: {
+        __args: {
+          id: input.claimId,
+          data: { leaseExpiresAt: input.leaseExpiresAt },
+        },
+        id: true,
+        proposalKey: true,
+        operationId: true,
+        ownerToken: true,
+        editorRevision: true,
+        fingerprint: true,
+        leaseExpiresAt: true,
+        createdAt: true,
+      },
+    });
+    const updated = response.updateCommercialProposalGenerationClaim as {
+      id: string;
+      proposalKey: string;
+      operationId: string;
+      ownerToken: string;
+      editorRevision: number;
+      fingerprint: string;
+      leaseExpiresAt: string;
+      createdAt?: string | null;
+    };
+    if (
+      updated.ownerToken !== input.ownerToken ||
+      updated.operationId !== input.operationId
+    ) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST',
+        'Владение операцией формирования документов потеряно',
+      );
+    }
+    return updated;
   }
 
   async deleteGenerationClaim(id: string) {

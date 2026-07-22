@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { CoreApiClient } from 'twenty-client-sdk/core';
 
 import { ApplicationError } from 'src/domain/commercial-proposal';
@@ -54,39 +56,107 @@ export type NormalizedCatalogSearchRequest = {
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+const RAW_PAGE_SIZE = 100;
+const MAX_AFTER_LENGTH = 512;
+const CURSOR_KEYS = new Set(['v', 'after', 'skip', 'filterFingerprint']);
+
 type CatalogSearchCursor = {
-  v: 1;
+  v: 2;
   after: string | null;
   skip: number;
+  filterFingerprint: string;
 };
+
+const canonicalizeForFingerprint = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeForFingerprint);
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalizeForFingerprint(entry)]),
+    );
+  }
+  return value;
+};
+
+export const buildCatalogFilterFingerprint = (
+  request: Pick<
+    NormalizedCatalogSearchRequest,
+    'text' | 'types' | 'category' | 'currencyCode' | 'activeOnly'
+  >,
+) =>
+  createHash('sha256')
+    .update(
+      JSON.stringify(
+        canonicalizeForFingerprint({
+          text: request.text,
+          types: [...request.types].sort(),
+          category: request.category,
+          currencyCode: request.currencyCode,
+          activeOnly: request.activeOnly,
+        }),
+      ),
+      'utf8',
+    )
+    .digest('hex');
 
 const encodeCatalogCursor = (cursor: CatalogSearchCursor) =>
   Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
 
-export const decodeCatalogCursor = (value: string): CatalogSearchCursor => {
+export const decodeCatalogCursor = (
+  value: string,
+  request: Pick<
+    NormalizedCatalogSearchRequest,
+    'text' | 'types' | 'category' | 'currencyCode' | 'activeOnly'
+  >,
+): CatalogSearchCursor => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
   } catch {
     throw new ApplicationError('INVALID_INPUT', 'cursor is malformed');
   }
+  if (!isPlainObject(parsed)) {
+    throw new ApplicationError('INVALID_INPUT', 'cursor is malformed');
+  }
+  const keys = Object.keys(parsed);
   if (
-    !isPlainObject(parsed) ||
-    parsed.v !== 1 ||
-    (parsed.after !== null && typeof parsed.after !== 'string') ||
-    typeof parsed.skip !== 'number' ||
-    !Number.isInteger(parsed.skip) ||
-    parsed.skip < 0
+    keys.length !== CURSOR_KEYS.size ||
+    keys.some((key) => !CURSOR_KEYS.has(key))
   ) {
     throw new ApplicationError('INVALID_INPUT', 'cursor is malformed');
   }
-  if (typeof parsed.after === 'string' && parsed.after.includes('{')) {
+  if (
+    parsed.v !== 2 ||
+    (parsed.after !== null && typeof parsed.after !== 'string') ||
+    typeof parsed.skip !== 'number' ||
+    !Number.isInteger(parsed.skip) ||
+    parsed.skip < 0 ||
+    parsed.skip > RAW_PAGE_SIZE ||
+    typeof parsed.filterFingerprint !== 'string'
+  ) {
     throw new ApplicationError('INVALID_INPUT', 'cursor is malformed');
   }
+  if (
+    typeof parsed.after === 'string' &&
+    (parsed.after.length > MAX_AFTER_LENGTH || parsed.after.includes('{'))
+  ) {
+    throw new ApplicationError('INVALID_INPUT', 'cursor is malformed');
+  }
+  const expectedFingerprint = buildCatalogFilterFingerprint(request);
+  if (parsed.filterFingerprint !== expectedFingerprint) {
+    throw new ApplicationError(
+      'INVALID_INPUT',
+      'cursor does not match current filters',
+    );
+  }
   return {
-    v: 1,
+    v: 2,
     after: parsed.after,
     skip: parsed.skip,
+    filterFingerprint: parsed.filterFingerprint,
   };
 };
 
@@ -117,10 +187,7 @@ export const normalizeCatalogSearchRequest = (
     throw new ApplicationError('INVALID_INPUT', 'cursor is malformed');
   }
   const cursor = body.cursor?.trim() || null;
-  if (cursor !== null) {
-    decodeCatalogCursor(cursor);
-  }
-  return {
+  const normalized: NormalizedCatalogSearchRequest = {
     text: (body.query ?? body.text)?.trim().toLocaleLowerCase('ru-RU') ?? '',
     types: types as CatalogItemType[],
     category: body.category?.trim() || null,
@@ -130,6 +197,10 @@ export const normalizeCatalogSearchRequest = (
     offset,
     cursor,
   };
+  if (cursor !== null) {
+    decodeCatalogCursor(cursor, normalized);
+  }
+  return normalized;
 };
 
 type NativeCurrencyValue = {
@@ -208,6 +279,12 @@ export const resolveCatalogItemPrice = (
 
 const getCatalogItemValidationMessage = (record: Partial<CatalogRecord>) => {
   if (typeof record.name !== 'string' || record.name.trim() === '') return 'Не указано название';
+  if (
+    typeof record.itemType !== 'string' ||
+    !(CATALOG_ITEM_TYPES as readonly string[]).includes(record.itemType)
+  ) {
+    return 'Некорректный тип позиции';
+  }
   if (typeof record.defaultBlock !== 'string' || record.defaultBlock.trim() === '') return 'Не указан блок работ';
   if (typeof record.defaultUnit !== 'string' || record.defaultUnit.trim() === '') return 'Не указана единица измерения';
   if (typeof record.defaultPrice !== 'number' || !Number.isFinite(record.defaultPrice) || record.defaultPrice < 0) return 'Некорректная цена';
@@ -225,15 +302,22 @@ const mapCatalogItem = (
   const currencyCode = price.currencyCode;
   const defaultPrice = price.amount;
   const currencyMatches = requestedCurrency === null || currencyCode === requestedCurrency;
+  const rawItemType = typeof record.itemType === 'string' ? record.itemType.trim() : '';
+  const itemType = (
+    (CATALOG_ITEM_TYPES as readonly string[]).includes(rawItemType)
+      ? rawItemType
+      : 'OTHER'
+  ) as CatalogItemType;
   const validationMessage = price.validationMessage ?? getCatalogItemValidationMessage({
     ...record,
+    itemType: rawItemType as CatalogItemType,
     defaultPrice,
     currencyCode,
   });
   return {
     id: record.id,
     name: record.name ?? '',
-    itemType: record.itemType ?? 'SERVICE',
+    itemType,
     category: record.category ?? null,
     defaultBlock: record.defaultBlock ?? 'Работы',
     description: record.description ?? null,
@@ -277,6 +361,24 @@ const matchesCatalogFilters = (
 /** Safety bound only. Hitting it returns PARTIAL, never silent COMPLETE. */
 const MAX_RAW_PAGES_PER_REQUEST = 500;
 
+const catalogItemSelection = {
+  id: true,
+  name: true,
+  itemType: true,
+  category: true,
+  defaultBlock: true,
+  description: true,
+  defaultUnit: true,
+  price: {
+    amountMicros: true,
+    currencyCode: true,
+  },
+  defaultPrice: true,
+  currencyCode: true,
+  isActive: true,
+  sortOrder: true,
+} as const;
+
 export class CatalogItemRepository {
   constructor(
     private readonly client: InstanceType<typeof CoreApiClient> = new CoreApiClient(),
@@ -285,11 +387,12 @@ export class CatalogItemRepository {
   async search(request: NormalizedCatalogSearchRequest) {
     try {
       const collected: CatalogItemDto[] = [];
-      const categories = new Set<string>();
+      const pageCategories = new Set<string>();
       const seenIds = new Set<string>();
+      const filterFingerprint = buildCatalogFilterFingerprint(request);
       const start = request.cursor === null
         ? { after: null as string | null, skip: 0 }
-        : decodeCatalogCursor(request.cursor);
+        : decodeCatalogCursor(request.cursor, request);
       let pageAfter = start.after;
       let skipRemaining = start.skip;
       let upstreamHasNextPage = true;
@@ -307,27 +410,11 @@ export class CatalogItemRepository {
         const response = await (this.client.query as (selection: unknown) => Promise<any>)({
           catalogItems: {
             __args: {
-              first: 100,
+              first: RAW_PAGE_SIZE,
               ...(pageAfter === null ? {} : { after: pageAfter }),
             },
             edges: {
-              node: {
-                id: true,
-                name: true,
-                itemType: true,
-                category: true,
-                defaultBlock: true,
-                description: true,
-                defaultUnit: true,
-                price: {
-                  amountMicros: true,
-                  currencyCode: true,
-                },
-                defaultPrice: true,
-                currencyCode: true,
-                isActive: true,
-                sortOrder: true,
-              },
+              node: catalogItemSelection,
             },
             pageInfo: { endCursor: true, hasNextPage: true },
           },
@@ -339,7 +426,7 @@ export class CatalogItemRepository {
           .map((record: CatalogRecord) => mapCatalogItem(record, request.currencyCode));
 
         for (const item of records) {
-          if (item.category !== null) categories.add(item.category);
+          if (item.category !== null) pageCategories.add(item.category);
         }
 
         const filtered = records
@@ -406,11 +493,18 @@ export class CatalogItemRepository {
 
       return {
         items: collected,
-        categories: [...categories].sort((a, b) => a.localeCompare(b, 'ru')),
+        // Full catalog categories are incomplete when scanning only search pages.
+        categories: [] as string[],
+        pageCategories: [...pageCategories].sort((a, b) => a.localeCompare(b, 'ru')),
         pageInfo: {
           limit: request.limit,
           endCursor: hasMoreFiltered
-            ? encodeCatalogCursor({ v: 1, after: nextAfter, skip: nextSkip })
+            ? encodeCatalogCursor({
+                v: 2,
+                after: nextAfter,
+                skip: nextSkip,
+                filterFingerprint,
+              })
             : null,
           hasNextPage: hasMoreFiltered,
           resultCompleteness: stoppedBySafetyLimit ? 'PARTIAL' : 'COMPLETE',
@@ -421,6 +515,76 @@ export class CatalogItemRepository {
       throw new ApplicationError(
         'CATALOG_SEARCH_FAILED',
         'Не удалось загрузить каталог работ и услуг',
+        error,
+      );
+    }
+  }
+
+  async listCategories(
+    activeOnly = true,
+    options?: { maxRawPages?: number },
+  ) {
+    try {
+      const maxRawPages = options?.maxRawPages ?? MAX_RAW_PAGES_PER_REQUEST;
+      const categories = new Set<string>();
+      let pageAfter: string | null = null;
+      let upstreamHasNextPage = true;
+      let scannedPages = 0;
+      let stoppedBySafetyLimit = false;
+
+      while (upstreamHasNextPage && scannedPages < maxRawPages) {
+        const response = await (this.client.query as (selection: unknown) => Promise<any>)({
+          catalogItems: {
+            __args: {
+              first: RAW_PAGE_SIZE,
+              ...(pageAfter === null ? {} : { after: pageAfter }),
+            },
+            edges: {
+              node: catalogItemSelection,
+            },
+            pageInfo: { endCursor: true, hasNextPage: true },
+          },
+        });
+
+        const records: CatalogItemDto[] = (response.catalogItems?.edges ?? [])
+          .map((edge: { node?: CatalogRecord | null }) => edge.node)
+          .filter((record: CatalogRecord | null | undefined): record is CatalogRecord => record != null)
+          .map((record: CatalogRecord) => mapCatalogItem(record, null));
+
+        for (const item of records) {
+          if (activeOnly && !item.isActive) continue;
+          if (item.category !== null) categories.add(item.category);
+        }
+
+        const pageEndCursor =
+          typeof response.catalogItems?.pageInfo?.endCursor === 'string'
+            ? response.catalogItems.pageInfo.endCursor
+            : null;
+        upstreamHasNextPage = response.catalogItems?.pageInfo?.hasNextPage === true;
+        scannedPages += 1;
+
+        if (!upstreamHasNextPage || pageEndCursor === null) {
+          break;
+        }
+
+        pageAfter = pageEndCursor;
+      }
+
+      if (upstreamHasNextPage && scannedPages >= maxRawPages) {
+        stoppedBySafetyLimit = true;
+      }
+
+      return {
+        categories: [...categories].sort((a, b) => a.localeCompare(b, 'ru')),
+        pageInfo: {
+          resultCompleteness: stoppedBySafetyLimit ? 'PARTIAL' as const : 'COMPLETE' as const,
+        },
+      };
+    } catch (error) {
+      if (error instanceof ApplicationError) throw error;
+      throw new ApplicationError(
+        'CATALOG_SEARCH_FAILED',
+        'Не удалось загрузить категории каталога',
         error,
       );
     }

@@ -11,47 +11,75 @@ proposal id, revision and canonical fingerprint are unchanged.
 ## Generation Claim
 
 Same-proposal concurrency is serialized by
-`CommercialProposalGenerationClaim`:
+`CommercialProposalGenerationClaim` (unique index on `proposalKey`).
 
-1. Compute content fingerprint from the canonical draft + aggregate.
-2. `acquireGenerationClaim` creates a row with unique `proposalKey` (proposal
-   id), storing `operationId`, `editorRevision`, `fingerprint`, and
-   `leaseExpiresAt` (now + 5 minutes).
-3. Unique-index conflict:
-   - same `operationId` + revision + fingerprint → reuse claim (same-op replay);
-   - different owner, lease unexpired →
-     `COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS` (HTTP 409);
-   - lease expired → delete stale claim and create a new one (stale-lock
-     recovery).
-4. Before calling the document-service, re-read revision + fingerprint; if they
-   no longer match the claim, abort without generating (pre-document-service
-   re-check).
-5. On terminal success or failure paths, `releaseGenerationClaim` deletes the
-   claim row (best-effort).
+### `operationId` vs `ownerToken`
 
-Aggregate proposals use macro-free XLSX template v2 and schema `2.0`. It supports 50 items and 10 stages, keeps percentage formulas and server-calculated cached totals, and is exported to PDF by LibreOffice. Legacy proposals keep the v1 path.
+| Field | Role |
+|---|---|
+| `operationId` | Logical idempotent operation id (client `idempotencyKey`). Identifies the user-facing generation attempt. |
+| `ownerToken` | Physical worker/execution token (UUID minted on create). Used for lease fencing; distinct from `operationId`. |
 
-Twenty attachment is checkpointed after each format. Retry matches `generationId + format + sha256` and attaches only a missing format.
+Twenty SDK 2.20 does **not** provide App-level transactions or linearizability.
+Atomicity for ownership is the unique `proposalKey` index plus fencing checks.
 
-Phase 4 uses an external document-service. Twenty App logic functions do not edit Excel files directly and never run VBA.
+### Acquire result
 
-Flow:
+`acquireGenerationClaim` returns `AcquireGenerationClaimResult`:
+
+- `ACQUIRED` — this worker created the claim and holds `ownerToken`.
+- `IN_PROGRESS` — a live claim already exists (including **parallel same
+  `operationId`**). The second caller does **not** become a second owner; the
+  route maps this to `COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS` (HTTP 409),
+  unless the proposal already has a matching `GENERATED` result for that key.
+
+### Lease, renew, fencing
+
+1. Lease duration is **10 minutes** (`GENERATION_CLAIM_LEASE_MS`).
+2. Owner renews the lease (after ownership assert) before calling the
+   document-service, after the document-service returns, and before each
+   attachment checkpoint.
+3. Before irreversible actions (status → `GENERATING`, document-service call,
+   attachments, terminal `GENERATED`/`FAILED` writes), the owner runs
+   `assertGenerationClaimOwnership` (re-read claim; match `id`, `proposalKey`,
+   `operationId`, `ownerToken`).
+
+### Stale takeover
+
+If `leaseExpiresAt` has passed, a new acquire may delete the stale row and
+create a claim with a **new** `ownerToken`. The previous worker then fails
+fencing with `COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST` (HTTP 409).
+
+### Ownership lost behavior
+
+On `COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST` the losing worker:
+
+- does **not** write `FAILED`;
+- does **not** delete the claim (new owner keeps it);
+- does **not** attach files.
+
+### Flow
 
 ```text
 CommercialProposal DRAFT / FAILED
 -> authenticated app route
--> acquire generation claim (unique proposalKey)
+-> acquireGenerationClaim (ACQUIRED | IN_PROGRESS)
+-> assert ownership
 -> status GENERATING
+-> renew lease
 -> pre-call re-check of editorRevision + fingerprint
 -> external document-service
--> patched XLSX without VBA/macros
--> LibreOffice PDF export from that XLSX
--> storage metadata and download URLs
--> Twenty file upload and CommercialProposal attachments
--> resultMetadata
--> status GENERATED / FAILED
--> release generation claim
+-> renew lease
+-> assert ownership per attachment
+-> resultMetadata / status GENERATED
+-> releaseGenerationClaim (owner only)
 ```
+
+Aggregate proposals use macro-free XLSX template v2 and schema `2.0`. It supports 50 items and 10 stages, keeps percentage formulas and server-calculated cached totals, and is exported to PDF by LibreOffice. Legacy proposals keep the v1 path.
+
+Twenty attachment is checkpointed after each format. Retry matches `generationId + format + sha256` and attaches only a missing format. Attachments run only while ownership is held.
+
+Phase 4 uses an external document-service. Twenty App logic functions do not edit Excel files directly and never run VBA.
 
 ## Current Implementation
 
@@ -107,8 +135,8 @@ No `file://` URL or container path is returned by the target storage flow.
 
 After the document-service returns XLSX/PDF files, the app logic function downloads them server-side, validates `size` and `sha256`, uploads them through the Twenty metadata file upload API for the standard `Attachment.file` field, and creates standard `Attachment` records with `targetCommercialProposalId`. This fills the CommercialProposal record `Files` tab. DOCX is not generated and there is no DOCX URL field in the app metadata.
 
-Historical target smoke evidence (pre-5.5 claim) for attachments is retained in
-older smoke reports; re-verify on the `0.1.48` target install before acceptance.
+Target attachment evidence for App `0.1.49` is **NOT DONE** — see
+`phase-5-5-production-acceptance.md`.
 
 ## App Configuration
 
@@ -129,15 +157,19 @@ Implemented transitions:
 - `GENERATING -> GENERATED`
 - `GENERATING -> FAILED`
 
+Ownership-lost paths do not perform the `GENERATING -> FAILED` write.
+
 `GENERATED -> GENERATING` is intentionally not implemented in Phase 4.
 
 ## Idempotency
 
-The generation route accepts an operation UUID `idempotencyKey`. If the same key already produced a `GENERATED` result stored in `resultMetadata`, the route returns the existing result instead of regenerating files or creating duplicate attachments.
+The generation route accepts an operation UUID `idempotencyKey` (stored as claim
+`operationId`). If the same key already produced a `GENERATED` result stored in
+`resultMetadata`, the route returns the existing result instead of regenerating
+files or creating duplicate attachments.
 
-Same-operation claim replay (identical `idempotencyKey` / `operationId` with
-unchanged revision and fingerprint) reuses the generation claim instead of
-returning 409.
+A **live** claim for the same `operationId` held by another physical
+`ownerToken` is `IN_PROGRESS` (409), not a second `ACQUIRED` owner.
 
 The document-service also derives deterministic storage keys from:
 

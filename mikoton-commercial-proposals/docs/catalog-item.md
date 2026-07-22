@@ -5,8 +5,8 @@
 The native Twenty `CURRENCY` value is authoritative. Legacy numeric/currency
 fields are read only when `CATALOG_ALLOW_LEGACY_PRICE_FALLBACK=true`; production
 defaults to no silent fallback. Search and backfill use opaque cursor pagination
-rather than a fixed 500/1000-record window. Catalog values remain proposal
-snapshots.
+(v2 + `filterFingerprint`) rather than a fixed 500/1000-record window. Catalog
+values remain proposal snapshots.
 
 `CatalogItem` is a reusable source of initial values for proposal work items. It is not a pricing source of truth after selection.
 
@@ -29,18 +29,32 @@ snapshots.
 ## Canonical validation on `catalogItemId` assignment
 
 When a save newly assigns `catalogItemId`, the backend reloads the catalog row
-and applies canonical checks (non-empty name/block/unit, valid ISO currency,
-non-negative native `amountMicros`, active flag, currency match with the
-proposal item). Failures use structured errors:
+and applies canonical checks (non-empty name/block/unit, valid ISO currency via
+`normalizeCurrencyCode` / `[A-Z]{3}`, non-negative native `amountMicros`, active
+flag, currency match with the proposal item, and **`itemType` allowlist**:
+`SERVICE` | `PRODUCT` | `LICENSE` | `PACKAGE` | `OTHER`). Failures use
+structured errors:
 
 - `CATALOG_ITEM_NOT_FOUND` — missing or unavailable catalog row;
-- `CATALOG_ITEM_NOT_SELECTABLE` — fails canonical checks or currency mismatch.
+- `CATALOG_ITEM_NOT_SELECTABLE` — fails canonical checks, bad `itemType`, or
+  currency mismatch.
+
+Null/unknown `itemType` is rejected on assignment without substituting
+`SERVICE`.
+
+## Search vs categories routes
+
+- Search: authenticated `POST /s/commercial-proposals/catalog-items/search`
+  (max page size 100). Returns items, empty `categories`, and `pageCategories`.
+- Categories: authenticated `POST /catalog-items/categories` for the complete
+  category list (`PARTIAL` when the safety scan limit is hit).
 
 Native `price` (`amountMicros` + `currencyCode`) is authoritative for selection
 and search DTO pricing. Legacy `defaultPrice` / text `currencyCode` are
 compatibility only.
 
-The native Twenty list is the catalog administration UI. Search uses authenticated `POST /s/commercial-proposals/catalog-items/search` with a maximum page size of 100.
+In search DTOs, malformed `itemType` is **disabled** (`isSelectable: false`)
+and is not exposed as selectable `SERVICE`.
 
 `itemType` describes the commercial nature of an entry: service, product,
 license, package, or other. `category` is a catalog taxonomy used for search and

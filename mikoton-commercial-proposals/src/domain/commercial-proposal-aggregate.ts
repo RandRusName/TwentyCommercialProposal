@@ -202,7 +202,35 @@ export type CommercialProposalAggregateRepository = {
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const ALLOWED_CATALOG_ITEM_TYPES = [
+  'SERVICE',
+  'PRODUCT',
+  'LICENSE',
+  'PACKAGE',
+  'OTHER',
+] as const;
+
 const EDITABLE_STATUSES = new Set<CommercialProposalStatus>(['DRAFT', 'FAILED']);
+
+export const normalizeCurrencyCode = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_VALIDATION_FAILED',
+      'currencyCode must be a string or null',
+    );
+  }
+  const trimmed = value.trim();
+  if (trimmed === '') return null;
+  const normalized = trimmed.toUpperCase();
+  if (!/^[A-Z]{3}$/.test(normalized)) {
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_VALIDATION_FAILED',
+      'currencyCode must be a three-letter ISO code',
+    );
+  }
+  return normalized;
+};
 
 const assertUniqueValues = (
   values: Array<string | undefined>,
@@ -294,7 +322,7 @@ const normalizeHeader = (value: unknown): CommercialProposalHeader => {
     companyId: optionalUuid(header.companyId, 'header.companyId'),
     contactName: optionalString(header.contactName),
     contextAndGoal: optionalString(header.contextAndGoal),
-    currencyCode: optionalString(header.currencyCode),
+    currencyCode: normalizeCurrencyCode(header.currencyCode),
     validityDays,
     paymentTerms: optionalString(header.paymentTerms),
     assumptions: optionalString(header.assumptions),
@@ -375,7 +403,7 @@ export const normalizeRecalculateRequest = (
   assertPlainObjectEntries(body.items, 'items');
 
   return {
-    currencyCode: optionalString(body.currencyCode),
+    currencyCode: normalizeCurrencyCode(body.currencyCode),
     items: body.items,
   };
 };
@@ -704,14 +732,15 @@ export const recalculateCommercialProposal = (
 
 export const saveCommercialProposalEditor = async ({
   proposalId,
-  request,
+  request: rawRequest,
   repository,
 }: {
   proposalId: string;
-  request: SaveEditorRequest;
+  request: SaveEditorRequest | Partial<SaveEditorRequest>;
   repository: CommercialProposalAggregateRepository;
 }): Promise<SaveEditorResult> => {
   requireUuid(proposalId, 'proposalId');
+  const request = normalizeSaveEditorRequest(rawRequest);
   const aggregate = await repository.getCommercialProposalAggregate(proposalId);
   assertAggregateIntegrity(aggregate);
 
@@ -744,14 +773,29 @@ export const saveCommercialProposalEditor = async ({
           'Позиция каталога не найдена или недоступна',
         );
       }
-      const name = catalogItem.name.trim();
-      const defaultBlock = catalogItem.defaultBlock.trim();
-      const defaultUnit = catalogItem.defaultUnit.trim();
-      const currencyCode = catalogItem.currencyCode.trim().toUpperCase();
+      const name =
+        typeof catalogItem.name === 'string' ? catalogItem.name.trim() : '';
+      const defaultBlock =
+        typeof catalogItem.defaultBlock === 'string'
+          ? catalogItem.defaultBlock.trim()
+          : '';
+      const defaultUnit =
+        typeof catalogItem.defaultUnit === 'string'
+          ? catalogItem.defaultUnit.trim()
+          : '';
+      const currencyCode =
+        typeof catalogItem.currencyCode === 'string'
+          ? catalogItem.currencyCode.trim().toUpperCase()
+          : '';
+      const itemType =
+        typeof catalogItem.itemType === 'string'
+          ? catalogItem.itemType.trim()
+          : '';
       if (
         name === '' ||
         defaultBlock === '' ||
         defaultUnit === '' ||
+        !(ALLOWED_CATALOG_ITEM_TYPES as readonly string[]).includes(itemType) ||
         !Number.isInteger(catalogItem.sortOrder) ||
         !Number.isSafeInteger(catalogItem.amountMicros) ||
         catalogItem.amountMicros < 0 ||

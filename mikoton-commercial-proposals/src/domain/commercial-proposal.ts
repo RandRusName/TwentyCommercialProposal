@@ -46,6 +46,7 @@ export type ApplicationErrorCode =
   | 'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED'
   | 'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED'
   | 'COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS'
+  | 'COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST'
   | 'DOCUMENT_SCHEMA_TEMPLATE_MISMATCH'
   | 'SNAPSHOT_HASH_MISMATCH'
   | 'GENERATION_IDEMPOTENCY_CONFLICT'
@@ -217,6 +218,7 @@ export type CommercialProposalRepository = {
     claim: {
       proposalKey: string;
       operationId: string;
+      ownerToken: string;
       editorRevision: number;
       fingerprint: string;
       leaseExpiresAt: string;
@@ -225,6 +227,7 @@ export type CommercialProposalRepository = {
     id: string;
     proposalKey: string;
     operationId: string;
+    ownerToken: string;
     editorRevision: number;
     fingerprint: string;
     leaseExpiresAt: string;
@@ -236,12 +239,29 @@ export type CommercialProposalRepository = {
     id: string;
     proposalKey: string;
     operationId: string;
+    ownerToken: string;
     editorRevision: number;
     fingerprint: string;
     leaseExpiresAt: string;
     createdAt?: string | null;
   } | null>;
   deleteGenerationClaim?: (id: string) => Promise<void>;
+  renewGenerationClaimLease?: (input: {
+    claimId: string;
+    proposalKey: string;
+    operationId: string;
+    ownerToken: string;
+    leaseExpiresAt: string;
+  }) => Promise<{
+    id: string;
+    proposalKey: string;
+    operationId: string;
+    ownerToken: string;
+    editorRevision: number;
+    fingerprint: string;
+    leaseExpiresAt: string;
+    createdAt?: string | null;
+  }>;
   isDuplicateConflict?: (error: unknown) => boolean;
 };
 
@@ -1059,8 +1079,11 @@ export const generateCommercialProposalDocuments = async ({
 }) => {
   const {
     acquireGenerationClaim,
+    assertGenerationClaimOwnership,
     calculateGenerationContentFingerprint,
+    isOwnershipLostError,
     releaseGenerationClaim,
+    renewGenerationClaimLease,
   } = await import('src/domain/generation-claim');
 
   let draft = await repository.getCommercialProposal(input.commercialProposalId);
@@ -1102,6 +1125,7 @@ export const generateCommercialProposalDocuments = async ({
     createGenerationClaim: repository.createGenerationClaim,
     findGenerationClaimByProposalKey: repository.findGenerationClaimByProposalKey,
     deleteGenerationClaim: repository.deleteGenerationClaim,
+    renewGenerationClaimLease: repository.renewGenerationClaimLease,
     isDuplicateConflict: repository.isDuplicateConflict,
   };
 
@@ -1120,7 +1144,7 @@ export const generateCommercialProposalDocuments = async ({
   if (aggregate !== undefined) validateAggregateForGeneration(aggregate);
 
   const fingerprint = calculateGenerationContentFingerprint({ draft, aggregate });
-  let claim = await acquireGenerationClaim({
+  const acquired = await acquireGenerationClaim({
     repository: claimRepository,
     proposalKey: draft.id,
     operationId: input.idempotencyKey,
@@ -1129,13 +1153,43 @@ export const generateCommercialProposalDocuments = async ({
     now,
   });
 
+  if (acquired.state === 'IN_PROGRESS') {
+    const latest = await repository.getCommercialProposal(input.commercialProposalId);
+    if (
+      latest.status === 'GENERATED' &&
+      hasGenerationResult(latest.resultMetadata, input.idempotencyKey)
+    ) {
+      return {
+        commercialProposal: latest,
+        generated: false,
+        result: latest.resultMetadata,
+      };
+    }
+    throw new ApplicationError(
+      'COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS',
+      'Формирование документов для этого коммерческого предложения уже выполняется',
+    );
+  }
+
+  let claim = acquired.claim;
+
+  const requireOwnership = async () => {
+    claim = await assertGenerationClaimOwnership({
+      repository: claimRepository,
+      claim,
+    });
+    return claim;
+  };
+
   try {
+    await requireOwnership();
     draft = await repository.getCommercialProposal(input.commercialProposalId);
     if (
       draft.status === 'GENERATED' &&
       hasGenerationResult(draft.resultMetadata, input.idempotencyKey)
     ) {
       await releaseGenerationClaim({ repository: claimRepository, claim });
+      claim = null as never;
       return {
         commercialProposal: draft,
         generated: false,
@@ -1208,6 +1262,7 @@ export const generateCommercialProposalDocuments = async ({
     let payload: DocumentGenerationPayload | null = null;
 
     for (let attempt = 0; attempt < NUMBER_RETRY_LIMIT; attempt += 1) {
+      await requireOwnership();
       const finalNumber = await getFinalProposalNumber({
         draft: generationDraft,
         repository,
@@ -1251,6 +1306,7 @@ export const generateCommercialProposalDocuments = async ({
       }
 
       try {
+        await requireOwnership();
         generationDraft = await repository.updateCommercialProposal(draft.id, {
           title: finalDraft.title,
           number: finalDraft.number,
@@ -1264,6 +1320,7 @@ export const generateCommercialProposalDocuments = async ({
         });
         break;
       } catch (error) {
+        if (isOwnershipLostError(error)) throw error;
         if (!isDuplicateConflict(repository, error)) {
           throw error;
         }
@@ -1291,6 +1348,12 @@ export const generateCommercialProposalDocuments = async ({
       );
     }
 
+    claim = await renewGenerationClaimLease({
+      repository: claimRepository,
+      claim,
+      now,
+    });
+
     const preCallDraft = await repository.getCommercialProposal(draft.id);
     const preCallAggregate =
       preCallDraft.contentModelVersion === 'AGGREGATE_V2'
@@ -1313,12 +1376,19 @@ export const generateCommercialProposalDocuments = async ({
     const snapshotHash = calculateSnapshotHash(payload);
 
     try {
+      await requireOwnership();
       const result = await documentClient.generate({
         requestId: input.idempotencyKey,
         idempotencyKey: input.idempotencyKey,
         snapshotHash,
         payload,
         requestedFormats: ['xlsx', 'pdf'],
+      });
+      await requireOwnership();
+      claim = await renewGenerationClaimLease({
+        repository: claimRepository,
+        claim,
+        now: new Date(),
       });
 
       if (
@@ -1359,6 +1429,7 @@ export const generateCommercialProposalDocuments = async ({
       } as CommercialProposalResultMetadata;
 
       for (const file of result.files) {
+        await requireOwnership();
         const existing = attachedFiles.find(
           (attached) =>
             attached.format === file.format &&
@@ -1381,11 +1452,13 @@ export const generateCommercialProposalDocuments = async ({
           attached,
         ];
         resultMetadata = { ...resultMetadata, files: attachedFiles };
+        await requireOwnership();
         generationDraft = await repository.updateCommercialProposal(draft.id, {
           resultMetadata,
         });
       }
 
+      await requireOwnership();
       const updated = await repository.updateCommercialProposal(draft.id, {
         status: 'GENERATED',
         templateCode: 'mikoton-commercial-proposal',
@@ -1404,16 +1477,27 @@ export const generateCommercialProposalDocuments = async ({
         result: resultMetadata,
       };
     } catch (error) {
-      await repository.updateCommercialProposal(draft.id, {
-        status: 'FAILED',
-        generatedAt: null,
-        lastError:
-          error instanceof ApplicationError
-            ? error.message
-            : 'Не удалось сформировать документы коммерческого предложения',
-      });
-      await releaseGenerationClaim({ repository: claimRepository, claim });
-      claim = null as never;
+      if (isOwnershipLostError(error)) {
+        throw error;
+      }
+      try {
+        await requireOwnership();
+        await repository.updateCommercialProposal(draft.id, {
+          status: 'FAILED',
+          generatedAt: null,
+          lastError:
+            error instanceof ApplicationError
+              ? error.message
+              : 'Не удалось сформировать документы коммерческого предложения',
+        });
+        await releaseGenerationClaim({ repository: claimRepository, claim });
+        claim = null as never;
+      } catch (ownershipError) {
+        if (isOwnershipLostError(ownershipError)) {
+          throw ownershipError;
+        }
+        throw error;
+      }
 
       if (error instanceof ApplicationError) {
         throw error;
@@ -1426,7 +1510,9 @@ export const generateCommercialProposalDocuments = async ({
       );
     }
   } catch (error) {
-    await releaseGenerationClaim({ repository: claimRepository, claim });
+    if (!isOwnershipLostError(error)) {
+      await releaseGenerationClaim({ repository: claimRepository, claim });
+    }
     throw error;
   }
 };

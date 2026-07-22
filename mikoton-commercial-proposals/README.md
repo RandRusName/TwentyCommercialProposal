@@ -10,7 +10,7 @@ Opportunity in Twenty CRM.
 Target Twenty instance: `$TWENTY_API_URL` (for example
 `https://your-twenty-instance.example`).
 
-App version: `0.1.48`.
+App version: `0.1.49`.
 
 Target server and SDK versions:
 
@@ -20,13 +20,15 @@ Target server and SDK versions:
 
 ## Production Closure Status
 
-Prompt 5.5 hardening is implemented on App `0.1.48` (generation claim, currency
-normalization, catalog cursor pagination, worker storage credentials
-fail-closed). Do not promote the App to `1.0.0` until the final commit has a
-green CI run and the operator acceptance in
-`docs/phase-5-5-production-acceptance.md` is complete. The target deployment
-remains private and is performed only from a machine on the internal network.
-Verdict: **NOT READY** until target/operator checks are recorded.
+Phase 5.5 **CORRECTIVE** hardening is implemented on App `0.1.49`
+(`operationId` vs `ownerToken` fencing, 10-minute lease renewal, ownership-lost
+behavior, catalog cursor v2 / categories route, currency and `itemType`
+hardening). Do not promote the App to `1.0.0` until the exact commit has a green
+CI run and operator acceptance in `docs/phase-5-5-production-acceptance.md` is
+complete with recorded evidence. CI run, target install and image digest remain
+**Pending**. The target deployment remains private and is performed only from a
+machine on the internal network. Verdict: **PHASE 5.5 INCOMPLETE — NOT READY
+FOR PRODUCTION** until target evidence exists.
 
 ## Scope
 
@@ -44,7 +46,9 @@ Implemented in this phase:
 - database-backed yearly final-number reservation through nullable unique
   `finalNumberKey` (`YYYY:NNN`), with bounded conflict retry;
 - generation claim via unique `CommercialProposalGenerationClaim.proposalKey`
-  (5-minute `leaseExpiresAt` stale-lock recovery);
+  (`operationId` logical op vs `ownerToken` physical fence; 10-minute lease
+  renewal; stale takeover; ownership lost → no FAILED / no claim delete / no
+  attachments; parallel same `operationId` → `IN_PROGRESS`/409);
 - structured application errors;
 - draft metadata fields for source, template, language and payload snapshot.
 - functional vertical slice from Opportunity command menu to a
@@ -58,8 +62,10 @@ Implemented in this phase:
     section on its business card.
 - native Twenty `CURRENCY` price field for catalog items, with a safe API
   backfill utility for existing legacy prices;
-- currency normalization for null / empty / whitespace / `rub` → `RUB`;
-- opaque cursor-paginated catalog search with client-side filtering;
+- backend `normalizeCurrencyCode` (trim+upper, `[A-Z]{3}`);
+- catalog cursor v2 (`filterFingerprint`, `skip` 0..100); search empty
+  `categories` + `pageCategories`; `POST /catalog-items/categories` (PARTIAL
+  on safety limit); `itemType` allowlist on assignment;
 - fail-closed document-service authentication and bounded request bodies;
 - fail-closed `DOCUMENT_STORAGE_ACCESS_KEY` / `DOCUMENT_STORAGE_SECRET_KEY`
   (no silent `MINIO_ACCESS_KEY` fallback);
@@ -243,8 +249,8 @@ yarn.cmd test:integration
 ```
 
 Target UI smoke and restricted-user checks require access to the target Twenty
-Workspace. Operator acceptance for Phase 5.5 remains incomplete until documented
-in `docs/phase-5-5-production-acceptance.md`.
+Workspace. Operator acceptance for Phase 5.5 CORRECTIVE (`0.1.49`) is **NOT
+DONE** — see `docs/phase-5-5-production-acceptance.md`.
 
 ## Opportunity to Draft Flow
 
@@ -323,9 +329,10 @@ The route requires server-side app variables:
 - `DOCUMENT_SERVICE_URL`
 - `DOCUMENT_SERVICE_SECRET`
 
-Same-proposal concurrent generation is serialized by a unique generation claim.
-A second in-progress attempt returns `COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS`
-(HTTP 409). See `docs/document-generation.md`, `docs/template-mapping-v1.md` and
+Same-proposal concurrent generation is serialized by a unique generation claim
+with `ownerToken` fencing. A second live attempt (including parallel same
+`operationId`) returns `COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS` (HTTP 409).
+See `docs/document-generation.md`, `docs/template-mapping-v1.md` and
 `docs/document-service-runbook.md`.
 
 ## Private Deployment
