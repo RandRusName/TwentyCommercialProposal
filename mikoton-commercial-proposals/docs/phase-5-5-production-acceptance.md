@@ -17,7 +17,7 @@ Local candidate artifact (pre-CI, pre-target):
 | Template v2 SHA-256 | `F5994EE83DA4DE932C4D7504D78BC4E2A22EC881415AA38AFAB58A6CE701A900` |
 | Mapping v2 SHA-256 | `B09EC8CF36DF95BA29F5CE45DE01C162BBF60508304989998E66AAC1382BEF00` |
 | Document-service image digest | Not rebuilt/recorded in this local pass |
-| Exact git commit | To be filled after the implementation commit is created |
+| Exact git commit | `34d5e69aedebef9a8455fa893d9ecbd9e1f48966` |
 | Integration CI run | Not yet run for `0.1.48` |
 
 ## Code fixes implemented at 0.1.48
