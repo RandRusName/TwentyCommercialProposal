@@ -1,6 +1,7 @@
 import { defineApplicationRole } from 'twenty-sdk/define';
 
 import {
+  ATTACHMENT_OBJECT_UNIVERSAL_IDENTIFIER,
   APP_DISPLAY_NAME,
   CATALOG_ITEM_OBJECT_UNIVERSAL_IDENTIFIER,
   COMMERCIAL_PROPOSAL_GENERATION_CLAIM_OBJECT_UNIVERSAL_IDENTIFIER,
@@ -20,6 +21,13 @@ export default defineApplicationRole({
   canSoftDeleteAllObjectRecords: false,
   canDestroyAllObjectRecords: false,
   objectPermissions: [
+    {
+      objectUniversalIdentifier: ATTACHMENT_OBJECT_UNIVERSAL_IDENTIFIER,
+      canReadObjectRecords: true,
+      canUpdateObjectRecords: true,
+      canSoftDeleteObjectRecords: false,
+      canDestroyObjectRecords: false,
+    },
     {
       objectUniversalIdentifier: '20202020-9549-49dd-b2b2-883999db8938',
       canReadObjectRecords: true,
