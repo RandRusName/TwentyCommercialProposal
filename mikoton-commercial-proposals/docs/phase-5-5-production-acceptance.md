@@ -5,6 +5,8 @@ Date: 2026-07-22 (Europe/Moscow)
 Baseline: commit `3cf526320e77c1a21def2c56527c9199540a59c1`, App
 `0.1.47`, Twenty `v2.20.0`, remote `mikoton-target`.
 
+Implementation commit: `07ecb17801003085a1ac9ab8ffeee44989c07c19`.
+
 ## Verified Evidence
 
 | Check | Result | Evidence |
@@ -26,16 +28,18 @@ Baseline: commit `3cf526320e77c1a21def2c56527c9199540a59c1`, App
 | Wrong service secret | Passed locally | HTTP 401 |
 | Oversized request | Passed locally | HTTP 413 |
 | Metadata plan | Safe, not applied | 10 app-owned additions, 11 checksum updates, 0 destroy |
+| Integration test | Passed in CI | Ephemeral Twenty vertical slice in run `29907520010` |
+| Implementation CI | Passed | [run 29907520010](https://github.com/RandRusName/TwentyCommercialProposal/actions/runs/29907520010), job `88882409389`, attempt 1 |
 
-The artifact above is an uncommitted release-candidate build and is not a final
-production artifact. It must be rebuilt from the final clean commit.
+The artifact above was built from the exact implementation tree committed as
+`07ecb17801003085a1ac9ab8ffeee44989c07c19`. It remains a release candidate,
+not a production artifact, until target/operator acceptance is complete.
 
 ## Not Yet Verified
 
 | Check | State | Required evidence |
 |---|---|---|
-| Integration test | Blocked locally | Ephemeral Twenty URL/API key and passing CI job |
-| Final CI | Not run | Green workflow URL for final commit |
+| Report-head CI | Pending | Green workflow URL for the documentation follow-up commit |
 | Target metadata apply/repeated plan | Not run | Successful install and empty repeated plan |
 | Final-number backfill | Not run | Dry-run, duplicate-free apply, verification count |
 | Target E2E and parallel numbering | Not run | Isolated proposal ids, unique keys/numbers and files |
