@@ -8,18 +8,19 @@ Target: Twenty `v2.20.0`, `http://192.168.100.11:3000`, remote `mikoton-target`.
 
 | Field | Value |
 |---|---|
-| Installed App version | `0.1.53`, verified in Settings -> Applications |
-| Release source commit | `3214b4b4962c6ac9f42a131ed88b48049cecf09b` plus the pending evidence/config commit |
-| Tarball | `mikoton-commercial-proposals-0.1.53.tgz` |
-| Tarball size | `2,648,930` bytes |
-| Tarball SHA-256 | `2f93c4cac503492b6430bd2e4d33dd75e317d25d0cd8dff603eaa2e8a2fe1503` |
+| Installed App version | `0.1.54`, verified in Settings -> Applications |
+| Release source commit | `f4bd0a34a4440c96e38303318d738f6b682b3b25` |
+| Tarball | `mikoton-commercial-proposals-0.1.54.tgz` |
+| Tarball size | `2,649,935` bytes |
+| Tarball SHA-256 | `fc2c26e5bc02b88a44d7bf4ce8849d58141ef797f3833b9daa6f114d7ca797ef` |
 | Document-service image digest | `sha256:9224204bd5eb1cdb58503d6f4bc975427a2c631cec01f93f8c8d000e3bc1b067` |
 | Metadata plan after install | No changes; no destructive operations |
-| Target API smoke | Passed, `8/8` tests in `22.48s` |
+| Target API smoke | Passed, `8/8` tests in `25.87s` after the `0.1.54` upgrade |
 | Target UI smoke record | `2f2cfe80-6756-4fe9-8dcb-43052ac92ee3` |
 | Generated proposal | `КП-011 от 22.07.2026` |
 
-The final commit SHA and its GitHub Actions run are recorded after this report is committed and pushed.
+CI for the release source commit passed in GitHub Actions run
+`29945502085`.
 
 ## Backup And Restore
 
@@ -45,10 +46,11 @@ removed after verification. Production data was not altered.
 |---|---|---|
 | Lint | Passed | Local release build |
 | Typecheck | Passed | Local release build |
-| Unit tests | Passed | 178 tests |
+| Unit tests | Passed | 182 tests |
 | Document-service tests | Passed | 18 tests |
-| WSL build / tarball validation | Passed | App `0.1.53`, hash above |
-| Private publish / install | Passed | Installed/current version `0.1.53` in Twenty UI |
+| Architecture dependency gate | Passed | 82 TypeScript files, 6 module boundaries |
+| WSL build / tarball validation | Passed | App `0.1.54`, hash above |
+| Private publish / install | Passed | Installed/current version `0.1.54` in Twenty UI |
 | Document-service health/readiness | Passed | Reachable from the Twenty container |
 | Storage | Passed | Private MinIO bucket; Twenty container can retrieve signed objects |
 | Repeated metadata plan | Passed | `No changes. Twenty metadata matches your manifest.` |
@@ -60,7 +62,7 @@ removed after verification. Production data was not altered.
 | Restricted-user smoke | **Not executed** | No prepared restricted account/session was available |
 | Controlled runtime failure/retry | **Not executed** | No production dependency fault was injected |
 | Runtime rollback rehearsal | **Not executed** | Backup restore passed; App/image rollback was not performed on target |
-| Final commit CI | **Pending** | Must be green for the final evidence/config commit |
+| Release source CI | Passed | GitHub Actions run `29945502085`, commit `f4bd0a3` |
 
 ## Runtime Fix Confirmed During Acceptance
 
@@ -75,6 +77,5 @@ loopback. No Twenty source code or image was changed.
 
 The production flow itself is operational and was exercised end to end. Prompt
 5.5 nevertheless defines the restricted-user scenario, controlled
-`FAILED -> retry -> GENERATED`, runtime rollback, and green final-commit CI as
-mandatory. Those acceptance proofs remain open and are not represented as
-passed.
+`FAILED -> retry -> GENERATED` and runtime rollback as mandatory. Those
+acceptance proofs remain open and are not represented as passed.

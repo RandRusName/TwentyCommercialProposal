@@ -15,7 +15,7 @@ Opportunity in Twenty CRM.
 Target Twenty instance: `$TWENTY_API_URL` (for example
 `https://your-twenty-instance.example`).
 
-App version: `0.1.53`.
+App version: `0.1.54`.
 
 Target server and SDK versions:
 
@@ -25,12 +25,12 @@ Target server and SDK versions:
 
 ## Production Closure Status
 
-Phase 5.5 **CORRECTIVE** hardening is implemented and deployed as App `0.1.53`
+Phase 5.5 **CORRECTIVE** hardening is implemented and deployed as App `0.1.54`
 (`operationId` vs `ownerToken` fencing, 10-minute lease renewal, ownership-lost
 behavior, catalog cursor v2 / categories route, currency and `itemType`
 hardening). Target install, backup/restore, metadata plan, API smoke and UI E2E
 are recorded in `docs/phase-5-5-production-acceptance.md`. Restricted-user,
-controlled runtime recovery/rollback and final-commit CI evidence remain open,
+controlled runtime recovery/rollback evidence remains open,
 so the evidence-based verdict is **NOT READY FOR PRODUCTION USE**. Deployment
 remains private and runs only from a machine on the internal network.
 
@@ -252,7 +252,7 @@ $env:TWENTY_API_KEY = "<ephemeral-api-key>"
 yarn.cmd test:integration
 ```
 
-Target API and administrator UI smoke passed on App `0.1.53`. Restricted-user
+Target API and administrator UI smoke passed on App `0.1.54`. Restricted-user
 and controlled failure/rollback evidence is still open; see
 `docs/phase-5-5-production-acceptance.md`.
 

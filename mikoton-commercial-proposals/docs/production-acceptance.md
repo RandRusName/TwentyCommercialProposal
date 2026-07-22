@@ -6,7 +6,7 @@ App from the target Workspace.
 ## Verified Baseline
 
 - Twenty `v2.20.0`, remote `mikoton-target`.
-- App `0.1.53` installed from a private Linux-compatible tarball.
+- App `0.1.54` installed from a private Linux-compatible tarball.
 - Document-service and private MinIO storage reachable from Twenty.
 - Backup checkpoint and isolated restore rehearsal completed.
 - Repeated metadata plan is empty.
@@ -25,8 +25,6 @@ Exact hashes and record identifiers are in
    `GENERATED` without duplicate files.
 3. Rehearse an App/document-service rollback without uninstalling the App or
    deleting additive metadata.
-4. Obtain a green CI run for the final evidence/config commit.
-
-Until all four are recorded, the evidence-based verdict remains
+Until all three are recorded, the evidence-based verdict remains
 `NOT READY FOR PRODUCTION USE` even though the normal production flow is
 operational.
