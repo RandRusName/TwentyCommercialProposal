@@ -1122,11 +1122,31 @@ export const generateCommercialProposalDocuments = async ({
   }
 
   const claimRepository = {
-    createGenerationClaim: repository.createGenerationClaim,
-    findGenerationClaimByProposalKey: repository.findGenerationClaimByProposalKey,
-    deleteGenerationClaim: repository.deleteGenerationClaim,
-    renewGenerationClaimLease: repository.renewGenerationClaimLease,
-    isDuplicateConflict: repository.isDuplicateConflict,
+    createGenerationClaim: (...args: Parameters<
+      NonNullable<CommercialProposalRepository['createGenerationClaim']>
+    >) => repository.createGenerationClaim!(...args),
+    findGenerationClaimByProposalKey: (...args: Parameters<
+      NonNullable<
+        CommercialProposalRepository['findGenerationClaimByProposalKey']
+      >
+    >) => repository.findGenerationClaimByProposalKey!(...args),
+    deleteGenerationClaim: (...args: Parameters<
+      NonNullable<CommercialProposalRepository['deleteGenerationClaim']>
+    >) => repository.deleteGenerationClaim!(...args),
+    renewGenerationClaimLease:
+      repository.renewGenerationClaimLease === undefined
+        ? undefined
+        : (...args: Parameters<
+            NonNullable<
+              CommercialProposalRepository['renewGenerationClaimLease']
+            >
+          >) => repository.renewGenerationClaimLease!(...args),
+    isDuplicateConflict:
+      repository.isDuplicateConflict === undefined
+        ? undefined
+        : (...args: Parameters<
+            NonNullable<CommercialProposalRepository['isDuplicateConflict']>
+          >) => repository.isDuplicateConflict!(...args),
   };
 
   let aggregate =
