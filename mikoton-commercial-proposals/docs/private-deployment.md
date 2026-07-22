@@ -4,14 +4,19 @@
 
 Do not deploy or tag `1.0.0` until the exact final commit has green CI, a safe
 metadata plan, verified backups, isolated restore/rollback rehearsals and the
-target acceptance described in `production-acceptance.md`. GitHub-hosted
+target acceptance described in `production-acceptance.md` /
+`phase-5-5-production-acceptance.md`. App `0.1.48` implements the code fixes;
+verdict remains **NOT READY** until operator checks are recorded. GitHub-hosted
 runners never connect to the internal target; production private publish and
 install remain local WSL operations.
 
-The target Twenty server is available only on the internal network:
+The target Twenty server is available only on the internal network. Configure
+it via environment / CLI remote — do not hardcode host addresses in docs or
+scripts:
 
 ```text
-http://192.168.100.11:3000
+$TWENTY_API_URL
+# example: https://your-twenty-instance.example
 ```
 
 GitHub Actions must not access this server, and the target API key must not be
@@ -58,7 +63,7 @@ Configure the Twenty CLI remote once from inside WSL. Do not put the key in
 ```bash
 corepack yarn twenty remote:add \
   --as mikoton-target \
-  --url http://192.168.100.11:3000 \
+  --url "$TWENTY_API_URL" \
   --api-key "<target-api-key>"
 ```
 
@@ -72,7 +77,7 @@ Expected target:
 
 ```text
 Remote:  mikoton-target
-Server:  http://192.168.100.11:3000
+Server:  <value of TWENTY_API_URL>
 Auth:    api-key (valid)
 ```
 
@@ -118,14 +123,14 @@ execution failed`, deployment stops before version bump or private publish.
 
 ## WSL Networking
 
-Private deploy reaches `http://192.168.100.11:3000` from inside WSL. On some
-WSL2 NAT setups Windows can reach the internal host, while WSL cannot.
+Private deploy reaches `$TWENTY_API_URL` from inside WSL. On some WSL2 NAT
+setups Windows can reach the internal host, while WSL cannot.
 
 Symptom:
 
 ```text
-ERROR: WSL cannot reach http://192.168.100.11:3000
-Windows can reach http://192.168.100.11:3000, but WSL cannot.
+ERROR: WSL cannot reach <TWENTY_API_URL>
+Windows can reach <TWENTY_API_URL>, but WSL cannot.
 ```
 
 Fix once with mirrored networking:
@@ -161,9 +166,10 @@ Verify:
 
 - the app is private;
 - name is `mikoton-commercial-proposals`;
-- version matches `package.json`;
+- version matches `package.json` (`0.1.48` or the deployed patch);
 - the app is installed in the expected Workspace;
-- public Marketplace was not used.
+- public Marketplace was not used;
+- `CommercialProposalGenerationClaim` metadata is present after apply.
 
 ## Confirmed CLI Commands (SDK 2.20.0)
 

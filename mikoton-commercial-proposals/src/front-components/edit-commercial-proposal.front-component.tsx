@@ -59,7 +59,9 @@ import {
   isEditorDirty,
   isEditorLoadCurrent,
   moveEntry,
+  normalizeCurrencyCode,
   removeEntry,
+  resolveCurrencyWhenAddingCatalogItems,
   resolvePendingGenerationAttempt,
   validateEditorState,
 } from 'src/front-components/commercial-proposal-editor/editor-helpers';
@@ -83,6 +85,7 @@ const ERROR_MESSAGE_BY_CODE: Record<string, string> = {
   COMMERCIAL_PROPOSAL_EDITOR_CONFLICT: 'The proposal was changed in another tab or operation.',
   COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED: 'The proposal is incomplete. Check the required fields.',
   COMMERCIAL_PROPOSAL_INVALID_STATUS: 'The proposal status changed. Load the latest version.',
+  COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS: 'Document generation is already in progress for this proposal.',
   CATALOG_ITEM_NOT_SELECTABLE: 'The catalog item is no longer available for selection.',
   DOCUMENT_SERVICE_TIMEOUT: 'Document generation timed out. Retry without changing the proposal.',
   DOCUMENT_SERVICE_UNAVAILABLE: 'The document service is temporarily unavailable.',
@@ -408,26 +411,33 @@ const EditCommercialProposal = () => {
     edit((current) => ({ ...current, stages: current.stages.map((stage, stageIndex) => stageIndex === index ? { ...stage, ...patch } : stage) }));
   const addCatalogItems = (catalogItems: CatalogItemOption[]) => {
     if (catalogItems.length === 0) return;
-    const currencyCode = catalogItems[0]?.currencyCode ?? null;
-    if (catalogItems.some((item) => item.currencyCode !== currencyCode)) {
-      setError(t('All selected items must use one currency.'));
+    const resolved = resolveCurrencyWhenAddingCatalogItems({
+      currentCurrency: state.header.currencyCode,
+      catalogCurrencies: catalogItems.map((item) => item.currencyCode),
+    });
+    if (!resolved.ok) {
+      setError(
+        resolved.reason === 'mismatch'
+          ? t('The catalog item currency does not match the proposal currency.')
+          : t('All selected items must use one currency.'),
+      );
       return;
     }
-    if (state.header.currencyCode !== null && state.header.currencyCode !== currencyCode) {
-      setError(t('The catalog item currency does not match the proposal currency.'));
-      return;
-    }
-    edit((current) => ({
-      ...current,
-      header: {
-        ...current.header,
-        currencyCode: current.header.currencyCode ?? currencyCode,
-      },
-      items: [
-        ...current.items,
-        ...catalogItems.map(createEditorItemFromCatalogItem),
-      ],
-    }));
+    const { currencyCode } = resolved;
+    edit((current) => {
+      const headerCurrency = normalizeCurrencyCode(current.header.currencyCode);
+      return {
+        ...current,
+        header: {
+          ...current.header,
+          currencyCode: headerCurrency ?? currencyCode,
+        },
+        items: [
+          ...current.items,
+          ...catalogItems.map(createEditorItemFromCatalogItem),
+        ],
+      };
+    });
     setCatalogOpen(false);
   };
 

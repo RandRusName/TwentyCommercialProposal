@@ -1087,10 +1087,17 @@ def storage_from_environment() -> DocumentStorage:
         root = Path(os.environ.get("DOCUMENT_STORAGE_PATH", "/var/lib/mikoton-document-service/storage"))
         return LocalDocumentStorage(root, os.environ.get("DOCUMENT_PUBLIC_BASE_URL", ""))
     if storage_type in {"s3", "s3-compatible", "minio"}:
+        access_key = os.environ.get("DOCUMENT_STORAGE_ACCESS_KEY", "").strip()
+        secret_key = os.environ.get("DOCUMENT_STORAGE_SECRET_KEY", "").strip()
+        if not access_key or not secret_key:
+            raise DocumentGenerationError(
+                "SERVICE_NOT_READY",
+                "DOCUMENT_STORAGE_ACCESS_KEY and DOCUMENT_STORAGE_SECRET_KEY are required",
+            )
         return S3DocumentStorage(
             endpoint=os.environ["MINIO_ENDPOINT"],
-            access_key=os.environ.get("DOCUMENT_STORAGE_ACCESS_KEY") or os.environ["MINIO_ACCESS_KEY"],
-            secret_key=os.environ.get("DOCUMENT_STORAGE_SECRET_KEY") or os.environ["MINIO_SECRET_KEY"],
+            access_key=access_key,
+            secret_key=secret_key,
             bucket=os.environ.get("MINIO_BUCKET", "commercial-proposals"),
             secure=os.environ.get("MINIO_SECURE", "false").lower() == "true",
             public_base_url=os.environ.get("MINIO_PUBLIC_BASE_URL") or None,

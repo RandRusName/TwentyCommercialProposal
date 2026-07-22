@@ -2,57 +2,73 @@
 
 Date: 2026-07-22 (Europe/Moscow)
 
-Baseline: commit `3cf526320e77c1a21def2c56527c9199540a59c1`, App
-`0.1.47`, Twenty `v2.20.0`, remote `mikoton-target`.
+App version: `0.1.48`. Twenty `v2.20.0`, remote `mikoton-target`.
 
-Implementation commit: `07ecb17801003085a1ac9ab8ffeee44989c07c19`.
+Local candidate artifact (pre-CI, pre-target):
 
-## Verified Evidence
+| Field | Value |
+|---|---|
+| App version | `0.1.48` |
+| Tarball filename | `mikoton-commercial-proposals-0.1.48.tgz` |
+| Tarball size | 2,580,891 bytes |
+| Tarball SHA-256 | `F3678A4369A39CF58EF1D26E158FA7E36C0B99FF11462E9A4C5BC0BAA1A4D30B` |
+| Template v1 SHA-256 | `6777A3CF9CC6A1A4BE0CCD1BABB93FA2DAFF6CD37EE9A9C1405E1EC4BD187AD0` |
+| Mapping v1 SHA-256 | `0F4580FDAC5E4DA5F1DC334CB6D64695B90F722DB9FAA8C040542EE0B57FFED5` |
+| Template v2 SHA-256 | `F5994EE83DA4DE932C4D7504D78BC4E2A22EC881415AA38AFAB58A6CE701A900` |
+| Mapping v2 SHA-256 | `B09EC8CF36DF95BA29F5CE45DE01C162BBF60508304989998E66AAC1382BEF00` |
+| Document-service image digest | Not rebuilt/recorded in this local pass |
+| Exact git commit | To be filled after the implementation commit is created |
+| Integration CI run | Not yet run for `0.1.48` |
 
-| Check | Result | Evidence |
+## Code fixes implemented at 0.1.48
+
+| Item | State |
+|---|---|
+| Generation claim (`CommercialProposalGenerationClaim`, unique `proposalKey`) | Implemented |
+| Stale-lock recovery via `leaseExpiresAt` (5 min) | Implemented |
+| Currency normalization (null / `''` / whitespace / `rub`) | Implemented |
+| Catalog opaque cursor pagination (no gaps/dupes) | Implemented |
+| Canonical CatalogItem validation on new assignment | Implemented |
+| Worker `DOCUMENT_STORAGE_*` credentials fail-closed | Implemented |
+| Hardcoded private URL removal + `yarn test:private-urls` | Implemented |
+
+## Code / local verification
+
+| Check | State | Evidence |
 |---|---|---|
-| Lint | Passed | 75 files, 0 warnings/errors |
-| Typecheck | Passed | `yarn typecheck` exit 0 |
-| Unit tests | Passed | 8 files, 135 tests |
-| Document-service tests | Passed | 17 tests, including real HTTP auth/body-limit cases |
-| WSL tarball build | Passed | `0.1.47`, 2,530,310 bytes |
-| Tarball SHA-256 | Passed | `9616350ec905867304d070ffe3c1cdf697a5c0ae272cfe9b16a22d7b507f7ee5` |
-| Tarball validation | Passed | forward slashes, required files and unique indexes present |
-| Template v1 SHA-256 | Recorded | `6777a3cf9cc6a1a4be0ccd1babb93fa2daff6cd37ee9a9c1405e1ec4bd187ad0` |
-| Mapping v1 SHA-256 | Recorded | `0f4580fdac5e4da5f1dc334cb6d64695b90f722db9faa8c040542ee0b57ffed5` |
-| Template v2 SHA-256 | Recorded | `f5994ee83da4de932c4d7504d78bc4e2a22ec881415aa38afab58a6ce701a900` |
-| Mapping v2 SHA-256 | Recorded | `b09ec8cf36df95ba29f5ce45de01c162bbf60508304989998e66aac1382bef00` |
-| Secret scan | Passed locally | 145 tracked files; no committed secret pattern found |
-| Document-service image build | Passed locally | image ID `sha256:22b4a8b00538a56bd27986a24f09fa2530c5049364c1f4aefb240ab654ecd7ad` |
-| Missing service secret | Passed locally | container exits non-zero; HTTP test returns 503 |
-| Wrong service secret | Passed locally | HTTP 401 |
-| Oversized request | Passed locally | HTTP 413 |
-| Metadata plan | Safe, not applied | 10 app-owned additions, 11 checksum updates, 0 destroy |
-| Integration test | Passed in CI | Ephemeral Twenty vertical slice in run `29907520010` |
-| Implementation CI | Passed | [run 29907520010](https://github.com/RandRusName/TwentyCommercialProposal/actions/runs/29907520010), job `88882409389`, attempt 1 |
+| Lint | Passed locally | 79 files, 0 errors |
+| Typecheck | Passed locally | `yarn typecheck` exit 0 |
+| Unit tests | Passed locally | 8 files, 148 tests |
+| Document-service tests | Passed locally | 18 tests, including worker credential fail-closed |
+| `yarn test:secrets` | Passed locally | Tracked-file scan clean |
+| `yarn test:private-urls` | Passed locally | 29 shipping runtime files clean |
+| Private tarball build | Passed locally | `0.1.48`, 2,580,891 bytes |
+| Tarball validation | Passed locally | Unique indexes incl. generation claim; no private IP / target fallback |
+| Ephemeral integration CI | **Not verified for 0.1.48** | Requires push / CI run on exact commit |
+| Metadata plan on target | **Not verified** | Operator section |
 
-The artifact above was built from the exact implementation tree committed as
-`07ecb17801003085a1ac9ab8ffeee44989c07c19`. It remains a release candidate,
-not a production artifact, until target/operator acceptance is complete.
-
-## Not Yet Verified
+## Target / operator acceptance — NOT YET VERIFIED
 
 | Check | State | Required evidence |
 |---|---|---|
-| Documentation commit CI | Passed | [run 29907914289](https://github.com/RandRusName/TwentyCommercialProposal/actions/runs/29907914289), commit `12ba5750017ecff6aa0831754228ab70e7150b0d`, job `88883684934` |
-| Target metadata apply/repeated plan | Not run | Successful install and empty repeated plan |
-| Final-number backfill | Not run | Dry-run, duplicate-free apply, verification count |
-| Target E2E and parallel numbering | Not run | Isolated proposal ids, unique keys/numbers and files |
-| Restricted user | Not run | Role setup, allowed/denied route evidence |
-| Runtime FAILED/retry | Not run | Controlled dependency fault and final GENERATED evidence |
-| Manifest/attachment recovery | Not run | Same generation id/hashes and exactly one XLSX/PDF |
-| Credential rotation | Not confirmed | Operator timestamp and post-rotation readiness/smoke |
-| Backup/restore | Not run | Backup identifiers, checksums and isolated restore evidence |
-| Rollback rehearsal | Not run | Previous artifact/image restored in isolation |
-| Final UI/XLSX/PDF/legacy regression | Not run | Screenshots, hashes and manual inspection results |
+| Target metadata apply / repeated plan | **NOT YET VERIFIED** | Successful install; empty repeated plan; claim object present |
+| Final-number / catalog backfills | **NOT YET VERIFIED** | Dry-run, duplicate-free apply, verification counts |
+| Target E2E | **NOT YET VERIFIED** | Isolated proposal ids, unique keys/numbers and files |
+| Same-proposal concurrency on target | **NOT YET VERIFIED** | Second attempt → `COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS`; same-op replay OK |
+| Runtime FAILED / retry | **NOT YET VERIFIED** | Controlled dependency fault and final GENERATED evidence |
+| Manifest / attachment recovery | **NOT YET VERIFIED** | Same generation id/hashes and exactly one XLSX/PDF |
+| Stale claim / lease recovery on target | **NOT YET VERIFIED** | Expired lease allows a new owner |
+| Restricted user | **NOT YET VERIFIED** | Role setup, allowed/denied route evidence |
+| Credential rotation (`DOCUMENT_STORAGE_*`, App secrets) | **NOT YET VERIFIED** | Operator timestamp and post-rotation readiness/smoke |
+| Backup / restore | **NOT YET VERIFIED** | Backup identifiers, checksums and isolated restore evidence |
+| Rollback rehearsal | **NOT YET VERIFIED** | Previous artifact/image restored; claim metadata left additive |
+| Final UI / XLSX / PDF / legacy regression | **NOT YET VERIFIED** | Screenshots, hashes and manual inspection results |
 
 ## Current Verdict
 
-The code hardening and local verification are substantial, but the mandatory
-operator, target, CI, restore and recovery evidence is incomplete. The App must
-remain on the release-candidate patch line and must not be tagged `v1.0.0`.
+**PHASE 5.5 INCOMPLETE — NOT READY FOR PRODUCTION**
+
+Code hardening for Phase 5.5 is implemented at App `0.1.48` with local lint,
+typecheck, unit, document-service, secret and private-URL scans green, and a
+candidate tarball built. Integration CI on the exact commit and all
+target/operator acceptance checks remain incomplete. Do not tag `v1.0.0`.

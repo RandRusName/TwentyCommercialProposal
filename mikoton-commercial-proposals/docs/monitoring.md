@@ -3,18 +3,26 @@
 ## Signals
 
 - generation success/failure count and duration percentiles;
+- `COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS` (HTTP 409) rate — concurrent
+  same-proposal attempts or unexpired claim contention;
+- generation claim lease expiry / stale-lock recovery (claim deleted after
+  `leaseExpiresAt` and replaced by a new owner);
 - `DOCUMENT_SERVICE_TIMEOUT`, storage, PDF export and attachment errors;
 - generation idempotency and editor revision conflicts;
 - `/readyz` failures and document-service restart count;
 - temporary directory usage and cleanup failures;
 - MinIO capacity, object errors and bucket availability;
+- worker storage credential misconfiguration (`SERVICE_NOT_READY` when
+  `DOCUMENT_STORAGE_*` keys are missing);
 - final-number duplicate conflicts and exhausted sequences;
 - failed or expired download-link refresh attempts.
 
 For this internal deployment, structured container logs plus existing host
 monitoring are sufficient. Alert on sustained readiness failure, any storage or
 attachment failure burst, repeated authentication failures, disk usage above
-80%, and generation failure rate above 10% over 15 minutes.
+80%, and generation failure rate above 10% over 15 minutes. Sustained spikes of
+`COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS` after lease expiry warrant
+investigation (stuck clients or overlapping operators).
 
 Configure Docker log rotation (`max-size` and `max-file`). Temporary generation
 directories may be removed after a completed request. Never delete manifests,

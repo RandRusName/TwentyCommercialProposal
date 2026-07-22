@@ -51,7 +51,7 @@ import {
 } from 'src/domain/commercial-proposal-aggregate';
 import { calculateProposalLineAmount } from 'src/domain/commercial-proposal-money';
 import { createHash } from 'node:crypto';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fixedDate = new Date('2026-07-12T10:11:12.000Z');
 const idempotencyKey = '123e4567-e89b-12d3-a456-426614174000';
@@ -129,7 +129,18 @@ const makeDraft = (
 
 const makeRepository = (
   existingDraft: CommercialProposalDraft | null = null,
-): CommercialProposalRepository => ({
+): CommercialProposalRepository => {
+  const claims = new Map<string, {
+    id: string;
+    proposalKey: string;
+    operationId: string;
+    editorRevision: number;
+    fingerprint: string;
+    leaseExpiresAt: string;
+    createdAt?: string | null;
+  }>();
+
+  return {
   getOpportunityContext: vi.fn(async () => ({
     id: 'opportunity-id',
     name: 'Test opportunity',
@@ -159,8 +170,32 @@ const makeRepository = (
       downloadUrl: `https://twenty.test/${file.fileName}`,
     })),
   ),
+  createGenerationClaim: vi.fn(async (claim) => {
+    if (claims.has(claim.proposalKey)) {
+      throw new Error('duplicate key value violates unique constraint');
+    }
+    const created = {
+      id: `claim-${claims.size + 1}`,
+      ...claim,
+      createdAt: new Date().toISOString(),
+    };
+    claims.set(claim.proposalKey, created);
+    return created;
+  }),
+  findGenerationClaimByProposalKey: vi.fn(async (proposalKey) =>
+    claims.get(proposalKey) ?? null,
+  ),
+  deleteGenerationClaim: vi.fn(async (id) => {
+    for (const [key, claim] of claims.entries()) {
+      if (claim.id === id) {
+        claims.delete(key);
+        return;
+      }
+    }
+  }),
   isDuplicateConflict: vi.fn(() => false),
-});
+  };
+};
 
 const makeInput = () =>
   normalizeCreateDraftRequest({
@@ -817,7 +852,13 @@ const makeAggregateRepository = (
     }),
     getCatalogItemForSelection: vi.fn(async (id) => ({
       id,
+      name: 'Catalog item',
+      itemType: 'SERVICE',
+      defaultBlock: 'Работы',
+      defaultUnit: 'час',
+      sortOrder: 100,
       isActive: true,
+      amountMicros: 1_000_000_000,
       currencyCode: 'RUB',
     })),
     updateCommercialProposalForEditor: vi.fn(async (_id, patch) => {
@@ -1030,7 +1071,13 @@ describe('commercial proposal aggregate domain', () => {
     const repository = makeAggregateRepository();
     vi.mocked(repository.getCatalogItemForSelection!).mockResolvedValue({
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      name: 'Inactive',
+      itemType: 'SERVICE',
+      defaultBlock: 'Работы',
+      defaultUnit: 'час',
+      sortOrder: 100,
       isActive: false,
+      amountMicros: 1_000_000_000,
       currencyCode: 'USD',
     });
 
@@ -1264,6 +1311,13 @@ describe('twenty record repository generated file attachments', () => {
 });
 
 describe('commercial proposal front component helpers', () => {
+  beforeEach(() => {
+    vi.stubGlobal('location', {
+      origin: 'http://twenty.example.test',
+      href: 'http://twenty.example.test/',
+    });
+  });
+
   it('creates a backend-compatible UUID idempotency key', () => {
     const key = createIdempotencyKey();
 
@@ -1393,7 +1447,7 @@ describe('commercial proposal front component helpers', () => {
     const previousApplicationVariables = process.env.applicationVariables;
 
     process.env.applicationVariables = JSON.stringify({
-      TWENTY_API_URL: 'http://192.168.100.11:3000',
+      TWENTY_API_URL: 'https://twenty.example.test',
     });
     vi.stubGlobal('location', {
       origin: 'null',
@@ -1401,23 +1455,25 @@ describe('commercial proposal front component helpers', () => {
     });
 
     expect(buildAppRouteUrl('/commercial-proposals/opportunity-context')).toBe(
-      'http://192.168.100.11:3000/s/commercial-proposals/opportunity-context',
+      'https://twenty.example.test/s/commercial-proposals/opportunity-context',
     );
 
     restoreApplicationVariables(previousApplicationVariables);
   });
 
-  it('falls back to the target Twenty URL when worker origin is unusable', () => {
+  it('fails closed when Twenty origin cannot be resolved', () => {
     const previousApplicationVariables = process.env.applicationVariables;
 
     delete process.env.applicationVariables;
+    delete process.env.TWENTY_API_URL;
+    delete process.env.TWENTY_FUNCTIONS_URL;
     vi.stubGlobal('location', {
       origin: 'null',
       href: 'blob:null/worker',
     });
 
-    expect(buildAppRouteUrl('/commercial-proposals/drafts')).toBe(
-      'http://192.168.100.11:3000/s/commercial-proposals/drafts',
+    expect(() => buildAppRouteUrl('/commercial-proposals/drafts')).toThrow(
+      /Не удалось определить адрес Twenty/,
     );
 
     restoreApplicationVariables(previousApplicationVariables);
@@ -1490,7 +1546,7 @@ describe('commercial proposal front component helpers', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://192.168.100.11:3000/s/commercial-proposals/drafts',
+      'http://twenty.example.test/s/commercial-proposals/drafts',
       expect.any(Object),
     );
     expectFetchAuthorization(fetchSpy, 'application-access-token');
@@ -1773,5 +1829,369 @@ describe('document service client', () => {
 
     expect(firstBody.idempotencyKey).toBe(generationIdempotencyKey);
     expect(secondBody.idempotencyKey).toBe(generationIdempotencyKey);
+  });
+});
+
+describe('generation claim concurrency', () => {
+  const makeSharedClaimRepository = () => {
+    const claims = new Map<string, {
+      id: string;
+      proposalKey: string;
+      operationId: string;
+      editorRevision: number;
+      fingerprint: string;
+      leaseExpiresAt: string;
+    }>();
+    const base = makeRepository();
+    let draft = makeDraft({ id: '123e4567-e89b-42d3-a456-426614174002' });
+    const resultMetadataByOp = new Map<string, unknown>();
+
+    vi.mocked(base.getCommercialProposal).mockImplementation(async () => draft);
+    vi.mocked(base.updateCommercialProposal).mockImplementation(async (_id, patch) => {
+      draft = { ...draft, ...patch };
+      return draft;
+    });
+    vi.mocked(base.createGenerationClaim!).mockImplementation(async (claim) => {
+      if (claims.has(claim.proposalKey)) {
+        throw new Error('duplicate key value violates unique constraint on proposalKey');
+      }
+      const created = { id: `claim-${claims.size + 1}`, ...claim };
+      claims.set(claim.proposalKey, created);
+      return created;
+    });
+    vi.mocked(base.findGenerationClaimByProposalKey!).mockImplementation(async (key) =>
+      claims.get(key) ?? null,
+    );
+    vi.mocked(base.deleteGenerationClaim!).mockImplementation(async (id) => {
+      for (const [key, claim] of claims.entries()) {
+        if (claim.id === id) claims.delete(key);
+      }
+    });
+    vi.mocked(base.isDuplicateConflict!).mockImplementation((error) =>
+      /duplicate|unique|already exists|constraint/i.test(
+        error instanceof Error ? error.message : String(error),
+      ),
+    );
+
+    return {
+      repository: base,
+      getDraft: () => draft,
+      setDraft: (next: typeof draft) => {
+        draft = next;
+      },
+      claims,
+      resultMetadataByOp,
+    };
+  };
+
+  it('allows only one generation for the same proposal with different idempotency keys', async () => {
+    const shared = makeSharedClaimRepository();
+    let documentCalls = 0;
+    const documentClient = {
+      generate: vi.fn(async () => {
+        documentCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return {
+          status: 'success' as const,
+          generationId: `generation-${documentCalls}`,
+          templateCode: 'mikoton-commercial-proposal' as const,
+          templateVersion: '1' as const,
+          generatedAt: '2026-07-12T10:11:12.000Z',
+          files: [
+            {
+              format: 'xlsx' as const,
+              fileName: 'cp.xlsx',
+              contentType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              size: 10,
+              sha256: 'a'.repeat(64),
+              downloadUrl: 'https://documents.test/cp.xlsx',
+            },
+            {
+              format: 'pdf' as const,
+              fileName: 'cp.pdf',
+              contentType: 'application/pdf',
+              size: 10,
+              sha256: 'b'.repeat(64),
+              downloadUrl: 'https://documents.test/cp.pdf',
+            },
+          ],
+        };
+      }),
+    };
+
+    const first = generateCommercialProposalDocuments({
+      input: {
+        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+        idempotencyKey: '123e4567-e89b-42d3-a456-426614174010',
+      },
+      repository: shared.repository,
+      documentClient,
+      now: fixedDate,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = generateCommercialProposalDocuments({
+      input: {
+        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+        idempotencyKey: '123e4567-e89b-42d3-a456-426614174011',
+      },
+      repository: shared.repository,
+      documentClient,
+      now: fixedDate,
+    });
+
+    const settled = await Promise.allSettled([first, second]);
+    const fulfilled = settled.filter((entry) => entry.status === 'fulfilled');
+    const rejected = settled.filter((entry) => entry.status === 'rejected');
+
+    expect(documentClient.generate).toHaveBeenCalledTimes(1);
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toMatchObject({
+      status: 'rejected',
+      reason: expect.objectContaining({
+        code: 'COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS',
+      }),
+    });
+    const success = (fulfilled[0] as PromiseFulfilledResult<{
+      result: { generationId: string; files: unknown[] };
+    }>).value;
+    expect(success.result.generationId).toBe('generation-1');
+    expect(success.result.files).toHaveLength(2);
+    expect(shared.getDraft().resultMetadata).toMatchObject({
+      generationId: 'generation-1',
+    });
+    expect(shared.claims.size).toBe(0);
+  });
+
+  it('replays the same operation after a held claim without a second document-service call', async () => {
+    const shared = makeSharedClaimRepository();
+    const documentClient = {
+      generate: vi.fn(async () => ({
+        status: 'success' as const,
+        generationId: 'generation-replay',
+        templateCode: 'mikoton-commercial-proposal' as const,
+        templateVersion: '1' as const,
+        generatedAt: '2026-07-12T10:11:12.000Z',
+        files: [
+          {
+            format: 'xlsx' as const,
+            fileName: 'cp.xlsx',
+            contentType:
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            size: 10,
+            sha256: 'a'.repeat(64),
+            downloadUrl: 'https://documents.test/cp.xlsx',
+          },
+          {
+            format: 'pdf' as const,
+            fileName: 'cp.pdf',
+            contentType: 'application/pdf',
+            size: 10,
+            sha256: 'b'.repeat(64),
+            downloadUrl: 'https://documents.test/cp.pdf',
+          },
+        ],
+      })),
+    };
+
+    const first = await generateCommercialProposalDocuments({
+      input: {
+        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+        idempotencyKey: generationIdempotencyKey,
+      },
+      repository: shared.repository,
+      documentClient,
+      now: fixedDate,
+    });
+
+    const second = await generateCommercialProposalDocuments({
+      input: {
+        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+        idempotencyKey: generationIdempotencyKey,
+      },
+      repository: shared.repository,
+      documentClient,
+      now: fixedDate,
+    });
+
+    expect(documentClient.generate).toHaveBeenCalledTimes(1);
+    expect(first.generated).toBe(true);
+    expect(second.generated).toBe(false);
+    expect(second.result).toEqual(first.result);
+  });
+
+  it('recovers a stale generation claim after lease expiry', async () => {
+    const shared = makeSharedClaimRepository();
+    shared.claims.set('123e4567-e89b-42d3-a456-426614174002', {
+      id: 'stale-claim',
+      proposalKey: '123e4567-e89b-42d3-a456-426614174002',
+      operationId: '123e4567-e89b-42d3-a456-426614174099',
+      editorRevision: 1,
+      fingerprint: 'stale',
+      leaseExpiresAt: '2020-01-01T00:00:00.000Z',
+    });
+    shared.setDraft(makeDraft({
+      id: '123e4567-e89b-42d3-a456-426614174002',
+      status: 'GENERATING',
+    }));
+
+    const documentClient = {
+      generate: vi.fn(async () => ({
+        status: 'success' as const,
+        generationId: 'generation-recovered',
+        templateCode: 'mikoton-commercial-proposal' as const,
+        templateVersion: '1' as const,
+        generatedAt: '2026-07-12T10:11:12.000Z',
+        files: [
+          {
+            format: 'xlsx' as const,
+            fileName: 'cp.xlsx',
+            contentType:
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            size: 10,
+            sha256: 'a'.repeat(64),
+            downloadUrl: 'https://documents.test/cp.xlsx',
+          },
+          {
+            format: 'pdf' as const,
+            fileName: 'cp.pdf',
+            contentType: 'application/pdf',
+            size: 10,
+            sha256: 'b'.repeat(64),
+            downloadUrl: 'https://documents.test/cp.pdf',
+          },
+        ],
+      })),
+    };
+
+    const result = await generateCommercialProposalDocuments({
+      input: {
+        commercialProposalId: '123e4567-e89b-42d3-a456-426614174002',
+        idempotencyKey: generationIdempotencyKey,
+      },
+      repository: shared.repository,
+      documentClient,
+      now: fixedDate,
+    });
+
+    expect(result.generated).toBe(true);
+    expect(documentClient.generate).toHaveBeenCalledTimes(1);
+    expect(shared.claims.size).toBe(0);
+  });
+
+  it('keeps distinct finalNumberKey values for parallel generation of different proposals', async () => {
+    const claims = new Map<string, {
+      id: string;
+      proposalKey: string;
+      operationId: string;
+      editorRevision: number;
+      fingerprint: string;
+      leaseExpiresAt: string;
+    }>();
+    const drafts = new Map([
+      ['proposal-a', makeDraft({ id: 'proposal-a', number: 'Черновик', finalNumberKey: null })],
+      ['proposal-b', makeDraft({ id: 'proposal-b', number: 'Черновик', finalNumberKey: null })],
+    ]);
+    const keys: string[] = [];
+
+    const repository: CommercialProposalRepository = {
+      ...makeRepository(),
+      getCommercialProposal: vi.fn(async (id) => drafts.get(id)!),
+      updateCommercialProposal: vi.fn(async (id, patch) => {
+        if (
+          typeof patch.finalNumberKey === 'string' &&
+          keys.includes(patch.finalNumberKey) &&
+          drafts.get(id)?.finalNumberKey !== patch.finalNumberKey
+        ) {
+          throw new Error('duplicate key value violates unique constraint on finalNumberKey');
+        }
+        const next = { ...drafts.get(id)!, ...patch };
+        drafts.set(id, next);
+        if (typeof patch.finalNumberKey === 'string' && !keys.includes(patch.finalNumberKey)) {
+          keys.push(patch.finalNumberKey);
+        }
+        return next;
+      }),
+      listCommercialProposalFinalNumberKeys: vi.fn(async () => [...keys]),
+      createGenerationClaim: vi.fn(async (claim) => {
+        if (claims.has(claim.proposalKey)) {
+          throw new Error('duplicate key value violates unique constraint');
+        }
+        const created = { id: `claim-${claims.size + 1}`, ...claim };
+        claims.set(claim.proposalKey, created);
+        return created;
+      }),
+      findGenerationClaimByProposalKey: vi.fn(async (key) => claims.get(key) ?? null),
+      deleteGenerationClaim: vi.fn(async (id) => {
+        for (const [key, claim] of claims.entries()) {
+          if (claim.id === id) claims.delete(key);
+        }
+      }),
+      isDuplicateConflict: vi.fn((error) =>
+        /duplicate|unique|already exists|constraint/i.test(
+          error instanceof Error ? error.message : String(error),
+        ),
+      ),
+    };
+
+    const documentClient = {
+      generate: vi.fn(async ({ idempotencyKey }: { idempotencyKey: string }) => ({
+        status: 'success' as const,
+        generationId: `generation-${idempotencyKey}`,
+        templateCode: 'mikoton-commercial-proposal' as const,
+        templateVersion: '1' as const,
+        generatedAt: '2026-07-12T10:11:12.000Z',
+        files: [
+          {
+            format: 'xlsx' as const,
+            fileName: `${idempotencyKey}.xlsx`,
+            contentType:
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            size: 10,
+            sha256: 'a'.repeat(64),
+            downloadUrl: `https://documents.test/${idempotencyKey}.xlsx`,
+          },
+          {
+            format: 'pdf' as const,
+            fileName: `${idempotencyKey}.pdf`,
+            contentType: 'application/pdf',
+            size: 10,
+            sha256: 'b'.repeat(64),
+            downloadUrl: `https://documents.test/${idempotencyKey}.pdf`,
+          },
+        ],
+      })),
+    };
+
+    const [left, right] = await Promise.all([
+      generateCommercialProposalDocuments({
+        input: {
+          commercialProposalId: 'proposal-a',
+          idempotencyKey: '123e4567-e89b-42d3-a456-426614174021',
+        },
+        repository,
+        documentClient,
+        now: fixedDate,
+      }),
+      generateCommercialProposalDocuments({
+        input: {
+          commercialProposalId: 'proposal-b',
+          idempotencyKey: '123e4567-e89b-42d3-a456-426614174022',
+        },
+        repository,
+        documentClient,
+        now: fixedDate,
+      }),
+    ]);
+
+    expect(documentClient.generate).toHaveBeenCalledTimes(2);
+    expect(left.commercialProposal.finalNumberKey).not.toBe(
+      right.commercialProposal.finalNumberKey,
+    );
+    expect(new Set([
+      left.commercialProposal.finalNumberKey,
+      right.commercialProposal.finalNumberKey,
+    ]).size).toBe(2);
   });
 });

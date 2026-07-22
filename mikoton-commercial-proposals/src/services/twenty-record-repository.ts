@@ -956,6 +956,11 @@ export class TwentyRecordRepository
     const item = response.catalogItem as
       | {
           id: string;
+          name?: string | null;
+          itemType?: string | null;
+          defaultBlock?: string | null;
+          defaultUnit?: string | null;
+          sortOrder?: number | null;
           isActive?: boolean | null;
           currencyCode?: string | null;
           defaultPrice?: number | null;
@@ -966,11 +971,93 @@ export class TwentyRecordRepository
 
     if (item == null) return null;
     const price = resolveCatalogItemPrice(item);
+    const amountMicros = item.price?.amountMicros;
     return {
       id: item.id,
+      name: typeof item.name === 'string' ? item.name : '',
+      itemType: typeof item.itemType === 'string' ? item.itemType : '',
+      defaultBlock: typeof item.defaultBlock === 'string' ? item.defaultBlock : '',
+      defaultUnit: typeof item.defaultUnit === 'string' ? item.defaultUnit : '',
+      sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : Number.NaN,
       isActive: item.isActive === true && price.valid,
+      amountMicros:
+        typeof amountMicros === 'number' && Number.isSafeInteger(amountMicros)
+          ? amountMicros
+          : Number.NaN,
       currencyCode: price.currencyCode,
     };
+  }
+
+  async createGenerationClaim(claim: {
+    proposalKey: string;
+    operationId: string;
+    editorRevision: number;
+    fingerprint: string;
+    leaseExpiresAt: string;
+  }) {
+    const response = await this.client.mutation({
+      createCommercialProposalGenerationClaim: {
+        __args: {
+          data: {
+            proposalKey: claim.proposalKey,
+            operationId: claim.operationId,
+            editorRevision: claim.editorRevision,
+            fingerprint: claim.fingerprint,
+            leaseExpiresAt: claim.leaseExpiresAt,
+          },
+        },
+        id: true,
+        proposalKey: true,
+        operationId: true,
+        editorRevision: true,
+        fingerprint: true,
+        leaseExpiresAt: true,
+        createdAt: true,
+      },
+    });
+    const created = response.createCommercialProposalGenerationClaim as {
+      id: string;
+      proposalKey: string;
+      operationId: string;
+      editorRevision: number;
+      fingerprint: string;
+      leaseExpiresAt: string;
+      createdAt?: string | null;
+    };
+    return created;
+  }
+
+  async findGenerationClaimByProposalKey(proposalKey: string) {
+    const response = await (this.client.query as (selection: unknown) => Promise<any>)({
+      commercialProposalGenerationClaims: {
+        __args: {
+          filter: { proposalKey: { eq: proposalKey } },
+          first: 1,
+        },
+        edges: {
+          node: {
+            id: true,
+            proposalKey: true,
+            operationId: true,
+            editorRevision: true,
+            fingerprint: true,
+            leaseExpiresAt: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+    const node = response.commercialProposalGenerationClaims?.edges?.[0]?.node;
+    return node ?? null;
+  }
+
+  async deleteGenerationClaim(id: string) {
+    await this.client.mutation({
+      deleteCommercialProposalGenerationClaim: {
+        __args: { id },
+        id: true,
+      },
+    });
   }
 
   async updateCommercialProposalForEditor(

@@ -7,7 +7,10 @@ Persisted `AGGREGATE_V2` proposals can be generated with schema `2.0` into macro
 Twenty App for creating a `CommercialProposal` draft from a selected
 Opportunity in Twenty CRM.
 
-Target Twenty instance: `http://192.168.100.11:3000`.
+Target Twenty instance: `$TWENTY_API_URL` (for example
+`https://your-twenty-instance.example`).
+
+App version: `0.1.48`.
 
 Target server and SDK versions:
 
@@ -17,11 +20,13 @@ Target server and SDK versions:
 
 ## Production Closure Status
 
-Prompt 5.5 hardening is implemented on the `0.1.x` release-candidate line. Do
-not promote the App to `1.0.0` until the final commit has a green CI run and the
-operator acceptance in `docs/phase-5-5-production-acceptance.md` is complete.
-The target deployment remains private and is performed only from a machine on
-the internal network.
+Prompt 5.5 hardening is implemented on App `0.1.48` (generation claim, currency
+normalization, catalog cursor pagination, worker storage credentials
+fail-closed). Do not promote the App to `1.0.0` until the final commit has a
+green CI run and the operator acceptance in
+`docs/phase-5-5-production-acceptance.md` is complete. The target deployment
+remains private and is performed only from a machine on the internal network.
+Verdict: **NOT READY** until target/operator checks are recorded.
 
 ## Scope
 
@@ -38,6 +43,8 @@ Implemented in this phase:
 - required `idempotencyKey` with unique metadata index and conflict recovery;
 - database-backed yearly final-number reservation through nullable unique
   `finalNumberKey` (`YYYY:NNN`), with bounded conflict retry;
+- generation claim via unique `CommercialProposalGenerationClaim.proposalKey`
+  (5-minute `leaseExpiresAt` stale-lock recovery);
 - structured application errors;
 - draft metadata fields for source, template, language and payload snapshot.
 - functional vertical slice from Opportunity command menu to a
@@ -51,8 +58,11 @@ Implemented in this phase:
     section on its business card.
 - native Twenty `CURRENCY` price field for catalog items, with a safe API
   backfill utility for existing legacy prices;
-- cursor-paginated catalog search and migration utilities;
+- currency normalization for null / empty / whitespace / `rub` → `RUB`;
+- opaque cursor-paginated catalog search with client-side filtering;
 - fail-closed document-service authentication and bounded request bodies;
+- fail-closed `DOCUMENT_STORAGE_ACCESS_KEY` / `DOCUMENT_STORAGE_SECRET_KEY`
+  (no silent `MINIO_ACCESS_KEY` fallback);
 - `en`/`ru-RU` front-component localization inherited from the Twenty execution
   locale. App metadata labels are Russian on the current target because SDK
   2.20 does not localize navigation/object/view metadata at runtime.
@@ -75,6 +85,8 @@ yarn.cmd typecheck
 yarn.cmd test:unit
 yarn.cmd test:document-service
 yarn.cmd test:integration
+yarn.cmd test:secrets
+yarn.cmd test:private-urls
 yarn.cmd twenty dev:build .
 yarn.cmd twenty dev:build --tarball .
 ```
@@ -135,7 +147,7 @@ Before the first deploy, configure `mikoton-target` once inside WSL:
 ```bash
 corepack yarn twenty remote:add \
   --as mikoton-target \
-  --url http://192.168.100.11:3000 \
+  --url "$TWENTY_API_URL" \
   --api-key "<target-api-key>"
 corepack yarn twenty remote:status
 ```
@@ -160,7 +172,7 @@ run `build.bat --clean` once before the first WSL production build.
 ### WSL networking for private deploy
 
 `deploy.bat` must reach the internal Twenty host from inside WSL. On some WSL2
-NAT setups Windows can open `http://192.168.100.11:3000`, while WSL cannot.
+NAT setups Windows can open `$TWENTY_API_URL`, while WSL cannot.
 
 If deploy fails with a WSL network error, enable mirrored networking once:
 
@@ -231,8 +243,8 @@ yarn.cmd test:integration
 ```
 
 Target UI smoke and restricted-user checks require access to the target Twenty
-Workspace. The app must not be considered ready for Phase 4 until those checks
-are run and documented in `docs/smoke-test-report.md`.
+Workspace. Operator acceptance for Phase 5.5 remains incomplete until documented
+in `docs/phase-5-5-production-acceptance.md`.
 
 ## Opportunity to Draft Flow
 
@@ -297,8 +309,7 @@ Local document-service test:
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path .\document-service).Path
-& "C:\Users\user\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" `
-  -m unittest discover -s .\document-service\tests -v
+python -m unittest discover -s .\document-service\tests -v
 ```
 
 Generation route:
@@ -312,7 +323,9 @@ The route requires server-side app variables:
 - `DOCUMENT_SERVICE_URL`
 - `DOCUMENT_SERVICE_SECRET`
 
-See `docs/document-generation.md`, `docs/template-mapping-v1.md` and
+Same-proposal concurrent generation is serialized by a unique generation claim.
+A second in-progress attempt returns `COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS`
+(HTTP 409). See `docs/document-generation.md`, `docs/template-mapping-v1.md` and
 `docs/document-service-runbook.md`.
 
 ## Private Deployment
@@ -328,7 +341,7 @@ deploy.bat
 ```
 
 `deploy.bat` bumps the patch version, runs the WSL build, private publishes to
-`mikoton-target`, and installs or upgrades the app on `http://192.168.100.11:3000`.
+`mikoton-target`, and installs or upgrades the app on `$TWENTY_API_URL`.
 
 See `docs/private-deployment.md`, `docs/tarball-build.md`, `docs/upgrade.md`
 and `docs/rollback.md`.

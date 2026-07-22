@@ -178,7 +178,13 @@ export type CommercialProposalAggregateRepository = {
   deleteStage: (id: string) => Promise<void>;
   getCatalogItemForSelection?: (id: string) => Promise<{
     id: string;
+    name: string;
+    itemType: string;
+    defaultBlock: string;
+    defaultUnit: string;
+    sortOrder: number;
     isActive: boolean;
+    amountMicros: number;
     currencyCode: string;
   } | null>;
   updateCommercialProposalForEditor: (
@@ -738,13 +744,26 @@ export const saveCommercialProposalEditor = async ({
           'Позиция каталога не найдена или недоступна',
         );
       }
-      if (!catalogItem.isActive) {
+      const name = catalogItem.name.trim();
+      const defaultBlock = catalogItem.defaultBlock.trim();
+      const defaultUnit = catalogItem.defaultUnit.trim();
+      const currencyCode = catalogItem.currencyCode.trim().toUpperCase();
+      if (
+        name === '' ||
+        defaultBlock === '' ||
+        defaultUnit === '' ||
+        !Number.isInteger(catalogItem.sortOrder) ||
+        !Number.isSafeInteger(catalogItem.amountMicros) ||
+        catalogItem.amountMicros < 0 ||
+        !/^[A-Z]{3}$/.test(currencyCode) ||
+        !catalogItem.isActive
+      ) {
         throw new ApplicationError(
           'CATALOG_ITEM_NOT_SELECTABLE',
-          'Неактивную позицию каталога нельзя добавить в коммерческое предложение',
+          'Позиция каталога не проходит каноническую проверку и не может быть выбрана',
         );
       }
-      if (catalogItem.currencyCode !== item.currencyCode) {
+      if (currencyCode !== item.currencyCode) {
         throw new ApplicationError(
           'CATALOG_ITEM_NOT_SELECTABLE',
           'Валюта позиции каталога не совпадает с валютой коммерческого предложения',

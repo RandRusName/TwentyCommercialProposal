@@ -25,6 +25,7 @@ from mikoton_document_service.generator import (
     generate_xlsx,
     generate_pdf_from_xlsx,
     generate_documents,
+    storage_from_environment,
 )
 from mikoton_document_service.server import (
     Handler,
@@ -545,6 +546,21 @@ class DocumentServiceSecurityTests(unittest.TestCase):
             )
         self.assertEqual(status, 400)
         self.assertEqual(payload["error"]["code"], "PAYLOAD_INVALID")
+
+    def test_s3_storage_fails_closed_without_worker_credentials(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "DOCUMENT_STORAGE_TYPE": "s3-compatible",
+                "MINIO_ENDPOINT": "http://minio:9000",
+                "MINIO_ACCESS_KEY": "root-must-not-be-used",
+                "MINIO_SECRET_KEY": "root-must-not-be-used",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(DocumentGenerationError) as raised:
+                storage_from_environment()
+            self.assertEqual(raised.exception.code, "SERVICE_NOT_READY")
 
 
 if __name__ == "__main__":

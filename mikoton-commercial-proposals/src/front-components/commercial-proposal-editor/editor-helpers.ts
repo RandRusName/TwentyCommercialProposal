@@ -328,6 +328,30 @@ export const isAggregateReadyForGeneration = (
   validation.valid &&
   (preview ?? 0) > 0;
 
+export const normalizeCurrencyCode = (value: string | null | undefined) =>
+  value?.trim().toUpperCase() || null;
+
+export const resolveCurrencyWhenAddingCatalogItems = ({
+  currentCurrency,
+  catalogCurrencies,
+}: {
+  currentCurrency: string | null | undefined;
+  catalogCurrencies: Array<string | null | undefined>;
+}):
+  | { ok: true; currencyCode: string }
+  | { ok: false; reason: 'mixed' | 'mismatch' | 'missing' } => {
+  const normalizedCatalog = catalogCurrencies.map(normalizeCurrencyCode);
+  const currencyCode = normalizedCatalog[0] ?? null;
+  if (currencyCode === null || normalizedCatalog.some((entry) => entry !== currencyCode)) {
+    return { ok: false, reason: currencyCode === null ? 'missing' : 'mixed' };
+  }
+  const headerCurrency = normalizeCurrencyCode(currentCurrency);
+  if (headerCurrency !== null && headerCurrency !== currencyCode) {
+    return { ok: false, reason: 'mismatch' };
+  }
+  return { ok: true, currencyCode };
+};
+
 export const formatMoney = (amount: number | null, currencyCode: string | null) => {
   if (amount === null) return 'Не указано';
   const currency = currencyCode?.trim().toUpperCase();

@@ -1,0 +1,23 @@
+import { defineIndex } from 'twenty-sdk/define';
+
+import {
+  COMMERCIAL_PROPOSAL_GENERATION_CLAIM_FIELD_PROPOSAL_KEY_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_GENERATION_CLAIM_INDEX_PROPOSAL_KEY_UNIVERSAL_IDENTIFIER,
+  COMMERCIAL_PROPOSAL_GENERATION_CLAIM_OBJECT_UNIVERSAL_IDENTIFIER,
+} from 'src/constants/universal-identifiers';
+
+export default defineIndex({
+  universalIdentifier:
+    COMMERCIAL_PROPOSAL_GENERATION_CLAIM_INDEX_PROPOSAL_KEY_UNIVERSAL_IDENTIFIER,
+  objectUniversalIdentifier:
+    COMMERCIAL_PROPOSAL_GENERATION_CLAIM_OBJECT_UNIVERSAL_IDENTIFIER,
+  indexType: 'BTREE',
+  isUnique: true,
+  fields: [
+    {
+      universalIdentifier: '02ed9335-f8b9-4734-97fa-1050dde8813c',
+      fieldUniversalIdentifier:
+        COMMERCIAL_PROPOSAL_GENERATION_CLAIM_FIELD_PROPOSAL_KEY_UNIVERSAL_IDENTIFIER,
+    },
+  ],
+});

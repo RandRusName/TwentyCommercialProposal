@@ -46,7 +46,7 @@ services:
     volumes:
       - mikoton-commercial-proposals-minio:/data
     ports:
-      - "192.168.100.11:9000:9000"
+      - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]

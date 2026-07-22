@@ -8,6 +8,10 @@ default), authentication uses constant-time comparison, and production compose
 does not publish the service port. `/readyz` must pass template, mapping,
 LibreOffice, writable-temp and storage checks before generation is enabled.
 
+For s3-compatible storage, `DOCUMENT_STORAGE_ACCESS_KEY` and
+`DOCUMENT_STORAGE_SECRET_KEY` are required. There is no silent fallback to
+`MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` or MinIO root credentials.
+
 ## Local Python Run
 
 From `mikoton-commercial-proposals/`:
@@ -57,12 +61,14 @@ Start:
 
 ```powershell
 $env:DOCUMENT_SERVICE_SECRET = "<generated-secret>"
-$env:MINIO_ACCESS_KEY = "<minio-access-key>"
-$env:MINIO_SECRET_KEY = "<minio-secret-key>"
+$env:MINIO_ROOT_USER = "<minio-root-user>"
+$env:MINIO_ROOT_PASSWORD = "<minio-root-password>"
+$env:DOCUMENT_STORAGE_ACCESS_KEY = "<worker-access-key>"
+$env:DOCUMENT_STORAGE_SECRET_KEY = "<worker-secret-key>"
 docker compose -f .\docker-compose.document-service.yml up -d --build
 ```
 
-Target service URL for application variables:
+Target service URL for application variables (Docker network DNS):
 
 ```text
 http://document-service:8010
@@ -92,6 +98,8 @@ Document service:
 - `DOCUMENT_SERVICE_SECRET`
 - `DOCUMENT_STORAGE_TYPE`
 - `DOCUMENT_STORAGE_PATH`
+- `DOCUMENT_STORAGE_ACCESS_KEY` (required when storage is s3-compatible)
+- `DOCUMENT_STORAGE_SECRET_KEY` (required when storage is s3-compatible)
 - `DOCUMENT_PUBLIC_BASE_URL`
 - `DOCUMENT_TEMP_PATH`
 - `LIBREOFFICE_BINARY`
@@ -99,19 +107,21 @@ Document service:
 - `GENERATION_TIMEOUT_SECONDS`
 - `DOCUMENT_SIGNED_URL_TTL_SECONDS`
 
-MinIO/S3:
+MinIO/S3 endpoint (bucket and signing host):
 
 - `MINIO_ENDPOINT`
-- `MINIO_ACCESS_KEY`
-- `MINIO_SECRET_KEY`
 - `MINIO_BUCKET`
 - `MINIO_SECURE`
 - `MINIO_PUBLIC_BASE_URL`
+- `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` (compose bootstrap only; not used by the worker)
 
 `MINIO_ENDPOINT` is used for upload/storage access from the document-service
 container. `MINIO_PUBLIC_BASE_URL`, when set, is used to create the presigned
 download URL, so it must be the browser-reachable endpoint. Do not rewrite the
 host after signing; S3 signatures include the host.
+
+Do not set `MINIO_ACCESS_KEY` expecting the worker to use it — the worker reads
+only `DOCUMENT_STORAGE_ACCESS_KEY` / `DOCUMENT_STORAGE_SECRET_KEY`.
 
 ## Security
 
@@ -122,6 +132,7 @@ host after signing; S3 signatures include the host.
 - Do not accept template paths from clients.
 - Keep the bucket private.
 - Use expiring presigned URLs or a private authenticated proxy.
+- Keep worker credentials least-privilege and distinct from MinIO root.
 
 ## PDF Diagnostics
 

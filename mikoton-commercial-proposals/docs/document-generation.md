@@ -8,6 +8,27 @@ uses the Europe/Moscow business date and a database-backed unique
 `finalNumberKey`. A network-ambiguous retry reuses its operation only while the
 proposal id, revision and canonical fingerprint are unchanged.
 
+## Generation Claim
+
+Same-proposal concurrency is serialized by
+`CommercialProposalGenerationClaim`:
+
+1. Compute content fingerprint from the canonical draft + aggregate.
+2. `acquireGenerationClaim` creates a row with unique `proposalKey` (proposal
+   id), storing `operationId`, `editorRevision`, `fingerprint`, and
+   `leaseExpiresAt` (now + 5 minutes).
+3. Unique-index conflict:
+   - same `operationId` + revision + fingerprint → reuse claim (same-op replay);
+   - different owner, lease unexpired →
+     `COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS` (HTTP 409);
+   - lease expired → delete stale claim and create a new one (stale-lock
+     recovery).
+4. Before calling the document-service, re-read revision + fingerprint; if they
+   no longer match the claim, abort without generating (pre-document-service
+   re-check).
+5. On terminal success or failure paths, `releaseGenerationClaim` deletes the
+   claim row (best-effort).
+
 Aggregate proposals use macro-free XLSX template v2 and schema `2.0`. It supports 50 items and 10 stages, keeps percentage formulas and server-calculated cached totals, and is exported to PDF by LibreOffice. Legacy proposals keep the v1 path.
 
 Twenty attachment is checkpointed after each format. Retry matches `generationId + format + sha256` and attaches only a missing format.
@@ -19,7 +40,9 @@ Flow:
 ```text
 CommercialProposal DRAFT / FAILED
 -> authenticated app route
+-> acquire generation claim (unique proposalKey)
 -> status GENERATING
+-> pre-call re-check of editorRevision + fingerprint
 -> external document-service
 -> patched XLSX without VBA/macros
 -> LibreOffice PDF export from that XLSX
@@ -27,6 +50,7 @@ CommercialProposal DRAFT / FAILED
 -> Twenty file upload and CommercialProposal attachments
 -> resultMetadata
 -> status GENERATED / FAILED
+-> release generation claim
 ```
 
 ## Current Implementation
@@ -59,7 +83,10 @@ The document-service supports:
 - `DOCUMENT_STORAGE_TYPE=local`
 - `DOCUMENT_STORAGE_TYPE=s3-compatible`
 
-Target deployment uses MinIO/S3-compatible storage. `resultMetadata.files` stores browser-usable download metadata plus Twenty file attachment metadata:
+Target deployment uses MinIO/S3-compatible storage with required worker
+credentials `DOCUMENT_STORAGE_ACCESS_KEY` / `DOCUMENT_STORAGE_SECRET_KEY`
+(fail-closed; no `MINIO_ACCESS_KEY` fallback). `resultMetadata.files` stores
+browser-usable download metadata plus Twenty file attachment metadata:
 
 ```json
 {
@@ -80,10 +107,8 @@ No `file://` URL or container path is returned by the target storage flow.
 
 After the document-service returns XLSX/PDF files, the app logic function downloads them server-side, validates `size` and `sha256`, uploads them through the Twenty metadata file upload API for the standard `Attachment.file` field, and creates standard `Attachment` records with `targetCommercialProposalId`. This fills the CommercialProposal record `Files` tab. DOCX is not generated and there is no DOCX URL field in the app metadata.
 
-The target smoke on 2026-07-17 confirmed two generated attachments for `CommercialProposal df61e378-56c2-4914-8d9d-4c2f9a2110c0`:
-
-- `КП-011-от-17.07.2026-SMOKE-XLSX-2026-07-17T14-25-56-829Z.xlsx`
-- `КП-011-от-17.07.2026-SMOKE-XLSX-2026-07-17T14-25-56-829Z.pdf`
+Historical target smoke evidence (pre-5.5 claim) for attachments is retained in
+older smoke reports; re-verify on the `0.1.48` target install before acceptance.
 
 ## App Configuration
 
@@ -109,6 +134,10 @@ Implemented transitions:
 ## Idempotency
 
 The generation route accepts an operation UUID `idempotencyKey`. If the same key already produced a `GENERATED` result stored in `resultMetadata`, the route returns the existing result instead of regenerating files or creating duplicate attachments.
+
+Same-operation claim replay (identical `idempotencyKey` / `operationId` with
+unchanged revision and fingerprint) reuses the generation claim instead of
+returning 409.
 
 The document-service also derives deterministic storage keys from:
 

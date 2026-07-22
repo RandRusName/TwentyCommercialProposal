@@ -45,6 +45,7 @@ export type ApplicationErrorCode =
   | 'CATALOG_SEARCH_FAILED'
   | 'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED'
   | 'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED'
+  | 'COMMERCIAL_PROPOSAL_GENERATION_IN_PROGRESS'
   | 'DOCUMENT_SCHEMA_TEMPLATE_MISMATCH'
   | 'SNAPSHOT_HASH_MISMATCH'
   | 'GENERATION_IDEMPOTENCY_CONFLICT'
@@ -212,6 +213,35 @@ export type CommercialProposalRepository = {
   getCompanyContext?: (
     companyId: string,
   ) => Promise<{ id: string; name: string } | null>;
+  createGenerationClaim?: (
+    claim: {
+      proposalKey: string;
+      operationId: string;
+      editorRevision: number;
+      fingerprint: string;
+      leaseExpiresAt: string;
+    },
+  ) => Promise<{
+    id: string;
+    proposalKey: string;
+    operationId: string;
+    editorRevision: number;
+    fingerprint: string;
+    leaseExpiresAt: string;
+    createdAt?: string | null;
+  }>;
+  findGenerationClaimByProposalKey?: (
+    proposalKey: string,
+  ) => Promise<{
+    id: string;
+    proposalKey: string;
+    operationId: string;
+    editorRevision: number;
+    fingerprint: string;
+    leaseExpiresAt: string;
+    createdAt?: string | null;
+  } | null>;
+  deleteGenerationClaim?: (id: string) => Promise<void>;
   isDuplicateConflict?: (error: unknown) => boolean;
 };
 
@@ -779,7 +809,7 @@ const SHA256_CONSTANTS = [
   0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ];
 
-const sha256 = (value: string) => {
+export const sha256Hex = (value: string) => {
   const bytes = Array.from(new TextEncoder().encode(value));
   const bitLength = bytes.length * 8;
   bytes.push(0x80);
@@ -827,7 +857,7 @@ const sha256 = (value: string) => {
 };
 
 export const calculateSnapshotHash = (payload: DocumentGenerationPayload) =>
-  sha256(canonicalJson(payload));
+  sha256Hex(canonicalJson(payload));
 
 const generationValidationError = (message: string) =>
   new ApplicationError(
@@ -1027,7 +1057,13 @@ export const generateCommercialProposalDocuments = async ({
   documentClient: DocumentGenerationClient;
   now?: Date;
 }) => {
-  const draft = await repository.getCommercialProposal(input.commercialProposalId);
+  const {
+    acquireGenerationClaim,
+    calculateGenerationContentFingerprint,
+    releaseGenerationClaim,
+  } = await import('src/domain/generation-claim');
+
+  let draft = await repository.getCommercialProposal(input.commercialProposalId);
 
   if (
     draft.status === 'GENERATED' &&
@@ -1040,14 +1076,36 @@ export const generateCommercialProposalDocuments = async ({
     };
   }
 
-  if (draft.status !== 'DRAFT' && draft.status !== 'FAILED') {
+  if (
+    draft.status !== 'DRAFT' &&
+    draft.status !== 'FAILED' &&
+    draft.status !== 'GENERATING'
+  ) {
     throw new ApplicationError(
       'COMMERCIAL_PROPOSAL_INVALID_STATUS',
       'Документ можно сформировать только из статуса DRAFT или FAILED',
     );
   }
 
-  const aggregate =
+  if (
+    repository.createGenerationClaim === undefined ||
+    repository.findGenerationClaimByProposalKey === undefined ||
+    repository.deleteGenerationClaim === undefined
+  ) {
+    throw new ApplicationError(
+      'INTERNAL_ERROR',
+      'Generation claim repository is not configured',
+    );
+  }
+
+  const claimRepository = {
+    createGenerationClaim: repository.createGenerationClaim,
+    findGenerationClaimByProposalKey: repository.findGenerationClaimByProposalKey,
+    deleteGenerationClaim: repository.deleteGenerationClaim,
+    isDuplicateConflict: repository.isDuplicateConflict,
+  };
+
+  let aggregate =
     draft.contentModelVersion === 'AGGREGATE_V2'
       ? await repository.getCommercialProposalAggregate?.(draft.id)
       : undefined;
@@ -1061,228 +1119,314 @@ export const generateCommercialProposalDocuments = async ({
 
   if (aggregate !== undefined) validateAggregateForGeneration(aggregate);
 
-  const opportunity = await repository
-    .getOpportunityContext(draft.opportunityId)
-    .catch((error) => {
-      if (aggregate === undefined) throw error;
-      return null;
-    });
-  let company: { id: string; name: string } | null = null;
-  if (draft.companyId !== null) {
-    try {
-      company = (await repository.getCompanyContext?.(draft.companyId)) ?? null;
-    } catch (error) {
+  const fingerprint = calculateGenerationContentFingerprint({ draft, aggregate });
+  let claim = await acquireGenerationClaim({
+    repository: claimRepository,
+    proposalKey: draft.id,
+    operationId: input.idempotencyKey,
+    editorRevision: draft.editorRevision,
+    fingerprint,
+    now,
+  });
+
+  try {
+    draft = await repository.getCommercialProposal(input.commercialProposalId);
+    if (
+      draft.status === 'GENERATED' &&
+      hasGenerationResult(draft.resultMetadata, input.idempotencyKey)
+    ) {
+      await releaseGenerationClaim({ repository: claimRepository, claim });
+      return {
+        commercialProposal: draft,
+        generated: false,
+        result: draft.resultMetadata,
+      };
+    }
+
+    if (draft.status !== 'DRAFT' && draft.status !== 'FAILED' && draft.status !== 'GENERATING') {
       throw new ApplicationError(
-        'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
-        'Компания коммерческого предложения не найдена или недоступна',
-        error,
+        'COMMERCIAL_PROPOSAL_INVALID_STATUS',
+        'Документ можно сформировать только из статуса DRAFT или FAILED',
       );
     }
+
+    aggregate =
+      draft.contentModelVersion === 'AGGREGATE_V2'
+        ? await repository.getCommercialProposalAggregate?.(draft.id)
+        : undefined;
+    if (draft.contentModelVersion === 'AGGREGATE_V2' && aggregate === undefined) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
+        'Не удалось загрузить сохранённый состав коммерческого предложения',
+      );
+    }
+    if (aggregate !== undefined) validateAggregateForGeneration(aggregate);
+
+    const latestFingerprint = calculateGenerationContentFingerprint({
+      draft,
+      aggregate,
+    });
     if (
-      aggregate !== undefined &&
-      (company === null || company.id !== draft.companyId)
+      draft.editorRevision !== claim.editorRevision ||
+      latestFingerprint !== claim.fingerprint
     ) {
       throw new ApplicationError(
-        'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
-        'Компания коммерческого предложения не найдена или недоступна',
+        'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT',
+        'Коммерческое предложение изменилось перед началом генерации',
       );
     }
-  }
-  let generationDraft = draft;
-  let payload: DocumentGenerationPayload | null = null;
 
-  for (let attempt = 0; attempt < NUMBER_RETRY_LIMIT; attempt += 1) {
-    const finalNumber = await getFinalProposalNumber({
-      draft: generationDraft,
-      repository,
-      now,
-    });
-    const finalDraft: CommercialProposalDraft = {
-      ...generationDraft,
-      number: finalNumber.number,
-      finalNumberKey: finalNumber.finalNumberKey,
-      title:
-        aggregate === undefined
-          ? `${finalNumber.number} - ${opportunity?.name ?? draft.title}`
-          : draft.title,
-      templateCode: 'mikoton-commercial-proposal',
-      templateVersion: aggregate === undefined ? '1' : '2',
-    };
-    payload =
-      aggregate === undefined
-        ? buildDocumentGenerationPayload({
-            draft: finalDraft,
-            opportunity: opportunity as OpportunityContext,
-            now,
-          })
-        : buildDocumentGenerationPayloadV2({
-            aggregate: {
-              ...aggregate,
-              proposal: finalDraft,
-            },
-            company,
-            now,
-          });
-
-    if (aggregate !== undefined) {
-      const latest = await repository.getCommercialProposalAggregate?.(draft.id);
-      if (latest?.proposal.editorRevision !== aggregate.proposal.editorRevision) {
-        throw new ApplicationError(
-          'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT',
-          'Коммерческое предложение изменилось перед началом генерации',
-        );
-      }
-    }
-
-    try {
-      generationDraft = await repository.updateCommercialProposal(draft.id, {
-        title: finalDraft.title,
-        number: finalDraft.number,
-        finalNumberKey: finalDraft.finalNumberKey,
-        status: 'GENERATING',
-        templateCode: 'mikoton-commercial-proposal',
-        templateVersion: payload.templateVersion,
-        payloadSnapshot: payload,
-        lastError: null,
-        generatedAt: null,
+    const opportunity = await repository
+      .getOpportunityContext(draft.opportunityId)
+      .catch((error) => {
+        if (aggregate === undefined) throw error;
+        return null;
       });
-      break;
-    } catch (error) {
-      if (!isDuplicateConflict(repository, error)) {
-        throw error;
-      }
-
-      if (attempt === NUMBER_RETRY_LIMIT - 1) {
+    let company: { id: string; name: string } | null = null;
+    if (draft.companyId !== null) {
+      try {
+        company = (await repository.getCompanyContext?.(draft.companyId)) ?? null;
+      } catch (error) {
         throw new ApplicationError(
-          'COMMERCIAL_PROPOSAL_CREATE_FAILED',
-          'Не удалось выделить уникальный номер коммерческого предложения',
+          'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
+          'Компания коммерческого предложения не найдена или недоступна',
           error,
         );
       }
-
-      generationDraft = {
-        ...generationDraft,
-        number: draft.number,
-        finalNumberKey: draft.finalNumberKey,
-      };
-    }
-  }
-
-  if (payload === null) {
-    throw new ApplicationError(
-      'COMMERCIAL_PROPOSAL_CREATE_FAILED',
-      'Не удалось подготовить данные коммерческого предложения',
-    );
-  }
-
-  const snapshotHash = calculateSnapshotHash(payload);
-
-  try {
-    const result = await documentClient.generate({
-      requestId: input.idempotencyKey,
-      idempotencyKey: input.idempotencyKey,
-      snapshotHash,
-      payload,
-      requestedFormats: ['xlsx', 'pdf'],
-    });
-
-    if (
-      result.templateVersion !== payload.templateVersion ||
-      (result.schemaVersion !== undefined &&
-        result.schemaVersion !== payload.schemaVersion)
-    ) {
-      throw new ApplicationError(
-        'DOCUMENT_SCHEMA_TEMPLATE_MISMATCH',
-        'Document service returned a mismatched schema/template version',
-      );
-    }
-    if (result.snapshotHash !== undefined && result.snapshotHash !== snapshotHash) {
-      throw new ApplicationError(
-        'SNAPSHOT_HASH_MISMATCH',
-        'Document service returned a different snapshot hash',
-      );
-    }
-
-    let attachedFiles =
-      draft.resultMetadata !== null &&
-      typeof draft.resultMetadata === 'object' &&
-      'generationId' in draft.resultMetadata &&
-      draft.resultMetadata.generationId === result.generationId &&
-      'files' in draft.resultMetadata &&
-      Array.isArray(draft.resultMetadata.files)
-        ? (draft.resultMetadata.files as CommercialProposalGenerationFile[])
-        : [];
-
-    let resultMetadata: CommercialProposalResultMetadata = {
-      schemaVersion: payload.schemaVersion,
-      ...(payload.schemaVersion === '2.0' ? { snapshotHash } : {}),
-      generationId: result.generationId,
-      generationIdempotencyKey: input.idempotencyKey,
-      templateCode: result.templateCode,
-      templateVersion: result.templateVersion,
-      files: attachedFiles,
-    } as CommercialProposalResultMetadata;
-
-    for (const file of result.files) {
-      const existing = attachedFiles.find(
-        (attached) =>
-          attached.format === file.format &&
-          attached.sha256 === file.sha256 &&
-          attached.twentyFileId !== undefined,
-      );
-      if (existing !== undefined) continue;
-
-      const attached = repository.attachGeneratedFile
-        ? await repository.attachGeneratedFile(draft.id, file)
-        : ((await repository.attachGeneratedFiles?.(draft.id, [file])) ?? [file])[0];
-      if (attached === undefined) {
+      if (
+        aggregate !== undefined &&
+        (company === null || company.id !== draft.companyId)
+      ) {
         throw new ApplicationError(
-          'DOCUMENT_STORAGE_FAILED',
-          `Generated ${file.format.toUpperCase()} file was not attached`,
+          'COMMERCIAL_PROPOSAL_GENERATION_VALIDATION_FAILED',
+          'Компания коммерческого предложения не найдена или недоступна',
         );
       }
-      attachedFiles = [
-        ...attachedFiles.filter((entry) => entry.format !== attached.format),
-        attached,
-      ];
-      resultMetadata = { ...resultMetadata, files: attachedFiles };
-      generationDraft = await repository.updateCommercialProposal(draft.id, {
-        resultMetadata,
+    }
+
+    let generationDraft = draft;
+    let payload: DocumentGenerationPayload | null = null;
+
+    for (let attempt = 0; attempt < NUMBER_RETRY_LIMIT; attempt += 1) {
+      const finalNumber = await getFinalProposalNumber({
+        draft: generationDraft,
+        repository,
+        now,
       });
+      const finalDraft: CommercialProposalDraft = {
+        ...generationDraft,
+        number: finalNumber.number,
+        finalNumberKey: finalNumber.finalNumberKey,
+        title:
+          aggregate === undefined
+            ? `${finalNumber.number} - ${opportunity?.name ?? draft.title}`
+            : draft.title,
+        templateCode: 'mikoton-commercial-proposal',
+        templateVersion: aggregate === undefined ? '1' : '2',
+      };
+      payload =
+        aggregate === undefined
+          ? buildDocumentGenerationPayload({
+              draft: finalDraft,
+              opportunity: opportunity as OpportunityContext,
+              now,
+            })
+          : buildDocumentGenerationPayloadV2({
+              aggregate: {
+                ...aggregate,
+                proposal: finalDraft,
+              },
+              company,
+              now,
+            });
+
+      if (aggregate !== undefined) {
+        const latest = await repository.getCommercialProposalAggregate?.(draft.id);
+        if (latest?.proposal.editorRevision !== aggregate.proposal.editorRevision) {
+          throw new ApplicationError(
+            'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT',
+            'Коммерческое предложение изменилось перед началом генерации',
+          );
+        }
+      }
+
+      try {
+        generationDraft = await repository.updateCommercialProposal(draft.id, {
+          title: finalDraft.title,
+          number: finalDraft.number,
+          finalNumberKey: finalDraft.finalNumberKey,
+          status: 'GENERATING',
+          templateCode: 'mikoton-commercial-proposal',
+          templateVersion: payload.templateVersion,
+          payloadSnapshot: payload,
+          lastError: null,
+          generatedAt: null,
+        });
+        break;
+      } catch (error) {
+        if (!isDuplicateConflict(repository, error)) {
+          throw error;
+        }
+
+        if (attempt === NUMBER_RETRY_LIMIT - 1) {
+          throw new ApplicationError(
+            'COMMERCIAL_PROPOSAL_CREATE_FAILED',
+            'Не удалось выделить уникальный номер коммерческого предложения',
+            error,
+          );
+        }
+
+        generationDraft = {
+          ...generationDraft,
+          number: draft.number,
+          finalNumberKey: draft.finalNumberKey,
+        };
+      }
     }
 
-    const updated = await repository.updateCommercialProposal(draft.id, {
-      status: 'GENERATED',
-      templateCode: 'mikoton-commercial-proposal',
-      templateVersion: payload.templateVersion,
-      resultMetadata,
-      generatedAt: result.generatedAt,
-      lastError: null,
-    });
+    if (payload === null) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_CREATE_FAILED',
+        'Не удалось подготовить данные коммерческого предложения',
+      );
+    }
 
-    return {
-      commercialProposal: updated,
-      generated: true,
-      result: resultMetadata,
-    };
+    const preCallDraft = await repository.getCommercialProposal(draft.id);
+    const preCallAggregate =
+      preCallDraft.contentModelVersion === 'AGGREGATE_V2'
+        ? await repository.getCommercialProposalAggregate?.(draft.id)
+        : undefined;
+    const preCallFingerprint = calculateGenerationContentFingerprint({
+      draft: preCallDraft,
+      aggregate: preCallAggregate,
+    });
+    if (
+      preCallDraft.editorRevision !== claim.editorRevision ||
+      preCallFingerprint !== claim.fingerprint
+    ) {
+      throw new ApplicationError(
+        'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT',
+        'Коммерческое предложение изменилось перед вызовом document-service',
+      );
+    }
+
+    const snapshotHash = calculateSnapshotHash(payload);
+
+    try {
+      const result = await documentClient.generate({
+        requestId: input.idempotencyKey,
+        idempotencyKey: input.idempotencyKey,
+        snapshotHash,
+        payload,
+        requestedFormats: ['xlsx', 'pdf'],
+      });
+
+      if (
+        result.templateVersion !== payload.templateVersion ||
+        (result.schemaVersion !== undefined &&
+          result.schemaVersion !== payload.schemaVersion)
+      ) {
+        throw new ApplicationError(
+          'DOCUMENT_SCHEMA_TEMPLATE_MISMATCH',
+          'Document service returned a mismatched schema/template version',
+        );
+      }
+      if (result.snapshotHash !== undefined && result.snapshotHash !== snapshotHash) {
+        throw new ApplicationError(
+          'SNAPSHOT_HASH_MISMATCH',
+          'Document service returned a different snapshot hash',
+        );
+      }
+
+      let attachedFiles =
+        draft.resultMetadata !== null &&
+        typeof draft.resultMetadata === 'object' &&
+        'generationId' in draft.resultMetadata &&
+        draft.resultMetadata.generationId === result.generationId &&
+        'files' in draft.resultMetadata &&
+        Array.isArray(draft.resultMetadata.files)
+          ? (draft.resultMetadata.files as CommercialProposalGenerationFile[])
+          : [];
+
+      let resultMetadata: CommercialProposalResultMetadata = {
+        schemaVersion: payload.schemaVersion,
+        ...(payload.schemaVersion === '2.0' ? { snapshotHash } : {}),
+        generationId: result.generationId,
+        generationIdempotencyKey: input.idempotencyKey,
+        templateCode: result.templateCode,
+        templateVersion: result.templateVersion,
+        files: attachedFiles,
+      } as CommercialProposalResultMetadata;
+
+      for (const file of result.files) {
+        const existing = attachedFiles.find(
+          (attached) =>
+            attached.format === file.format &&
+            attached.sha256 === file.sha256 &&
+            attached.twentyFileId !== undefined,
+        );
+        if (existing !== undefined) continue;
+
+        const attached = repository.attachGeneratedFile
+          ? await repository.attachGeneratedFile(draft.id, file)
+          : ((await repository.attachGeneratedFiles?.(draft.id, [file])) ?? [file])[0];
+        if (attached === undefined) {
+          throw new ApplicationError(
+            'DOCUMENT_STORAGE_FAILED',
+            `Generated ${file.format.toUpperCase()} file was not attached`,
+          );
+        }
+        attachedFiles = [
+          ...attachedFiles.filter((entry) => entry.format !== attached.format),
+          attached,
+        ];
+        resultMetadata = { ...resultMetadata, files: attachedFiles };
+        generationDraft = await repository.updateCommercialProposal(draft.id, {
+          resultMetadata,
+        });
+      }
+
+      const updated = await repository.updateCommercialProposal(draft.id, {
+        status: 'GENERATED',
+        templateCode: 'mikoton-commercial-proposal',
+        templateVersion: payload.templateVersion,
+        resultMetadata,
+        generatedAt: result.generatedAt,
+        lastError: null,
+      });
+
+      await releaseGenerationClaim({ repository: claimRepository, claim });
+      claim = null as never;
+
+      return {
+        commercialProposal: updated,
+        generated: true,
+        result: resultMetadata,
+      };
+    } catch (error) {
+      await repository.updateCommercialProposal(draft.id, {
+        status: 'FAILED',
+        generatedAt: null,
+        lastError:
+          error instanceof ApplicationError
+            ? error.message
+            : 'Не удалось сформировать документы коммерческого предложения',
+      });
+      await releaseGenerationClaim({ repository: claimRepository, claim });
+      claim = null as never;
+
+      if (error instanceof ApplicationError) {
+        throw error;
+      }
+
+      throw new ApplicationError(
+        'DOCUMENT_GENERATION_FAILED',
+        'Не удалось сформировать документы коммерческого предложения',
+        error,
+      );
+    }
   } catch (error) {
-    await repository.updateCommercialProposal(draft.id, {
-      status: 'FAILED',
-      generatedAt: null,
-      lastError:
-        error instanceof ApplicationError
-          ? error.message
-          : 'Не удалось сформировать документы коммерческого предложения',
-    });
-
-    if (error instanceof ApplicationError) {
-      throw error;
-    }
-
-    throw new ApplicationError(
-      'DOCUMENT_GENERATION_FAILED',
-      'Не удалось сформировать документы коммерческого предложения',
-      error,
-    );
+    await releaseGenerationClaim({ repository: claimRepository, claim });
+    throw error;
   }
 };

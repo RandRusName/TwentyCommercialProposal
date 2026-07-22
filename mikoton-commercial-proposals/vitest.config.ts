@@ -2,7 +2,7 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 
 const TWENTY_API_URL =
-  process.env.TWENTY_API_URL ?? 'http://192.168.100.11:3000';
+  process.env.TWENTY_API_URL ?? 'http://127.0.0.1:3000';
 const TWENTY_API_KEY = process.env.TWENTY_API_KEY;
 
 // Make env vars available to globalSetup (test.env only applies to workers)

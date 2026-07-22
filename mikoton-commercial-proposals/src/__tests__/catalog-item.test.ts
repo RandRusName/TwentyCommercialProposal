@@ -233,6 +233,123 @@ describe('catalog item search', () => {
     expect(result.items.map((item) => item.name)).toEqual(['Needle']);
     expect(result.pageInfo.resultCompleteness).toBe('COMPLETE');
   });
+
+  it('rejects malformed cursors', () => {
+    expect(() => normalizeCatalogSearchRequest({ cursor: '%%%' })).toThrowError(
+      expect.objectContaining({ code: 'INVALID_INPUT' }),
+    );
+    expect(() => normalizeCatalogSearchRequest({ cursor: Buffer.from('{"v":2}').toString('base64url') })).toThrowError(
+      expect.objectContaining({ code: 'INVALID_INPUT' }),
+    );
+  });
+
+  it('does not skip filtered matches inside a raw page when paginating', async () => {
+    const matching = Array.from({ length: 80 }, (_, index) =>
+      catalogItem({
+        id: `match-${String(index).padStart(3, '0')}`,
+        name: `Match ${String(index).padStart(3, '0')}`,
+        sortOrder: index,
+      }),
+    );
+    const nonMatching = Array.from({ length: 20 }, (_, index) =>
+      catalogItem({
+        id: `other-${index}`,
+        name: `Other ${index}`,
+        currencyCode: 'USD',
+        price: { amountMicros: 1_000_000, currencyCode: 'USD' },
+        sortOrder: 1000 + index,
+      }),
+    );
+    const client = {
+      query: vi.fn(async ({ catalogItems }: { catalogItems: { __args?: { after?: string } } }) => {
+        const after = catalogItems.__args?.after;
+        if (after === undefined) {
+          return {
+            catalogItems: {
+              edges: [...matching, ...nonMatching].map((node) => ({ node })),
+              pageInfo: { endCursor: 'page-0', hasNextPage: false },
+            },
+          };
+        }
+        return {
+          catalogItems: {
+            edges: [],
+            pageInfo: { endCursor: null, hasNextPage: false },
+          },
+        };
+      }),
+    };
+    const repository = new CatalogItemRepository(client as never);
+    const first = await repository.search(
+      normalizeCatalogSearchRequest({ currencyCode: 'RUB', limit: 30 }),
+    );
+    expect(first.items).toHaveLength(30);
+    expect(first.pageInfo.hasNextPage).toBe(true);
+    expect(first.pageInfo.endCursor).not.toBeNull();
+
+    const second = await repository.search(
+      normalizeCatalogSearchRequest({
+        currencyCode: 'RUB',
+        limit: 30,
+        cursor: first.pageInfo.endCursor!,
+      }),
+    );
+    const third = await repository.search(
+      normalizeCatalogSearchRequest({
+        currencyCode: 'RUB',
+        limit: 30,
+        cursor: second.pageInfo.endCursor!,
+      }),
+    );
+
+    const allIds = [...first.items, ...second.items, ...third.items].map((item) => item.id);
+    expect(allIds).toHaveLength(80);
+    expect(new Set(allIds).size).toBe(80);
+    expect(allIds).toEqual(matching.map((item) => item.id));
+    expect(third.pageInfo.hasNextPage).toBe(false);
+  });
+
+  it('preserves matches across multiple raw pages without duplicates', async () => {
+    const pages = [0, 1, 2].map((currentPage) => ({
+      edges: Array.from({ length: 100 }, (_, index) => ({
+        node: catalogItem({
+          id: `p${currentPage}-${index}`,
+          name: index % 2 === 0 ? `Keep ${currentPage}-${index}` : `Skip ${currentPage}-${index}`,
+          category: index % 2 === 0 ? 'Keep' : 'Skip',
+          sortOrder: currentPage * 100 + index,
+        }),
+      })),
+      pageInfo: {
+        endCursor: `cursor-${currentPage}`,
+        hasNextPage: currentPage < 2,
+      },
+    }));
+    const client = {
+      query: vi.fn(async (selection: { catalogItems: { __args?: { after?: string } } }) => {
+        const after = selection.catalogItems.__args?.after;
+        const pageIndex = after === undefined ? 0 : Number(String(after).replace('cursor-', '')) + 1;
+        return { catalogItems: pages[pageIndex] ?? { edges: [], pageInfo: { endCursor: null, hasNextPage: false } } };
+      }),
+    };
+    const repository = new CatalogItemRepository(client as never);
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let round = 0; round < 10; round += 1) {
+      const pageResult = await repository.search(
+        normalizeCatalogSearchRequest({
+          category: 'Keep',
+          limit: 40,
+          cursor: cursor ?? undefined,
+        }),
+      );
+      seen.push(...pageResult.items.map((item) => item.id));
+      if (!pageResult.pageInfo.hasNextPage) break;
+      cursor = pageResult.pageInfo.endCursor;
+    }
+
+    expect(seen).toHaveLength(150);
+    expect(new Set(seen).size).toBe(150);
+  });
 });
 
 describe('catalog picker snapshot helper', () => {

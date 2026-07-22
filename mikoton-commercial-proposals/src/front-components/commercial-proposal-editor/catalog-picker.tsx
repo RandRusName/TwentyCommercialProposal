@@ -52,7 +52,7 @@ export const CatalogPicker = ({
         text: query,
         category: category || undefined,
         types: itemType === '' ? undefined : [itemType],
-        currencyCode: currencyCode || undefined,
+        currencyCode: currencyCode?.trim() || undefined,
         activeOnly: true,
         limit: 100,
       })
@@ -243,7 +243,7 @@ export const CatalogPicker = ({
               text: query,
               category: category || undefined,
               types: itemType === '' ? undefined : [itemType],
-              currencyCode: currencyCode || undefined,
+              currencyCode: currencyCode?.trim() || undefined,
               activeOnly: true,
               limit: 100,
               cursor: endCursor,

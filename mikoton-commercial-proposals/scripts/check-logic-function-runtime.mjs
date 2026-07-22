@@ -8,12 +8,16 @@ const allowMissingRoute = args.has('--allow-missing-route');
 
 const baseUrl = (
   process.env.TWENTY_API_URL ??
-  process.env.TWENTY_URL ??
-  'http://192.168.100.11:3000'
-).replace(/\/$/, '');
+  process.env.TWENTY_URL
+);
+if (!baseUrl) {
+  console.error('ERROR: TWENTY_API_URL (or TWENTY_URL) is required for logic function runtime preflight.');
+  process.exit(1);
+}
+const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
 const apiKey = process.env.TWENTY_API_KEY;
 
-const routeUrl = `${baseUrl}${DEFAULT_ROUTE_PATH}`;
+const routeUrl = `${normalizedBaseUrl}${DEFAULT_ROUTE_PATH}`;
 
 const printSafe = (message, details = undefined) => {
   if (details === undefined) {

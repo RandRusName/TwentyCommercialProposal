@@ -172,6 +172,7 @@ if (missingReferences.length > 0) {
 const requiredUniqueIndexes = new Map([
   ['58fada7e-1d1d-499d-9c1f-c2c7b6f5e9ea', 'CommercialProposal.idempotencyKey'],
   ['ab410ad6-d6b5-41ef-bd6a-43e104671da0', 'CommercialProposal.finalNumberKey'],
+  ['ace7e0b9-7cab-4f90-96b5-ea03451ba976', 'CommercialProposalGenerationClaim.proposalKey'],
 ]);
 const manifestIndexes = Array.isArray(manifest.indexes) ? manifest.indexes : [];
 

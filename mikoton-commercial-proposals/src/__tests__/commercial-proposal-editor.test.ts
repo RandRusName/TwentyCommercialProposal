@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CommercialProposalDraft } from 'src/domain/commercial-proposal';
 import {
@@ -26,8 +26,10 @@ import {
   isEditorDirty,
   isEditorLoadCurrent,
   moveEntry,
+  normalizeCurrencyCode,
   normalizeDecimalInput,
   removeEntry,
+  resolveCurrencyWhenAddingCatalogItems,
   resolvePendingGenerationAttempt,
   validateEditorState,
 } from 'src/front-components/commercial-proposal-editor/editor-helpers';
@@ -480,9 +482,46 @@ describe('commercial proposal editor helpers', () => {
     expect(next.amount).toBe(200);
     expect(next.items[0]?.id).toBe(itemId);
   });
+
+  it.each([
+    [null, 'RUB', 'RUB'],
+    ['', 'RUB', 'RUB'],
+    ['   ', 'RUB', 'RUB'],
+    ['rub', 'RUB', 'RUB'],
+  ] as const)('initializes empty currency %j from catalog item %s', (current, catalog, expected) => {
+    expect(normalizeCurrencyCode(current)).toBe(current === 'rub' ? 'RUB' : null);
+    expect(
+      resolveCurrencyWhenAddingCatalogItems({
+        currentCurrency: current,
+        catalogCurrencies: [catalog],
+      }),
+    ).toEqual({ ok: true, currencyCode: expected });
+  });
+
+  it('rejects mismatched and mixed catalog currencies', () => {
+    expect(
+      resolveCurrencyWhenAddingCatalogItems({
+        currentCurrency: 'EUR',
+        catalogCurrencies: ['RUB'],
+      }),
+    ).toEqual({ ok: false, reason: 'mismatch' });
+    expect(
+      resolveCurrencyWhenAddingCatalogItems({
+        currentCurrency: 'RUB',
+        catalogCurrencies: ['RUB', 'EUR'],
+      }),
+    ).toEqual({ ok: false, reason: 'mixed' });
+  });
 });
 
 describe('front app route application errors', () => {
+  beforeEach(() => {
+    vi.stubGlobal('location', {
+      origin: 'http://twenty.example.test',
+      href: 'http://twenty.example.test/',
+    });
+  });
+
   it.each([[400, 'COMMERCIAL_PROPOSAL_VALIDATION_FAILED'], [403, 'COMMERCIAL_PROPOSAL_CHILD_FORBIDDEN'], [409, 'COMMERCIAL_PROPOSAL_EDITOR_CONFLICT'], [422, 'COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED'], [500, 'INTERNAL_ERROR']] as const)(
     'preserves backend code for HTTP %s',
     async (status, code) => {

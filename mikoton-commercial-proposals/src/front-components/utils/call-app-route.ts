@@ -3,7 +3,6 @@ import { getApplicationVariable } from 'twenty-sdk/front-component';
 
 const APPLICATION_API_URL_VARIABLE = 'TWENTY_API_URL';
 const APPLICATION_FUNCTIONS_URL_VARIABLE = 'TWENTY_FUNCTIONS_URL';
-const TARGET_TWENTY_API_URL = 'http://192.168.100.11:3000';
 
 export type AppRouteErrorCode =
   | 'APP_TOKEN_API_UNAVAILABLE'
@@ -75,8 +74,7 @@ const getFrontComponentApiOrigin = () =>
   resolveHttpOrigin(getApplicationVariable(APPLICATION_API_URL_VARIABLE)) ??
   resolveHttpOrigin(globalThis.location?.origin) ??
   resolveHttpOrigin(globalThis.location?.href) ??
-  resolveHttpOrigin(String(globalThis.location ?? '')) ??
-  resolveHttpOrigin(TARGET_TWENTY_API_URL);
+  resolveHttpOrigin(String(globalThis.location ?? ''));
 
 const getFrontComponentFunctionsBaseUrl = () =>
   process.env.TWENTY_FUNCTIONS_URL ??

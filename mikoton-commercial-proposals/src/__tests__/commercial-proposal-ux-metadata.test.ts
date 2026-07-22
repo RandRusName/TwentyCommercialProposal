@@ -65,6 +65,27 @@ describe('commercial proposal business UX metadata', () => {
     });
   });
 
+  it('declares a unique generation claim index per proposal', async () => {
+    const claimIndex = await import(
+      'src/indexes/commercial-proposal-generation-claim-proposal-key.index'
+    );
+    const config = (claimIndex.default as unknown as ConfigResult<{
+      isUnique: boolean;
+      objectUniversalIdentifier: string;
+      fields: Array<{ fieldUniversalIdentifier: string }>;
+    }>).config;
+
+    expect(config).toMatchObject({
+      isUnique: true,
+      objectUniversalIdentifier:
+        universalIdentifiers.COMMERCIAL_PROPOSAL_GENERATION_CLAIM_OBJECT_UNIVERSAL_IDENTIFIER,
+      fields: [{
+        fieldUniversalIdentifier:
+          universalIdentifiers.COMMERCIAL_PROPOSAL_GENERATION_CLAIM_FIELD_PROPOSAL_KEY_UNIVERSAL_IDENTIFIER,
+      }],
+    });
+  });
+
   it('defines a CommercialProposal record page without a generic fields widget', () => {
     const layout = (commercialProposalRecordPage as unknown as ConfigResult<{
       type: string;

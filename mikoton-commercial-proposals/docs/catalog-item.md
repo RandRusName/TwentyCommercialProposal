@@ -4,8 +4,9 @@
 
 The native Twenty `CURRENCY` value is authoritative. Legacy numeric/currency
 fields are read only when `CATALOG_ALLOW_LEGACY_PRICE_FALLBACK=true`; production
-defaults to no silent fallback. Search and backfill use cursor pagination rather
-than a fixed 500/1000-record window. Catalog values remain proposal snapshots.
+defaults to no silent fallback. Search and backfill use opaque cursor pagination
+rather than a fixed 500/1000-record window. Catalog values remain proposal
+snapshots.
 
 `CatalogItem` is a reusable source of initial values for proposal work items. It is not a pricing source of truth after selection.
 
@@ -24,6 +25,20 @@ than a fixed 500/1000-record window. Catalog values remain proposal snapshots.
 | `sortOrder` | NUMBER(0) | yes | `100` |
 
 `CommercialProposalItem.catalogItem` is nullable. Selecting a catalog item copies block, name, description, unit, price and currency into the proposal item. Later catalog edits or deactivation do not alter saved proposals, snapshots or generated files. Deleting used catalog records is not a supported workflow; deactivate them instead.
+
+## Canonical validation on `catalogItemId` assignment
+
+When a save newly assigns `catalogItemId`, the backend reloads the catalog row
+and applies canonical checks (non-empty name/block/unit, valid ISO currency,
+non-negative native `amountMicros`, active flag, currency match with the
+proposal item). Failures use structured errors:
+
+- `CATALOG_ITEM_NOT_FOUND` — missing or unavailable catalog row;
+- `CATALOG_ITEM_NOT_SELECTABLE` — fails canonical checks or currency mismatch.
+
+Native `price` (`amountMicros` + `currencyCode`) is authoritative for selection
+and search DTO pricing. Legacy `defaultPrice` / text `currencyCode` are
+compatibility only.
 
 The native Twenty list is the catalog administration UI. Search uses authenticated `POST /s/commercial-proposals/catalog-items/search` with a maximum page size of 100.
 

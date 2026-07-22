@@ -14,14 +14,21 @@ uninstall and must not delete App metadata or business records.
    version when Twenty permits it. Do not run `app:uninstall`.
 4. Verify existing proposals, files and app-owned navigation.
 
-Additive fields and indexes can remain. Never remove them solely to match an
-older binary.
+Additive fields, indexes and objects can remain. Never remove them solely to
+match an older binary.
+
+`CommercialProposalGenerationClaim` is additive. Rolling back the App binary
+without destroying metadata leaves the claim object/index in place
+(forward-compatible). Older binaries that do not read or write claims simply
+ignore the object; do not drop claim metadata as part of a normal rollback.
 
 ## Document Service
 
 Restore the previously recorded image digest with the matching templates and
-mappings, preserve environment secrets, restart, and require `/readyz` success
-before re-enabling generation.
+mappings. Worker storage credentials remain required for s3-compatible mode:
+`DOCUMENT_STORAGE_ACCESS_KEY` and `DOCUMENT_STORAGE_SECRET_KEY` must be set
+(no `MINIO_ACCESS_KEY` fallback). Preserve environment secrets, restart, and
+require `/readyz` success before re-enabling generation.
 
 ## Data and Storage
 

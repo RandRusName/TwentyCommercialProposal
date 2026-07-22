@@ -4,9 +4,19 @@ This file describes accepted platform or product limitations. Unverified
 production acceptance items are tracked separately in
 `phase-5-5-production-acceptance.md` and are not reclassified as limitations.
 
+Same-proposal generation concurrency is **not** a limitation: ownership is
+atomic via the unique index on
+`CommercialProposalGenerationClaim.proposalKey`, with 5-minute lease recovery.
+
 - Twenty SDK 2.20 exposes no App-level transaction or compare-and-set primitive
   spanning the proposal, items and stages. Editor revision conflict detection
   is best-effort; child saves are replay-safe through parent plus `clientKey`.
+  Generation ownership is separate and uses the unique claim index above.
+- Catalog search uses an opaque cursor with client-side filtering because the
+  Twenty 2.20 `catalogItems` query in this app does not expose the needed
+  server-side filters/`orderBy`. Continuation has no gaps or duplicates within
+  a search session; global `sortOrder` across the full catalog is best-effort
+  relative to upstream page order.
 - The SDK exposes no supported navigation blocker for a front component. The
   editor shows dirty state and requires a clean save before generation, but it
   cannot intercept every host navigation or browser close.

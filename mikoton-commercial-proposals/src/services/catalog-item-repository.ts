@@ -54,6 +54,42 @@ export type NormalizedCatalogSearchRequest = {
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+type CatalogSearchCursor = {
+  v: 1;
+  after: string | null;
+  skip: number;
+};
+
+const encodeCatalogCursor = (cursor: CatalogSearchCursor) =>
+  Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+
+export const decodeCatalogCursor = (value: string): CatalogSearchCursor => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+  } catch {
+    throw new ApplicationError('INVALID_INPUT', 'cursor is malformed');
+  }
+  if (
+    !isPlainObject(parsed) ||
+    parsed.v !== 1 ||
+    (parsed.after !== null && typeof parsed.after !== 'string') ||
+    typeof parsed.skip !== 'number' ||
+    !Number.isInteger(parsed.skip) ||
+    parsed.skip < 0
+  ) {
+    throw new ApplicationError('INVALID_INPUT', 'cursor is malformed');
+  }
+  if (typeof parsed.after === 'string' && parsed.after.includes('{')) {
+    throw new ApplicationError('INVALID_INPUT', 'cursor is malformed');
+  }
+  return {
+    v: 1,
+    after: parsed.after,
+    skip: parsed.skip,
+  };
+};
+
 export const normalizeCatalogSearchRequest = (
   value: unknown,
 ): NormalizedCatalogSearchRequest => {
@@ -77,6 +113,13 @@ export const normalizeCatalogSearchRequest = (
   if (!Number.isInteger(offset) || offset < 0) {
     throw new ApplicationError('INVALID_INPUT', 'offset must be a non-negative integer');
   }
+  if (body.cursor !== undefined && body.cursor !== null && typeof body.cursor !== 'string') {
+    throw new ApplicationError('INVALID_INPUT', 'cursor is malformed');
+  }
+  const cursor = body.cursor?.trim() || null;
+  if (cursor !== null) {
+    decodeCatalogCursor(cursor);
+  }
   return {
     text: (body.query ?? body.text)?.trim().toLocaleLowerCase('ru-RU') ?? '',
     types: types as CatalogItemType[],
@@ -85,7 +128,7 @@ export const normalizeCatalogSearchRequest = (
     activeOnly: body.activeOnly !== false,
     limit,
     offset,
-    cursor: body.cursor?.trim() || null,
+    cursor,
   };
 };
 
@@ -208,6 +251,32 @@ const mapCatalogItem = (
   };
 };
 
+const compareCatalogItems = (left: CatalogItemDto, right: CatalogItemDto) =>
+  left.sortOrder - right.sortOrder ||
+  left.name.localeCompare(right.name, 'ru') ||
+  left.id.localeCompare(right.id);
+
+const matchesCatalogFilters = (
+  item: CatalogItemDto,
+  request: NormalizedCatalogSearchRequest,
+) => {
+  const textMatches =
+    request.text === '' ||
+    `${item.name} ${item.description ?? ''} ${item.category ?? ''}`
+      .toLocaleLowerCase('ru-RU')
+      .includes(request.text);
+  return (
+    (!request.activeOnly || item.isActive) &&
+    (request.types.length === 0 || request.types.includes(item.itemType)) &&
+    (request.category === null || item.category === request.category) &&
+    (request.currencyCode === null || item.currencyCode === request.currencyCode) &&
+    textMatches
+  );
+};
+
+/** Safety bound only. Hitting it returns PARTIAL, never silent COMPLETE. */
+const MAX_RAW_PAGES_PER_REQUEST = 500;
+
 export class CatalogItemRepository {
   constructor(
     private readonly client: InstanceType<typeof CoreApiClient> = new CoreApiClient(),
@@ -217,78 +286,134 @@ export class CatalogItemRepository {
     try {
       const collected: CatalogItemDto[] = [];
       const categories = new Set<string>();
-      let after = request.cursor ?? undefined;
-      let hasNextPage = true;
+      const seenIds = new Set<string>();
+      const start = request.cursor === null
+        ? { after: null as string | null, skip: 0 }
+        : decodeCatalogCursor(request.cursor);
+      let pageAfter = start.after;
+      let skipRemaining = start.skip;
+      let upstreamHasNextPage = true;
       let scannedPages = 0;
-      const maxPagesPerRequest = 20;
+      let nextAfter: string | null = null;
+      let nextSkip = 0;
+      let hasMoreFiltered = false;
+      let stoppedBySafetyLimit = false;
 
-      while (hasNextPage && collected.length < request.limit && scannedPages < maxPagesPerRequest) {
+      while (
+        collected.length < request.limit &&
+        upstreamHasNextPage &&
+        scannedPages < MAX_RAW_PAGES_PER_REQUEST
+      ) {
         const response = await (this.client.query as (selection: unknown) => Promise<any>)({
           catalogItems: {
-          __args: { first: 100, ...(after === undefined ? {} : { after }) },
-          edges: {
-            node: {
-              id: true,
-              name: true,
-              itemType: true,
-              category: true,
-              defaultBlock: true,
-              description: true,
-              defaultUnit: true,
-              price: {
-                amountMicros: true,
-                currencyCode: true,
-              },
-              defaultPrice: true,
-              currencyCode: true,
-              isActive: true,
-              sortOrder: true,
+            __args: {
+              first: 100,
+              ...(pageAfter === null ? {} : { after: pageAfter }),
             },
+            edges: {
+              node: {
+                id: true,
+                name: true,
+                itemType: true,
+                category: true,
+                defaultBlock: true,
+                description: true,
+                defaultUnit: true,
+                price: {
+                  amountMicros: true,
+                  currencyCode: true,
+                },
+                defaultPrice: true,
+                currencyCode: true,
+                isActive: true,
+                sortOrder: true,
+              },
+            },
+            pageInfo: { endCursor: true, hasNextPage: true },
           },
-          pageInfo: { endCursor: true, hasNextPage: true },
-        },
         });
+
         const records: CatalogItemDto[] = (response.catalogItems?.edges ?? [])
-        .map((edge: { node?: CatalogRecord | null }) => edge.node)
-        .filter((record: CatalogRecord | null | undefined): record is CatalogRecord => record != null)
-        .map((record: CatalogRecord) => mapCatalogItem(record, request.currencyCode));
-        const textMatches = (item: CatalogItemDto) =>
-        request.text === '' ||
-        `${item.name} ${item.description ?? ''} ${item.category ?? ''}`
-          .toLocaleLowerCase('ru-RU')
-          .includes(request.text);
+          .map((edge: { node?: CatalogRecord | null }) => edge.node)
+          .filter((record: CatalogRecord | null | undefined): record is CatalogRecord => record != null)
+          .map((record: CatalogRecord) => mapCatalogItem(record, request.currencyCode));
+
         for (const item of records) {
           if (item.category !== null) categories.add(item.category);
         }
+
         const filtered = records
-        .filter((item: CatalogItemDto) => !request.activeOnly || item.isActive)
-        .filter((item: CatalogItemDto) => request.types.length === 0 || request.types.includes(item.itemType))
-        .filter((item: CatalogItemDto) => request.category === null || item.category === request.category)
-        .filter((item: CatalogItemDto) => request.currencyCode === null || item.currencyCode === request.currencyCode)
-        .filter(textMatches)
-        .sort((left: CatalogItemDto, right: CatalogItemDto) =>
-          left.sortOrder - right.sortOrder ||
-          left.name.localeCompare(right.name, 'ru') ||
-          left.id.localeCompare(right.id),
-        );
-        collected.push(...filtered.slice(0, request.limit - collected.length));
-        hasNextPage = response.catalogItems?.pageInfo?.hasNextPage === true;
-        after = hasNextPage
-          ? response.catalogItems?.pageInfo?.endCursor ?? undefined
-          : undefined;
+          .filter((item: CatalogItemDto) => matchesCatalogFilters(item, request))
+          .sort(compareCatalogItems);
+
+        const remainingCapacity = request.limit - collected.length;
+        const pageWindow = filtered.slice(skipRemaining);
+        const take = pageWindow.slice(0, remainingCapacity);
+
+        for (const item of take) {
+          if (seenIds.has(item.id)) continue;
+          seenIds.add(item.id);
+          collected.push(item);
+        }
+
+        const consumedOnPage = skipRemaining + take.length;
+        const pageEndCursor =
+          typeof response.catalogItems?.pageInfo?.endCursor === 'string'
+            ? response.catalogItems.pageInfo.endCursor
+            : null;
+        upstreamHasNextPage = response.catalogItems?.pageInfo?.hasNextPage === true;
         scannedPages += 1;
-        if (hasNextPage && after === undefined) break;
+
+        if (collected.length >= request.limit) {
+          if (consumedOnPage < filtered.length) {
+            nextAfter = pageAfter;
+            nextSkip = consumedOnPage;
+            hasMoreFiltered = true;
+          } else if (upstreamHasNextPage && pageEndCursor !== null) {
+            nextAfter = pageEndCursor;
+            nextSkip = 0;
+            hasMoreFiltered = true;
+          } else {
+            nextAfter = null;
+            nextSkip = 0;
+            hasMoreFiltered = false;
+          }
+          break;
+        }
+
+        if (!upstreamHasNextPage || pageEndCursor === null) {
+          nextAfter = null;
+          nextSkip = 0;
+          hasMoreFiltered = false;
+          break;
+        }
+
+        pageAfter = pageEndCursor;
+        skipRemaining = 0;
+        nextAfter = pageEndCursor;
+        nextSkip = 0;
+        hasMoreFiltered = true;
       }
+
+      if (
+        collected.length < request.limit &&
+        upstreamHasNextPage &&
+        scannedPages >= MAX_RAW_PAGES_PER_REQUEST
+      ) {
+        stoppedBySafetyLimit = true;
+        hasMoreFiltered = true;
+      }
+
       return {
         items: collected,
         categories: [...categories].sort((a, b) => a.localeCompare(b, 'ru')),
         pageInfo: {
           limit: request.limit,
-          endCursor: after ?? null,
-          hasNextPage,
-          resultCompleteness: hasNextPage && scannedPages >= maxPagesPerRequest
-            ? 'PARTIAL'
-            : 'COMPLETE',
+          endCursor: hasMoreFiltered
+            ? encodeCatalogCursor({ v: 1, after: nextAfter, skip: nextSkip })
+            : null,
+          hasNextPage: hasMoreFiltered,
+          resultCompleteness: stoppedBySafetyLimit ? 'PARTIAL' : 'COMPLETE',
         },
       };
     } catch (error) {

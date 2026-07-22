@@ -12,16 +12,25 @@ yarn test:unit
 yarn test:document-service
 yarn test:integration
 yarn test:secrets
+yarn test:private-urls
 ```
 
 `test:integration` is a hard gate in ephemeral mode and must fail when its
 temporary Twenty credentials are missing. Target smoke is separate and must
-never uninstall the App. Production tarball validation runs only in WSL and now
-also verifies the unique idempotency and final-number indexes in `manifest.json`.
+never uninstall the App. Production tarball validation runs only in WSL and
+verifies unique idempotency, final-number, and generation-claim indexes in
+`manifest.json`.
+
+`yarn test:private-urls` (`scripts/scan-private-network-urls.mjs`) fails on
+hardcoded private/LAN URLs in tracked sources and docs; use `$TWENTY_API_URL`
+or placeholders such as `https://your-twenty-instance.example`.
 
 CI requires repository secret `TWENTY_EPHEMERAL_API_KEY` for the seeded ephemeral Twenty v2.20.0 image. The value is masked and is not stored in workflow source. Pull requests from forks do not receive this secret and therefore cannot run the authenticated vertical-slice job without maintainer approval.
 
 CI also runs `yarn test:document-service`. MinIO images are pinned to `minio/minio:RELEASE.2025-09-07T16-13-09Z` and `minio/mc:RELEASE.2025-08-13T08-35-41Z`.
+
+Exact pass counts, tarball SHA-256 and CI run ids for App `0.1.48` are **to be
+recorded at final release commit**.
 
 ## Local Tests
 
@@ -32,28 +41,24 @@ yarn.cmd install --immutable
 yarn.cmd lint
 yarn.cmd typecheck
 yarn.cmd test:unit
+yarn.cmd test:document-service
+yarn.cmd test:secrets
+yarn.cmd test:private-urls
 yarn.cmd twenty dev:build .
 yarn.cmd twenty dev:build --tarball .
 ```
 
-Verified on 2026-07-13 for Phase 3.1:
+Unit and document-service coverage added for Phase 5.5 includes:
 
-- WSL `corepack yarn typecheck`: passed.
-- WSL `corepack yarn lint`: passed, 0 warnings and 0 errors.
-- WSL `corepack yarn test:unit`: passed, 2 files and 22 tests.
-- WSL `bash scripts/build-wsl.sh`: passed; lint, typecheck, unit tests,
-  Twenty tarball build and tarball validation succeeded.
-- Deployed tarball: `release-artifacts/mikoton-commercial-proposals-0.1.5.tgz`.
-- Tarball size: `419093` bytes.
-- Tarball SHA-256:
-  `7cf28c57f41d68685476070d02c6807d0d6b6d93736bdb090bb268275e343227`.
+- generation claim concurrency (unique `proposalKey`, 409 in progress);
+- same-operation claim replay;
+- stale claim recovery after `leaseExpiresAt`;
+- currency normalization (`null` / `''` / whitespace / `rub` → `RUB`);
+- catalog opaque cursor pagination (no gaps/dupes; malformed cursor rejection);
+- private URL scan (`test:private-urls`);
+- worker storage credentials fail-closed (no `MINIO_ACCESS_KEY` silent fallback).
 
-Windows `yarn.cmd typecheck` and `yarn.cmd lint` were not used as authoritative
-checks in this session because Windows optional binaries for
-`@typescript/native-preview` and `oxlint` were absent in `node_modules`.
-Production validation remains WSL-only for this app.
-
-Unit coverage includes:
+Broader unit coverage still includes:
 
 - `generatedAt = null` for drafts;
 - technical DRAFT numbers and final `КП-### от DD.MM.YYYY` number format;
@@ -73,7 +78,8 @@ Unit coverage includes:
 - stable idempotency key reuse for retries;
 - UI amount formatting;
 - disabled create states for loading, submitting, success and missing key;
-- safe filtering of internal/stack-like UI error messages.
+- safe filtering of internal/stack-like UI error messages;
+- `CATALOG_ITEM_NOT_FOUND` / `CATALOG_ITEM_NOT_SELECTABLE` on assignment.
 
 ## Ephemeral Integration Tests
 
@@ -87,7 +93,7 @@ yarn.cmd test:integration
 ```
 
 In `ephemeral` mode, setup may sync the app and uninstall it during cleanup.
-The test fails if credentials are missing. The integration test now exercises
+The test fails if credentials are missing. The integration test exercises
 the backend vertical slice: create Company, create Opportunity, call context
 route, call draft route, verify relations, verify `generatedAt = null`, repeat
 the same idempotency key, and assert structured invalid-source errors. It also
@@ -100,7 +106,7 @@ Used only after private tarball publish/install on the target Twenty:
 
 ```powershell
 $env:TWENTY_TEST_INSTANCE_MODE = "target"
-$env:TWENTY_API_URL = "http://192.168.100.11:3000"
+$env:TWENTY_API_URL = "https://your-twenty-instance.example"  # or $env:TWENTY_API_URL
 $env:TWENTY_API_KEY = "<target-api-key>"
 yarn.cmd test:target-smoke
 ```
@@ -109,24 +115,9 @@ In `target` mode, setup does not sync metadata and never uninstalls the app.
 The test creates `[SMOKE]` business records and performs best-effort cleanup of
 those records only.
 
-Observed on 2026-07-20 after private install of App `0.1.37`:
-
-- WSL `corepack yarn test:target-smoke` passed, 1 file / 8 tests.
-- The test exercised authenticated draft, context, editor, save, recalculate and
-  generation routes on the target Twenty.
-- The aggregate scenario saved eight items and four stages, including fractional
-  quantities, discounts and a long description. It recalculated the canonical
-  total, replayed the same save without duplicate children, rejected a stale
-  revision and rejected a fabricated foreign child id.
-- Incomplete generation validation left the record in `DRAFT`. Completed data
-  generated schema `2.0` / template `2`, attached XLSX/PDF, and replayed the same
-  generation key without duplicate files.
-- A separate target regression generated a `LEGACY_V1` record with template `1`.
-- Browser smoke used the front-component application access token and confirmed
-  the v2 generation success state, disabled repeat action and two Files-tab
-  attachments.
-- The isolated target smoke business records were cleaned up. The App was not
-  uninstalled and metadata was not modified by the test.
+Target smoke results for `0.1.48` (concurrency claim, FAILED/retry, recovery,
+restricted user) are **NOT YET VERIFIED** — see
+`phase-5-5-production-acceptance.md`.
 
 ## CI
 
@@ -144,64 +135,11 @@ CI uses:
   used by GitHub;
 - Node from `mikoton-commercial-proposals/.nvmrc`;
 - `yarn install --immutable`;
-- lint, typecheck, unit tests, real integration tests, app build and tarball
-  validation.
+- lint, typecheck, unit tests, secrets/private-url scans as configured,
+  real integration tests, app build and tarball validation.
 
-## Prompt 5.1 Aggregate Backend Tests
+## Prompt 5.1–5.2 Historical Notes
 
-Added unit coverage:
-
-- deterministic fixed-scale money calculation and half-up rounding;
-- pure recalculation of unsaved item lines;
-- legacy editor context starter suggestion;
-- header-only save preserving `LEGACY_V1` and legacy `amount`;
-- first valid item save converting to `AGGREGATE_V2`;
-- completed save replay returning canonical aggregate without duplicate children
-  or second revision increment;
-- stale `editorRevision` conflict;
-- foreign child id ownership rejection;
-- `AGGREGATE_V2` generation guard before schema `2.0`.
-
-Prompt 5.1 evidence on 2026-07-20:
-
-- WSL `corepack yarn lint`: passed.
-- WSL `corepack yarn typecheck`: passed.
-- WSL `corepack yarn test:unit`: passed, 2 files / 58 tests.
-- WSL `python3 -m unittest discover -s document-service/tests -v`: passed, 4 tests.
-- WSL `scripts/build-wsl.sh`: passed, tarball manifest validation OK.
-- `deploy.bat`: passed, private published and installed version `0.1.34`.
-- `corepack yarn twenty plan -r mikoton-target .`: passed after deploy with no changes.
-- WSL `corepack yarn test:target-smoke`: passed, 6 tests.
-- Additional target aggregate smoke passed: editor context, recalculate, save-editor,
-  `LEGACY_V1 -> AGGREGATE_V2`, replayed same `operationId`, and generation
-  guard `COMMERCIAL_PROPOSAL_GENERATION_MODEL_NOT_SUPPORTED`.
-
-## Prompt 5.2 Editor Tests
-
-Local evidence on 2026-07-20:
-
-- WSL `corepack yarn lint`: passed, 0 warnings/errors.
-- WSL `corepack yarn typecheck`: passed.
-- WSL `corepack yarn test:unit`: passed, 3 files / 82 tests.
-- WSL `python3 -m unittest discover -s document-service/tests -v`: passed,
-  4 tests.
-- WSL `scripts/build-wsl.sh`: passed; editor bundle included and tarball
-  manifest validation succeeded.
-
-Coverage includes duplicate request identities, persisted duplicate detection,
-canonical persisted totals, final revision re-read, partial-failure replay,
-minimal recalculate payload, backend error-code preservation, immutable editor
-helpers, comma decimals, validation, dirty state, stable save operation ids and
-canonical response application.
-
-Target evidence for Prompt 5.2:
-
-- `deploy.bat`: published and installed `0.1.36`.
-- tarball SHA-256:
-  `44d18091b691395213fc64882e967cef148b2d3e15390be4ece1b79aeae8b8d4`.
-- Twenty Settings -> Applications: current `0.1.36`, latest `0.1.36`.
-- repeated metadata plan: no changes.
-- WSL target smoke: 7 tests passed.
-- browser UI smoke: editable save/reload, conflict with retained local edits,
-  aggregate generation guard, legacy generation regression and GENERATED
-  read-only mode passed.
+Earlier phase local/target evidence (versions before `0.1.48`) remains in git
+history and older smoke reports. Do not treat those artifact SHAs or deploy
+versions as acceptance for Phase 5.5 / `0.1.48`.
