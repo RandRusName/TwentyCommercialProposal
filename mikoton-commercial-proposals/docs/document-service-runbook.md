@@ -118,12 +118,20 @@ MinIO/S3 endpoint (bucket and signing host):
 - `MINIO_BUCKET`
 - `MINIO_SECURE`
 - `MINIO_PUBLIC_BASE_URL`
+- `MINIO_BIND_ADDRESS` (compose port bind; defaults to `127.0.0.1`)
 - `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` (compose bootstrap only; not used by the worker)
 
 `MINIO_ENDPOINT` is used for upload/storage access from the document-service
 container. `MINIO_PUBLIC_BASE_URL`, when set, is used to create the presigned
 download URL, so it must be the browser-reachable endpoint. Do not rewrite the
 host after signing; S3 signatures include the host.
+
+The host in `MINIO_PUBLIC_BASE_URL` must also be reachable from the Twenty
+server container, because the app validates and attaches each generated file
+server-side. For an internal target, bind the MinIO API to the server LAN
+address (for example, `MINIO_BIND_ADDRESS=192.168.100.11`) and keep the MinIO
+console bound to localhost. The bucket remains private and object downloads
+require an expiring signed URL.
 
 Do not set `MINIO_ACCESS_KEY` expecting the worker to use it — the worker reads
 only `DOCUMENT_STORAGE_ACCESS_KEY` / `DOCUMENT_STORAGE_SECRET_KEY`.

@@ -4,17 +4,17 @@ import type { RoutePayload } from 'twenty-sdk/logic-function';
 import { SEARCH_CATALOG_ITEMS_LOGIC_FUNCTION_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 import { failure, json, toApplicationError } from 'src/logic-functions/http-response';
 import { createLogicFunctionLogger } from 'src/logic-functions/logic-function-logger';
+import type { CatalogSearchRequest } from 'src/modules/catalog/application/catalog-query.port';
 import {
-  CatalogItemRepository,
+  TwentyCatalogQueryAdapter,
   normalizeCatalogSearchRequest,
-  type CatalogSearchRequest,
-} from 'src/services/catalog-item-repository';
+} from 'src/modules/catalog/infrastructure/twenty-catalog-query.adapter';
 
 const handler = async (event: RoutePayload<CatalogSearchRequest>) => {
   const logger = createLogicFunctionLogger('search-catalog-items');
   try {
     const request = normalizeCatalogSearchRequest(event.body);
-    const result = await new CatalogItemRepository().search(request);
+    const result = await new TwentyCatalogQueryAdapter().search(request);
     logger.success({ resultCount: result.items.length });
     return json({ status: 'success', ...result, requestId: logger.requestId });
   } catch (error) {

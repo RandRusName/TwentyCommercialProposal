@@ -2,89 +2,79 @@
 
 Date: 2026-07-22 (Europe/Moscow)
 
-App version: `0.1.49` (Phase 5.5 **CORRECTIVE**). Twenty `v2.20.0`, remote `mikoton-target`.
+Target: Twenty `v2.20.0`, `http://192.168.100.11:3000`, remote `mikoton-target`.
 
-## Final evidence (code baseline and CI verified; target pending)
-
-Do not invent target values. The corrective code baseline, CI run and locally
-rebuilt private artifact are recorded below. Target deployment remains gated by
-the required backup/restore checkpoint.
+## Release Evidence
 
 | Field | Value |
 |---|---|
-| App version | `0.1.49` |
-| Exact code commit | `16d5c67ad152101e3847b2af7abd3b56fa6e4047` |
-| Tarball filename | `mikoton-commercial-proposals-0.1.49.tgz` |
-| Tarball size | `2,646,814` bytes |
-| Tarball SHA-256 | `44143D9BAC0C5AA60C8526EB4A6F724F5B81D4E896C35E4402D4018FE8FD30A7` |
-| Template v1 SHA-256 | `6777A3CF9CC6A1A4BE0CCD1BABB93FA2DAFF6CD37EE9A9C1405E1EC4BD187AD0` (`mikoton-commercial-proposal-v1.xlsm`) |
-| Mapping v1 SHA-256 | `0F4580FDAC5E4DA5F1DC334CB6D64695B90F722DB9FAA8C040542EE0B57FFED5` |
-| Template v2 SHA-256 | `F5994EE83DA4DE932C4D7504D78BC4E2A22EC881415AA38AFAB58A6CE701A900` (`mikoton-commercial-proposal-v2.xlsx`) |
-| Mapping v2 SHA-256 | `B09EC8CF36DF95BA29F5CE45DE01C162BBF60508304989998E66AAC1382BEF00` |
-| Document-service target image digest | **Pending** — target deployment not performed |
-| Integration CI run | [GitHub Actions run 29922602764](https://github.com/RandRusName/TwentyCommercialProposal/actions/runs/29922602764) — **Passed** |
+| Installed App version | `0.1.53`, verified in Settings -> Applications |
+| Release source commit | `3214b4b4962c6ac9f42a131ed88b48049cecf09b` plus the pending evidence/config commit |
+| Tarball | `mikoton-commercial-proposals-0.1.53.tgz` |
+| Tarball size | `2,648,930` bytes |
+| Tarball SHA-256 | `2f93c4cac503492b6430bd2e4d33dd75e317d25d0cd8dff603eaa2e8a2fe1503` |
+| Document-service image digest | `sha256:9224204bd5eb1cdb58503d6f4bc975427a2c631cec01f93f8c8d000e3bc1b067` |
+| Metadata plan after install | No changes; no destructive operations |
+| Target API smoke | Passed, `8/8` tests in `22.48s` |
+| Target UI smoke record | `2f2cfe80-6756-4fe9-8dcb-43052ac92ee3` |
+| Generated proposal | `КП-011 от 22.07.2026` |
 
-## Code fixes implemented at 0.1.49 (CORRECTIVE)
+The final commit SHA and its GitHub Actions run are recorded after this report is committed and pushed.
 
-| Item | State |
-|---|---|
-| Generation claim: `operationId` (logical idempotent op) vs `ownerToken` (physical worker token) | Implemented |
-| Fencing: `assertGenerationClaimOwnership` before irreversible actions | Implemented |
-| Lease: 10 min (`GENERATION_CLAIM_LEASE_MS`); renew before/after document-service and before attachments | Implemented |
-| Stale takeover: expired lease → new `ownerToken`; old worker → `COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST` | Implemented |
-| Ownership lost: no `FAILED` write, no claim delete, no attachments | Implemented |
-| `AcquireGenerationClaimResult`: `ACQUIRED` vs `IN_PROGRESS` (parallel same `operationId` → second `IN_PROGRESS`/409, not second owner) | Implemented |
-| Catalog cursor v2: `filterFingerprint` binding; `skip` 0..100; `after` length bounds | Implemented |
-| `POST /catalog-items/categories` complete category list (`PARTIAL` on safety limit) | Implemented |
-| Search returns empty `categories` + `pageCategories` | Implemented |
-| Backend `normalizeCurrencyCode` (trim+upper, `[A-Z]{3}`) | Implemented |
-| `itemType` allowlist on assignment; malformed `itemType` disabled in search (not selectable `SERVICE`) | Implemented |
-| Worker `DOCUMENT_STORAGE_*` credentials fail-closed | Implemented (carried from 0.1.48) |
-| Hardcoded private URL removal + `yarn test:private-urls` | Implemented (carried from 0.1.48) |
+## Backup And Restore
 
-Platform note: Twenty SDK / Core API 2.20 still provides **no** App-level transactions or linearizability beyond the unique claim index. Docs must not claim otherwise.
+Backup checkpoint: `20260722T140611Z`, stored on the target host under
+`/home/roman/backups/twenty-commercial-proposals/20260722T140611Z`.
 
-## Code / local verification
+| Artifact | Bytes | SHA-256 |
+|---|---:|---|
+| `twenty-default.dump` | 1,037,992 | `42a033325ac555233014a1b91f73080af77a401c8acbb2881742562eabeba6eb` |
+| `twenty-globals.sql` | 671 | `2aa503c0b69d7ea1883058d7e25f1dae4bb934d7c2448e2a2ab4de873fcf3aa1` |
+| `twenty-local-storage.tar.gz` | 6,723,413 | `cefcf63d1273bb8a92a939a2a420a6a5d4f5966a4844ec3de18aa758aa1a05a1` |
+| `minio-commercial-proposals.tar.gz` | 1,694,843 | `5d8dae3f20d6068a03515672a58495884a0a1b1f1866cd8d59c0212cd0c7572f` |
+| `runtime-config.tar.gz` | 2,563 | `2f252659908e0bb53ca30c7fe7cb54fbe859689ce22807ea001884f427202005` |
 
-| Check | State | Evidence |
+An isolated restore rehearsal passed: the restored database exposed 98
+non-system tables, Twenty file storage contained 76 files, and restored MinIO
+contained 100 files and became ready. Rehearsal containers and volumes were
+removed after verification. Production data was not altered.
+
+## Verification
+
+| Check | Result | Evidence |
 |---|---|---|
-| Lint | Passed locally | `yarn lint` — 0 warnings / 0 errors |
-| Typecheck | Passed locally | `yarn typecheck` |
-| Unit tests | Passed locally | `yarn test:unit` — 176 tests |
-| Document-service tests | Passed locally | `py -3 -m unittest` — 18 tests |
-| `yarn test:secrets` | Passed locally | 170 tracked files |
-| `yarn test:private-urls` | Passed locally | 31 shipping runtime files |
-| Private tarball build | Passed locally | `0.1.49`, 2,646,814 bytes, WSL production build |
-| Tarball validation | Passed locally | Claim unique index + `ownerToken` + categories LF present |
-| Ephemeral integration CI | Passed | Run `29922602764`; real legacy and aggregate generation vertical slices passed |
-| Metadata plan on target | Passed, read-only | Repeated on 2026-07-22: `19 add`, `12 in-place change`, `0 destroy`; nothing applied |
+| Lint | Passed | Local release build |
+| Typecheck | Passed | Local release build |
+| Unit tests | Passed | 178 tests |
+| Document-service tests | Passed | 18 tests |
+| WSL build / tarball validation | Passed | App `0.1.53`, hash above |
+| Private publish / install | Passed | Installed/current version `0.1.53` in Twenty UI |
+| Document-service health/readiness | Passed | Reachable from the Twenty container |
+| Storage | Passed | Private MinIO bucket; Twenty container can retrieve signed objects |
+| Repeated metadata plan | Passed | `No changes. Twenty metadata matches your manifest.` |
+| Backend target smoke | Passed | 8/8; legacy v1, Aggregate v2, idempotency, safe errors |
+| Authenticated UI route | Passed | Opportunity context loaded in the create component |
+| Central editor | Passed | Aggregate v2 item and stage saved; total `11,000 RUB` |
+| Generation | Passed | DRAFT -> GENERATED, final number `КП-011 от 22.07.2026` |
+| Attachments | Passed | One XLSX and one PDF visible in the card/list and downloadable |
+| Restricted-user smoke | **Not executed** | No prepared restricted account/session was available |
+| Controlled runtime failure/retry | **Not executed** | No production dependency fault was injected |
+| Runtime rollback rehearsal | **Not executed** | Backup restore passed; App/image rollback was not performed on target |
+| Final commit CI | **Pending** | Must be green for the final evidence/config commit |
 
-## Target / operator acceptance — NOT DONE / blocked
+## Runtime Fix Confirmed During Acceptance
 
-No target evidence exists for `0.1.49`. Treat every row as blocked until recorded.
+MinIO had been published only on target loopback while signed URLs used the
+target LAN address. `MINIO_BIND_ADDRESS` now makes the API bind explicit; the
+target uses its LAN address for port 9000 while the MinIO console remains on
+loopback. No Twenty source code or image was changed.
 
-| Check | State | Required evidence |
-|---|---|---|
-| Target metadata apply / repeated plan | **NOT DONE** | Successful install; empty repeated plan; claim object with `ownerToken` |
-| Final-number / catalog backfills | **NOT DONE** | Dry-run, duplicate-free apply, verification counts |
-| Target E2E | **NOT DONE** | Isolated proposal ids, unique keys/numbers and files |
-| Same-proposal concurrency on target | **NOT DONE** | Parallel same `operationId` → second `IN_PROGRESS`/409; different op unexpired → 409; stale lease takeover |
-| Ownership-lost fencing on target | **NOT DONE** | Old worker after takeover: `OWNERSHIP_LOST`, no `FAILED`, claim retained by new owner, no extra attachments |
-| Runtime FAILED / retry | **NOT DONE** | Controlled dependency fault and final GENERATED evidence |
-| Manifest / attachment recovery | **NOT DONE** | Same generation id/hashes and exactly one XLSX/PDF |
-| Restricted user | **NOT DONE** | Role setup, allowed/denied route evidence |
-| Credential rotation (`DOCUMENT_STORAGE_*`, App secrets) | **NOT DONE** | Operator timestamp and post-rotation readiness/smoke |
-| Backup / restore | **NOT DONE** | Backup identifiers, checksums and isolated restore evidence |
-| Rollback rehearsal | **NOT DONE** | Previous artifact/image restored; claim metadata left additive |
-| Final UI / XLSX / PDF / legacy regression | **NOT DONE** | Screenshots, hashes and manual inspection results |
+## Verdict
 
-## Current Verdict
+**NOT READY FOR PRODUCTION USE**
 
-**PHASE 5.5 INCOMPLETE — NOT READY FOR PRODUCTION**
-
-Corrective code for Phase 5.5 is implemented at App `0.1.49` (claim fencing,
-lease renewal, catalog cursor/categories, currency/`itemType` hardening), and
-the exact code commit has a green ephemeral integration CI run. Target install,
-image digest, backup/restore evidence and operator acceptance checks remain
-**NOT DONE**. Do not tag `v1.0.0` and do not begin the production architectural
-transition until this baseline is installed and accepted on target.
+The production flow itself is operational and was exercised end to end. Prompt
+5.5 nevertheless defines the restricted-user scenario, controlled
+`FAILED -> retry -> GENERATED`, runtime rollback, and green final-commit CI as
+mandatory. Those acceptance proofs remain open and are not represented as
+passed.

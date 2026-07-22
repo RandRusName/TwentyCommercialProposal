@@ -8,7 +8,7 @@ import {
   json,
   toApplicationError,
 } from 'src/logic-functions/http-response';
-import { TwentyRecordRepository } from 'src/services/twenty-record-repository';
+import { TwentySalesContextAdapter } from 'src/modules/sales/infrastructure/twenty-sales-context.adapter';
 import { createLogicFunctionLogger } from 'src/logic-functions/logic-function-logger';
 
 type OpportunityContextRequest = {
@@ -24,7 +24,7 @@ const handler = async (event: RoutePayload<OpportunityContextRequest>) => {
       throw new ApplicationError('INVALID_INPUT', 'opportunityId is required');
     }
 
-    const repository = new TwentyRecordRepository();
+    const repository = new TwentySalesContextAdapter();
     const opportunity = await repository.getOpportunityContext(opportunityId);
 
     logger.success();

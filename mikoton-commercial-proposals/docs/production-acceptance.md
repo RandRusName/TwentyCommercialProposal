@@ -1,37 +1,32 @@
 # Production Acceptance Procedure
 
-Production acceptance is evidence-based and runs against isolated smoke data.
-App version for Phase 5.5 CORRECTIVE: `0.1.49`. Code commit
-`16d5c67ad152101e3847b2af7abd3b56fa6e4047` passed GitHub Actions run
-[`29922602764`](https://github.com/RandRusName/TwentyCommercialProposal/actions/runs/29922602764).
-The WSL tarball was rebuilt and validated at 2,646,814 bytes with SHA-256
-`44143D9BAC0C5AA60C8526EB4A6F724F5B81D4E896C35E4402D4018FE8FD30A7`.
-Target/operator checks below remain mandatory. Verdict stays
-**PHASE 5.5 INCOMPLETE — NOT READY FOR PRODUCTION** until target evidence is
-recorded. Target image digests and operator timestamps are to be recorded at
-the final release commit — do not invent them.
+Production acceptance uses isolated `[SMOKE]` records and never uninstalls the
+App from the target Workspace.
 
-1. Record final commit, package version (`0.1.49` or later patch), tarball
-   SHA-256, document-service image digest, and template/mapping hashes.
-2. Obtain a green GitHub Actions run for that exact commit.
-3. Create and verify Twenty plus MinIO backups; rehearse restore in isolation.
-4. Run WSL metadata plan and require zero destructive changes; apply metadata
-   including `CommercialProposalGenerationClaim` (`operationId`, `ownerToken`,
-   lease fields).
-5. Deploy the document-service (with required `DOCUMENT_STORAGE_*` worker
-   credentials) and App; run repeated plan and require no drift.
-6. Execute admin and restricted-user E2E on target, including:
-   - parallel same `operationId` → second caller `IN_PROGRESS` / HTTP 409
-     (not a second owner);
-   - stale lease takeover → new `ownerToken`; old worker
-     `COMMERCIAL_PROPOSAL_GENERATION_OWNERSHIP_LOST` with no `FAILED` write,
-     no claim delete by the loser, no attachments;
-   - runtime failure/retry, timeout-after-success, and partial-attachment
-     recovery.
-7. Manually inspect XLSX and PDF and verify historical proposals/files.
-8. Rehearse rollback without uninstall (claim object is additive /
-   forward-compatible).
+## Verified Baseline
 
-No single local test, previous smoke report or administrator session substitutes
-for these checks. See `phase-5-5-production-acceptance.md` for the current
-evidence matrix.
+- Twenty `v2.20.0`, remote `mikoton-target`.
+- App `0.1.53` installed from a private Linux-compatible tarball.
+- Document-service and private MinIO storage reachable from Twenty.
+- Backup checkpoint and isolated restore rehearsal completed.
+- Repeated metadata plan is empty.
+- Backend target smoke passes `8/8`.
+- Manual UI flow creates, edits and generates `КП-011 от 22.07.2026`.
+- XLSX and PDF are attached to the CommercialProposal and downloadable.
+
+Exact hashes and record identifiers are in
+`docs/phase-5-5-production-acceptance.md`.
+
+## Remaining Mandatory Acceptance
+
+1. Use a prepared non-admin role and verify allowed and denied records/routes.
+2. Inject a controlled document-service/PDF failure, verify `FAILED`, restore
+   the dependency, retry with the expected idempotency behavior, and verify
+   `GENERATED` without duplicate files.
+3. Rehearse an App/document-service rollback without uninstalling the App or
+   deleting additive metadata.
+4. Obtain a green CI run for the final evidence/config commit.
+
+Until all four are recorded, the evidence-based verdict remains
+`NOT READY FOR PRODUCTION USE` even though the normal production flow is
+operational.

@@ -12,7 +12,7 @@ import {
   json,
   toApplicationError,
 } from 'src/logic-functions/http-response';
-import { HttpDocumentServiceClient } from 'src/services/document-service-client';
+import { HttpDocumentServiceAdapter } from 'src/modules/documents/infrastructure/http-document-service.adapter';
 import { TwentyRecordRepository } from 'src/services/twenty-record-repository';
 import {
   createLogicFunctionLogger,
@@ -32,7 +32,7 @@ const handler = async (
         event.body ?? undefined,
       ),
       repository: new TwentyRecordRepository(),
-      documentClient: new HttpDocumentServiceClient(),
+      documentClient: new HttpDocumentServiceAdapter(),
     });
 
     logger.success({ statusAfter: result.commercialProposal.status });

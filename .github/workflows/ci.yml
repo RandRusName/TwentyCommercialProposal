@@ -126,6 +126,9 @@ jobs:
       - name: Typecheck
         run: yarn typecheck
 
+      - name: Architecture boundaries
+        run: yarn test:architecture
+
       - name: Unit tests
         run: yarn test:unit
 

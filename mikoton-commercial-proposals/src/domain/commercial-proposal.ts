@@ -3,6 +3,7 @@ import {
   calculateProposalLineAmount,
   sumLineAmounts,
 } from 'src/domain/commercial-proposal-money';
+import type { DocumentGenerationPort } from 'src/modules/documents/domain/document-generation-port';
 
 export const SUPPORTED_TEMPLATE_CODE = 'standard-commercial-proposal';
 export const SUPPORTED_LANGUAGE = 'ru-RU';
@@ -382,15 +383,10 @@ export type DocumentGenerationResult = {
   files: CommercialProposalGenerationFile[];
 };
 
-export type DocumentGenerationClient = {
-  generate: (request: {
-    requestId: string;
-    idempotencyKey: string;
-    snapshotHash?: string;
-    payload: DocumentGenerationPayload;
-    requestedFormats: Array<'xlsx' | 'pdf'>;
-  }) => Promise<DocumentGenerationResult>;
-};
+export type DocumentGenerationClient = DocumentGenerationPort<
+  DocumentGenerationPayload,
+  DocumentGenerationResult
+>;
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

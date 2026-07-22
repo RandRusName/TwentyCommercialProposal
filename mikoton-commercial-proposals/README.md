@@ -1,5 +1,10 @@
 # Mikoton Commercial Proposals
 
+This repository now treats the deliverable as a single modular **Mikoton CRM
+Application** for Twenty. Commercial Proposals remains the first production
+business module; the package name and universal identifiers stay unchanged for
+upgrade compatibility. See `docs/architecture/README.md`.
+
 The aggregate editor supports manual rows and reusable `CatalogItem` defaults through `Добавить из каталога`. Catalog selection copies values into an independent `CommercialProposalItem` snapshot; later catalog changes never rewrite an existing proposal.
 
 Persisted `AGGREGATE_V2` proposals can be generated with schema `2.0` into macro-free XLSX and LibreOffice PDF files. Template v2 supports 50 work items and 10 stages; legacy records retain schema/template v1.
@@ -10,7 +15,7 @@ Opportunity in Twenty CRM.
 Target Twenty instance: `$TWENTY_API_URL` (for example
 `https://your-twenty-instance.example`).
 
-App version: `0.1.49`.
+App version: `0.1.53`.
 
 Target server and SDK versions:
 
@@ -20,15 +25,14 @@ Target server and SDK versions:
 
 ## Production Closure Status
 
-Phase 5.5 **CORRECTIVE** hardening is implemented on App `0.1.49`
+Phase 5.5 **CORRECTIVE** hardening is implemented and deployed as App `0.1.53`
 (`operationId` vs `ownerToken` fencing, 10-minute lease renewal, ownership-lost
 behavior, catalog cursor v2 / categories route, currency and `itemType`
-hardening). Do not promote the App to `1.0.0` until the exact commit has a green
-CI run and operator acceptance in `docs/phase-5-5-production-acceptance.md` is
-complete with recorded evidence. CI run, target install and image digest remain
-**Pending**. The target deployment remains private and is performed only from a
-machine on the internal network. Verdict: **PHASE 5.5 INCOMPLETE — NOT READY
-FOR PRODUCTION** until target evidence exists.
+hardening). Target install, backup/restore, metadata plan, API smoke and UI E2E
+are recorded in `docs/phase-5-5-production-acceptance.md`. Restricted-user,
+controlled runtime recovery/rollback and final-commit CI evidence remain open,
+so the evidence-based verdict is **NOT READY FOR PRODUCTION USE**. Deployment
+remains private and runs only from a machine on the internal network.
 
 ## Scope
 
@@ -248,9 +252,9 @@ $env:TWENTY_API_KEY = "<ephemeral-api-key>"
 yarn.cmd test:integration
 ```
 
-Target UI smoke and restricted-user checks require access to the target Twenty
-Workspace. Operator acceptance for Phase 5.5 CORRECTIVE (`0.1.49`) is **NOT
-DONE** — see `docs/phase-5-5-production-acceptance.md`.
+Target API and administrator UI smoke passed on App `0.1.53`. Restricted-user
+and controlled failure/rollback evidence is still open; see
+`docs/phase-5-5-production-acceptance.md`.
 
 ## Opportunity to Draft Flow
 

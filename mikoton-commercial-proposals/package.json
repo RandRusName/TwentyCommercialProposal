@@ -1,6 +1,6 @@
 {
   "name": "mikoton-commercial-proposals",
-  "version": "0.1.52",
+  "version": "0.1.53",
   "license": "MIT",
   "engines": {
     "node": "^24.5.0",
@@ -15,6 +15,7 @@
     "lint": "oxlint -c .oxlintrc.json .",
     "lint:fix": "oxlint --fix -c .oxlintrc.json .",
     "typecheck": "tsgo --noEmit -p tsconfig.spec.json",
+    "test:architecture": "node scripts/test-architecture.mjs",
     "test": "yarn test:unit",
     "test:watch": "vitest",
     "test:unit": "vitest run --config vitest.unit.config.ts",
